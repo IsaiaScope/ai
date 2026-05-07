@@ -22,22 +22,23 @@ mkdirSync(codexDir, { recursive: true });
 copyFileSync(join(repoRoot, "config", "AGENTS.md"), join(codexDir, "AGENTS.md"));
 console.log(`✓ config/AGENTS.md → ${join(codexDir, "AGENTS.md")}`);
 
-// Install skill packs: [pack, agents]
+// Install skill packs: [pack, agents[]]
 const packs = [
-  ["juliusbrussee/caveman",                   "claude-code,codex"],
-  ["safishamsi/graphify",                      "claude-code,codex"],
-  ["forrestchang/andrej-karpathy-skills",      "claude-code,codex"],
-  ["mattpocock/skills",                        "claude-code,codex"],
-  ["IsaiaScope/ai",                            "claude-code,codex"],
+  ["juliusbrussee/caveman",                   ["claude-code", "codex"]],
+  ["safishamsi/graphify",                      ["claude-code", "codex"]],
+  ["forrestchang/andrej-karpathy-skills",      ["claude-code", "codex"]],
+  ["mattpocock/skills",                        ["claude-code", "codex"]],
+  ["IsaiaScope/ai",                            ["claude-code", "codex"]],
 ];
 
 for (const [pack, agents] of packs) {
-  console.log(`\n→ Installing ${pack} (${agents})`);
-  execSync(`npx skills@latest add ${pack} -g -y --agent ${agents}`, { stdio: "inherit" });
+  const agentFlags = agents.map(a => `--agent ${a}`).join(" ");
+  console.log(`\n→ Installing ${pack} (${agents.join(", ")})`);
+  execSync(`npx skills@latest add ${pack} -g -y ${agentFlags}`, { stdio: "inherit" });
 }
 
 // Update all global skills to latest versions
 console.log("\n→ Updating all global skills");
-execSync("npx skills@latest update -g -y --agent claude-code,codex", { stdio: "inherit" });
+execSync("npx skills@latest update -g -y --agent claude-code --agent codex", { stdio: "inherit" });
 
 console.log("\n✓ Done.");
