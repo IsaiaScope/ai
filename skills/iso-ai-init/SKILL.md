@@ -9,6 +9,41 @@ Set up a repo with IsaiaScope AI defaults. Run from inside the target repo.
 
 All config templates live in `templates/` next to this file — Read each one, then Write it to the target path.
 
+## Pre-flight
+
+Run these checks before any step. All checks are idempotent — re-running is safe.
+
+### git
+```bash
+command -v git &>/dev/null \
+  || { echo "✗ git not found. Install Xcode CLI tools: xcode-select --install"; exit 1; }
+```
+
+### uv (graphify installer)
+```bash
+if ! command -v uv &>/dev/null; then
+  echo "⚠ uv not found — installing..."
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+  command -v uv &>/dev/null \
+    || { echo "✗ uv install failed. Run manually: curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1; }
+  echo "✓ uv installed"
+fi
+```
+
+### node / npx (Node repos — Husky)
+
+Only relevant when `package.json` exists. Warns rather than fails — non-Node steps still run.
+
+```bash
+if [ -f package.json ] && ! command -v npx &>/dev/null; then
+  echo "⚠ node/npx not found — Husky steps (Step 3) will be skipped."
+  echo "  Install Node.js: https://nodejs.org or via nvm/fnm"
+fi
+```
+
+All checks pass → proceed to Step 0.
+
 ## Step 0 — Detect package manager
 
 ```bash
