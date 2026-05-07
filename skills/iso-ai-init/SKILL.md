@@ -103,13 +103,28 @@ Make it executable:
 chmod +x .husky/commit-msg
 ```
 
-**3e. Create `commitlint.config.js`:**
+**3e. Add graphify post-commit hook:**
+
+Write to `.husky/post-commit`:
+```bash
+#!/bin/sh
+which graphify > /dev/null 2>&1 && graphify . || true
+```
+
+Make it executable:
+```bash
+chmod +x .husky/post-commit
+```
+
+This silently regenerates `graphify-out/` after every commit. `graphify-out/` stays gitignored — graph is local-only, always fresh.
+
+**3f. Create `commitlint.config.js`:**
 
 ```js
 module.exports = { extends: ['@commitlint/config-conventional'] };
 ```
 
-**3f. Create `.release-it.json`:**
+**3g. Create `.release-it.json`:**
 
 ```json
 {
@@ -129,14 +144,14 @@ module.exports = { extends: ['@commitlint/config-conventional'] };
 }
 ```
 
-**3g. Add release script to `package.json`:**
+**3h. Add release script to `package.json`:**
 
 Add to `scripts`:
 ```json
 "release": "release-it"
 ```
 
-**3h. Prepare husky:**
+**3i. Prepare husky:**
 
 Add to `scripts` in `package.json`:
 ```json
@@ -150,7 +165,7 @@ Report what was set up:
 ```
 ✓ Caveman ultra + shrink + statusline (--all)
 ✓ Graphify knowledge graph → graphify-out/
-✓ Husky + release-it + commitlint   [or: skipped — non-Node repo]
+✓ Husky + release-it + commitlint + post-commit graphify   [or: skipped — non-Node repo]
 ```
 
 Remind user:
