@@ -58,11 +58,12 @@ Statusline shows: `…/repo/dir   branch   ctx:75%   $5.82   ULTRA`
 ## Step 2 — Graphify
 
 ```bash
-# check installed
-command -v graphify 2>/dev/null || echo "not installed"
-
 # install if missing (prefer uv, fall back to pipx)
-uv tool install graphifyy || pipx install graphifyy
+if ! command -v graphify 2>/dev/null; then
+  uv tool install graphifyy || pipx install graphifyy
+else
+  echo "graphify: already installed, skipping"
+fi
 
 # wire skill (always run)
 graphify install                      # Claude Code
@@ -92,6 +93,8 @@ grep -E '"husky"|"release-it"|"@commitlint"' package.json
 Do not overwrite existing hooks without checking content first.
 
 ### 3b — Install deps
+
+Only install packages not already in `package.json` (from 3a audit). Skip any already present.
 
 pnpm: `pnpm add -D -w husky release-it @release-it/conventional-changelog @commitlint/cli @commitlint/config-conventional`
 npm:  `npm install --save-dev husky release-it @release-it/conventional-changelog @commitlint/cli @commitlint/config-conventional`
