@@ -44,23 +44,70 @@ Re-run anytime to update.
 Initialize any repo with IsaiaScope AI defaults in one command:
 - Caveman ultra + shrink MCP + statusline token badge
 - Graphify knowledge graph (`graphify .` → `graphify-out/`)
-- Husky + release-it + commitlint for conventional commits + changelog (Node.js only, auto-detected)
+- Husky + commitlint + auto version-bump on every commit (Node.js only, auto-detected)
 
 ```
 /iso-ai-init
 ```
 
+→ [Full documentation](skills/iso-ai-init/README.md)
+
+**Dependencies:**
+
+| Tool | Source | Latest |
+|------|--------|--------|
+| `caveman` | [npm](https://www.npmjs.com/package/caveman) · [GitHub](https://github.com/juliusbrussee/caveman) | `npm info caveman version` |
+| `graphify` | [PyPI: graphifyy](https://pypi.org/project/graphifyy/) · [GitHub](https://github.com/safishamsi/graphify) | `pip index versions graphifyy` |
+| `husky` | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) | `npm info husky version` |
+| `@commitlint/cli` | [npm](https://www.npmjs.com/package/@commitlint/cli) · [GitHub](https://github.com/conventional-changelog/commitlint) | `npm info @commitlint/cli version` |
+
+---
+
+### 🏛️ iso-init-repo *(original)*
+
+Wire GitHub repo governance in one command:
+- `dev ← test ← prod` branch structure with protection rules
+- CI prod-gate workflow — only PRs from `test` merge to `prod`
+- Auto version-bump post-commit hook (Node.js only)
+- `/deploy-cascade` slash command for Claude Code
+
+```
+/iso-init-repo
+```
+
+→ [Full documentation](skills/iso-init-repo/README.md)
+
+**Dependencies:**
+
+| Tool | Source | Latest |
+|------|--------|--------|
+| `gh` (GitHub CLI) | [cli.github.com](https://cli.github.com) · [GitHub](https://github.com/cli/cli) | `gh --version` · [releases](https://github.com/cli/cli/releases) |
+| `git` | [git-scm.com](https://git-scm.com) | `git --version` |
+
+---
+
 ### 🗿 caveman
 
 Ultra-compressed communication mode. Cuts token usage ~75% by dropping filler while keeping full technical accuracy.
 
-Source: [juliusbrussee/caveman](https://github.com/juliusbrussee/caveman)
+Source: [juliusbrussee/caveman](https://github.com/juliusbrussee/caveman) · [npm](https://www.npmjs.com/package/caveman)
+
+```bash
+npm info caveman version   # check latest
+npm install -g caveman --all
+```
 
 ### 🕸️ graphify
 
 Any input → knowledge graph → clustered communities → HTML + JSON + audit report.
 
-Source: [safishamsi/graphify](https://github.com/safishamsi/graphify)
+Source: [safishamsi/graphify](https://github.com/safishamsi/graphify) · [PyPI: graphifyy](https://pypi.org/project/graphifyy/)
+
+```bash
+pip index versions graphifyy   # check latest
+uv tool install graphifyy      # install (prefer uv)
+# or: pipx install graphifyy
+```
 
 ### 🎯 karpathy-guidelines
 
