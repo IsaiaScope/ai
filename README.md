@@ -1,7 +1,7 @@
 <h1 align="center">🦾 IsaiaScope/ai</h1>
 
 <p align="center">
-  My personal AI config layer — skills, agent rules, and global context.
+  My personal AI config layer — skills, agent rules, and global context for Claude Code and Codex.
 </p>
 
 <p align="center">
@@ -22,15 +22,15 @@ cd ai
 node scripts/install.js
 ```
 
-This will:
+`install.js` does everything in one shot:
 
-1. Copy `CLAUDE.md` → `~/CLAUDE.md` (Claude Code global instructions)
-2. Copy `AGENTS.md` → `~/.codex/AGENTS.md` (Codex global instructions)
-3. Install [caveman](https://github.com/juliusbrussee/caveman) — Claude Code + Codex
-4. Install [graphify](https://github.com/safishamsi/graphify) — Claude Code + Codex
-5. Install [karpathy-guidelines](https://github.com/forrestchang/andrej-karpathy-skills) — Claude Code + Codex
-6. Install [mattpocock/skills](https://github.com/mattpocock/skills) — Claude Code + Codex
-7. Update all global skills to latest versions
+1. 📄 Copy `config/CLAUDE.md` → `~/CLAUDE.md` — global Claude Code instructions
+2. 📄 Copy `config/AGENTS.md` → `~/.codex/AGENTS.md` — global Codex instructions
+3. 🗿 Install [caveman](https://github.com/juliusbrussee/caveman) — token-compressed AI responses
+4. 🕸️ Install [graphify](https://github.com/safishamsi/graphify) — codebase knowledge graph
+5. 🎯 Install [karpathy-guidelines](https://github.com/forrestchang/andrej-karpathy-skills) — LLM coding guidelines
+6. 📦 Install [mattpocock/skills](https://github.com/mattpocock/skills) — planning, debugging, TDD workflows
+7. 🔄 Update all global skills to latest versions
 
 Re-run anytime to update.
 
@@ -40,10 +40,11 @@ Re-run anytime to update.
 
 ### ⚡ iso-ai-init *(original)*
 
-Initialize any repo with IsaiaScope AI defaults in one command:
-- Caveman ultra + shrink MCP + statusline token badge
-- Graphify knowledge graph (`graphify .` → `graphify-out/`)
-- Husky + graphify post-commit hook
+Initialize any repo with IsaiaScope AI defaults in one command — caveman ultra mode, a living knowledge graph, and Husky wired for graphify.
+
+- 🗿 **Caveman ultra** + shrink MCP + statusline showing tokens and cost
+- 🕸️ **Graphify** knowledge graph — built on init, updated on every commit
+- 🔗 **Husky** post-commit hook to keep the graph current
 
 ```
 /iso-ai-init
@@ -63,11 +64,13 @@ Initialize any repo with IsaiaScope AI defaults in one command:
 
 ### 🏛️ iso-init-repo *(original)*
 
-Wire GitHub repo governance in one command:
-- `dev ← test ← prod` branch structure with protection rules
-- CI prod-gate workflow — only PRs from `test` merge to `prod`
-- Commitlint + conventional-commit-aware version bump (skipped if no `package.json`)
-- `/deploy-cascade` slash command — caveman ultra output, any branch except `prod`
+Wire GitHub repo governance in one command — branch structure, protection, CI, conventional commits, and a deploy cascade command.
+
+- 🌿 **`dev ← test ← prod`** branch structure with protection rules
+- 🔒 **CI prod-gate** — only PRs from `test` merge to `prod`
+- 📝 **Commitlint** — conventional commit enforcement with scope validation
+- 📦 **Version bump** — conventional-commit-aware semver, amends same commit
+- 🚀 **`/deploy-cascade`** — cascades through the pipeline from any branch except `prod`
 
 ```
 /iso-init-repo
@@ -88,30 +91,28 @@ Wire GitHub repo governance in one command:
 
 ### 🗿 caveman
 
-Ultra-compressed communication mode. Cuts token usage ~75% by dropping filler while keeping full technical accuracy.
+Ultra-compressed communication mode. Drops filler, keeps all technical substance — cuts token usage ~75% without losing accuracy.
 
-Source: [juliusbrussee/caveman](https://github.com/juliusbrussee/caveman) · [npm](https://www.npmjs.com/package/caveman)
+Source: [juliusbrussee/caveman](https://github.com/juliusbrussee/caveman)
 
 ```bash
-npm info caveman version   # check latest
 npm install -g caveman --all
 ```
 
 ### 🕸️ graphify
 
-Any input → knowledge graph → clustered communities → HTML + JSON + audit report.
+Turns any input into a knowledge graph — clustered communities, HTML visualization, JSON, and an audit report.
 
 Source: [safishamsi/graphify](https://github.com/safishamsi/graphify) · [PyPI: graphifyy](https://pypi.org/project/graphifyy/)
 
 ```bash
-pip index versions graphifyy   # check latest
-uv tool install graphifyy      # install (prefer uv)
+uv tool install graphifyy   # prefer uv
 # or: pipx install graphifyy
 ```
 
 ### 🎯 karpathy-guidelines
 
-Behavioral guidelines to reduce common LLM coding mistakes, derived from Andrej Karpathy's observations on LLM coding pitfalls.
+Behavioral guidelines derived from Andrej Karpathy's observations on LLM coding pitfalls — reduces common AI coding mistakes.
 
 Source: [forrestchang/andrej-karpathy-skills](https://github.com/forrestchang/andrej-karpathy-skills)
 
@@ -119,12 +120,14 @@ Source: [forrestchang/andrej-karpathy-skills](https://github.com/forrestchang/an
 
 ## ⚙️ Config Files
 
-| File | Copied to | Agent |
-|------|-----------|-------|
+Global agent instructions live in `config/` and are deployed by `install.js`:
+
+| File | Deployed to | Agent |
+|------|-------------|-------|
 | `config/CLAUDE.md` | `~/CLAUDE.md` | Claude Code |
 | `config/AGENTS.md` | `~/.codex/AGENTS.md` | Codex |
 
-Repo is source of truth. Edit in `config/`, commit, re-run `node scripts/install.js` to apply.
+> Edit in `config/`, commit, re-run `node scripts/install.js` to apply. The repo is the source of truth.
 
 ---
 

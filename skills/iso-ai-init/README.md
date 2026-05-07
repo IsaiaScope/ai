@@ -1,24 +1,24 @@
-# iso-ai-init
+# ⚡ iso-ai-init
 
-> Wire a repo with IsaiaScope AI defaults in one command — caveman ultra mode and a living knowledge graph.
+> Wire any repo with IsaiaScope AI defaults in one command — token-compressed responses, a living knowledge graph, and a graphify post-commit hook.
 
 ---
 
-## What It Does
+## 🧩 What It Does
 
 Runs a three-step setup sequence inside any git repo:
 
-1. **Caveman** — installs the `caveman` CLI globally, sets ultra mode, registers `caveman-shrink` as a Claude Code MCP, and writes a live statusline (`…/repo  branch  ctx:75%  $5.82  ULTRA`)
-2. **Graphify** — installs the `graphify` CLI, wires it into `CLAUDE.md` and Codex, builds the initial knowledge graph (LLM call), and adds a `post-commit` hook so the graph stays current on every commit
-3. **Husky** — initializes Husky and wires a `post-commit` hook for graphify
+1. **🗿 Caveman** — installs the `caveman` CLI globally, activates ultra mode (tokens ~75% cheaper), registers `caveman-shrink` as a Claude Code MCP, and writes a live statusline showing repo, branch, context %, cost, and mode (`…/repo  main  ctx:75%  $5.82  ULTRA`)
 
-Repos with `package.json` get all three steps. Repos without get steps 1–2 plus a native git hook for graphify.
+2. **🕸️ Graphify** — installs the `graphify` CLI, wires it into `CLAUDE.md` and Codex so both agents can query the graph, builds the initial knowledge graph (one LLM call), and adds a `post-commit` hook so the graph updates automatically on every commit
 
-> Commitlint + version bump live in `/iso-init-repo` (Steps 5–6). Run both skills for the full stack.
+3. **🔗 Husky** — initializes Husky and appends a `post-commit` block that runs `graphify update .` after each commit (Node.js repos only; non-Node repos get a native git hook instead)
+
+> 📝 **Commitlint + version bump** live in [`/iso-init-repo`](../iso-init-repo/) (Steps 5–6). Run both skills for the full stack.
 
 ---
 
-## Trigger
+## ▶️ Trigger
 
 ```
 /iso-ai-init
@@ -28,60 +28,60 @@ Or ask: *"set up AI tooling"*, *"init AI defaults"*, *"add graphify and caveman"
 
 ---
 
-## Output
+## ✅ Output
 
 ```
-✓ Caveman ultra + shrink + statusline
-✓ Graphify skill wired (+ initial graph built)
-✓ .husky/post-commit         → graphify update .
+✓ Caveman ultra + shrink MCP + statusline
+✓ Graphify skill wired — initial graph built
+✓ .husky/post-commit  →  graphify update .
 ```
 
-Restart Claude Code after running to activate hooks.
+> Restart Claude Code after running to activate MCP and hooks.
 
 ---
 
-## Dependencies
+## 🔧 Dependencies
 
 | Tool | Purpose | Source |
 |------|---------|--------|
 | `caveman` | Token-compressed Claude responses | [GitHub](https://github.com/juliusbrussee/caveman) |
-| `caveman-shrink` | Claude Code MCP for token savings | Bundled with `caveman --all` |
-| `graphify` | Codebase knowledge graph | [PyPI: graphifyy](https://pypi.org/project/graphifyy/) · [GitHub](https://github.com/safishamsi/graphify) |
-| `husky` | Git hooks manager | [GitHub](https://github.com/typicode/husky) |
+| `caveman-shrink` | Claude Code MCP for browser token savings | Bundled with `caveman --all` |
+| `graphify` | Codebase → knowledge graph | [PyPI: graphifyy](https://pypi.org/project/graphifyy/) · [GitHub](https://github.com/safishamsi/graphify) |
+| `husky` | Git hooks manager (Node.js repos) | [GitHub](https://github.com/typicode/husky) |
 
-### Install commands (reference)
+### Install (reference)
 
 ```bash
-# caveman (global, once per machine)
+# caveman — global, once per machine
 npm install -g caveman --all
 
-# graphify (global, prefer uv)
+# graphify — global, prefer uv
 uv tool install graphifyy
 # or: pipx install graphifyy
 
-# husky (Node.js repos, pnpm example)
+# husky — per repo (pnpm example)
 pnpm add -D -w husky
 ```
 
 ---
 
-## Templates
+## 📁 Templates
 
-All config is generated from files in `templates/`:
+All config is generated from `templates/` next to this file:
 
-| Template | Writes to |
-|----------|-----------|
-| `caveman-init.sh` | runs globally (no per-repo file) |
-| `caveman-config.json` | `~/.config/caveman/config.json` |
-| `statusline.sh` | `~/.claude/statusline-command.sh` |
-| `post-commit.sh` | `.husky/post-commit` (appended) |
+| Template | Writes to | Purpose |
+|----------|-----------|---------|
+| `caveman-init.sh` | runs globally | installs caveman + registers MCP |
+| `caveman-config.json` | `~/.config/caveman/config.json` | sets ultra mode globally |
+| `statusline.sh` | `~/.claude/statusline-command.sh` | live token/cost/mode badge |
+| `post-commit.sh` | `.husky/post-commit` (appended) | runs `graphify update .` after each commit |
 
-To change any default behavior, edit the template — no SKILL.md change needed.
+> Edit any template to change default behavior — no SKILL.md change needed.
 
 ---
 
-## Related
+## 🔗 Related
 
-- [`iso-init-repo`](../iso-init-repo/) — GitHub repo governance (branches, protection, CI, commitlint, version bump, deploy cascade)
-- [`graphify`](../graphify/) — knowledge graph skill (manual invocation)
-- [`caveman`](../caveman/) — caveman mode skill
+- [`iso-init-repo`](../iso-init-repo/) — GitHub repo governance: branches, protection, CI, commitlint, version bump, deploy cascade
+- [`graphify`](../graphify/) — knowledge graph skill (manual invocation via `/graphify`)
+- [`caveman`](../caveman/) — caveman mode skill (toggle via `/caveman`)
