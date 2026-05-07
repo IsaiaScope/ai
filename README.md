@@ -43,7 +43,7 @@ Re-run anytime to update.
 Initialize any repo with IsaiaScope AI defaults in one command:
 - Caveman ultra + shrink MCP + statusline token badge
 - Graphify knowledge graph (`graphify .` → `graphify-out/`)
-- Husky + commitlint + graphify post-commit hook
+- Husky + graphify post-commit hook
 
 ```
 /iso-ai-init
@@ -55,10 +55,9 @@ Initialize any repo with IsaiaScope AI defaults in one command:
 
 | Tool | Source |
 |------|--------|
-| `caveman` | [npm](https://www.npmjs.com/package/caveman) · [GitHub](https://github.com/juliusbrussee/caveman) |
+| `caveman` | [GitHub](https://github.com/juliusbrussee/caveman) |
 | `graphify` | [PyPI: graphifyy](https://pypi.org/project/graphifyy/) · [GitHub](https://github.com/safishamsi/graphify) |
-| `husky` | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) |
-| `@commitlint/cli` | [npm](https://www.npmjs.com/package/@commitlint/cli) · [GitHub](https://github.com/conventional-changelog/commitlint) |
+| `husky` | [GitHub](https://github.com/typicode/husky) |
 
 ---
 
@@ -82,8 +81,8 @@ Wire GitHub repo governance in one command:
 |------|--------|
 | `gh` (GitHub CLI) | [cli.github.com](https://cli.github.com) · [GitHub](https://github.com/cli/cli) |
 | `git` | [git-scm.com](https://git-scm.com) |
-| `husky` | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) |
-| `@commitlint/cli` | [npm](https://www.npmjs.com/package/@commitlint/cli) · [GitHub](https://github.com/conventional-changelog/commitlint) |
+| `husky` | [GitHub](https://github.com/typicode/husky) |
+| `@commitlint/cli` | [GitHub](https://github.com/conventional-changelog/commitlint) |
 
 ---
 

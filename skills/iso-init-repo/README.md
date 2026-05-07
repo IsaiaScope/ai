@@ -64,9 +64,9 @@ any branch (except prod)
 |------|---------|--------|
 | `gh` (GitHub CLI) | Repo creation, branch protection, API calls | [cli.github.com](https://cli.github.com) · [GitHub](https://github.com/cli/cli) |
 | `git` | Branch creation, remote management | [git-scm.com](https://git-scm.com) |
-| `husky` | Git hooks (commitlint + version bump, optional) | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) |
-| `@commitlint/cli` | Commit message linter | [npm](https://www.npmjs.com/package/@commitlint/cli) · [GitHub](https://github.com/conventional-changelog/commitlint) |
-| `@commitlint/config-conventional` | Conventional commits ruleset | [npm](https://www.npmjs.com/package/@commitlint/config-conventional) · [GitHub](https://github.com/conventional-changelog/commitlint) |
+| `husky` | Git hooks (commitlint + version bump, optional) | [GitHub](https://github.com/typicode/husky) |
+| `@commitlint/cli` | Commit message linter | [GitHub](https://github.com/conventional-changelog/commitlint) |
+| `@commitlint/config-conventional` | Conventional commits ruleset | [GitHub](https://github.com/conventional-changelog/commitlint) |
 
 ### Install `gh` CLI
 
