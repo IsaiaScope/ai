@@ -1,19 +1,20 @@
 # iso-ai-init
 
-> Wire a repo with IsaiaScope AI defaults in one command — caveman ultra mode, a living knowledge graph, conventional commits, and auto-versioning.
+> Wire a repo with IsaiaScope AI defaults in one command — caveman ultra mode, a living knowledge graph, and conventional commits.
 
 ---
 
 ## What It Does
 
-Runs a four-step setup sequence inside any git repo:
+Runs a three-step setup sequence inside any git repo:
 
 1. **Caveman** — installs the `caveman` CLI globally, sets ultra mode, registers `caveman-shrink` as a Claude Code MCP, and writes a live statusline (`…/repo  branch  ctx:75%  $5.82  ULTRA`)
 2. **Graphify** — installs the `graphify` CLI, wires it into `CLAUDE.md` and Codex, builds the initial knowledge graph (LLM call), and adds a `post-commit` hook so the graph stays current on every commit
-3. **Husky + commitlint** — adds `commit-msg` (lint), `post-commit` (graphify + version bump), and `commitlint.config.js` with scope enforcement
-4. **Version bump** — `post-commit-version-bump.sh` reads conventional commit type → bumps `patch`/`minor`/`major`, amends into the same commit; skips merge commits; supports npm, pnpm, yarn, bun
+3. **Husky + commitlint** — adds `commit-msg` (lint), `post-commit` (graphify update), and `commitlint.config.js` with scope enforcement
 
-Repos with `package.json` get all four steps. Repos without get steps 1–2 plus a native git hook for graphify.
+Repos with `package.json` get all three steps. Repos without get steps 1–2 plus a native git hook for graphify.
+
+> Version bump hook lives in `/iso-init-repo` (Step 5). Run both skills for the full stack.
 
 ---
 
@@ -33,8 +34,7 @@ Or ask: *"set up AI tooling"*, *"init AI defaults"*, *"add graphify and caveman"
 ✓ Caveman ultra + shrink + statusline
 ✓ Graphify skill wired (+ initial graph built)
 ✓ .husky/commit-msg          → commitlint
-✓ .husky/post-commit         → graphify update . + version bump
-✓ .husky/post-commit-version-bump.sh
+✓ .husky/post-commit         → graphify update .
 ✓ commitlint.config.js       → scope required, emoji allowed
 ```
 
@@ -100,6 +100,6 @@ To change any default behavior, edit the template — no SKILL.md change needed.
 
 ## Related
 
-- [`iso-init-repo`](../iso-init-repo/) — GitHub repo governance (branches, protection, CI, deploy cascade)
+- [`iso-init-repo`](../iso-init-repo/) — GitHub repo governance (branches, protection, CI, version bump, deploy cascade)
 - [`graphify`](../graphify/) — knowledge graph skill (manual invocation)
 - [`caveman`](../caveman/) — caveman mode skill

@@ -134,7 +134,7 @@ npx husky init
 
 ### 3d — Write hooks from templates
 
-Run all four sub-steps independently. Each has its own guard — a skip in one does NOT skip the others.
+Run both sub-steps independently. Each has its own guard — a skip in one does NOT skip the other.
 
 **3d-i — commit-msg:**
 ```bash
@@ -143,32 +143,14 @@ grep -q "commitlint" .husky/commit-msg 2>/dev/null \
   || { cat templates/commit-msg.sh > .husky/commit-msg && chmod +x .husky/commit-msg; }
 ```
 
-**3d-ii — post-commit graphify block** (independent of 3d-iii and 3d-iv):
+**3d-ii — post-commit graphify block:**
 ```bash
 grep -q "graphify-hook-start" .husky/post-commit 2>/dev/null \
   && echo "post-commit: graphify block already present, skipping" \
   || { cat templates/post-commit.sh >> .husky/post-commit && chmod +x .husky/post-commit; }
 ```
 
-**3d-iii — post-commit-version-bump.sh script** (always overwrite — self-contained, safe):
-```bash
-cp templates/post-commit-version-bump.sh .husky/post-commit-version-bump.sh
-chmod +x .husky/post-commit-version-bump.sh
-```
-
-**3d-iv — version-bump invocation in post-commit** (independent of 3d-ii — MUST always run):
-```bash
-grep -q "post-commit-version-bump.sh" .husky/post-commit 2>/dev/null \
-  && echo "post-commit: version-bump invocation already present, skipping" \
-  || echo 'bash "$(dirname "$0")/post-commit-version-bump.sh"' >> .husky/post-commit
-```
-
-`post-commit-version-bump.sh` auto-bumps `package.json` version on every commit and amends it in:
-- `feat!:` / `BREAKING CHANGE:` → major
-- `feat:` → minor
-- everything else → patch
-
-Re-trigger guard uses `.git/VERSION_BUMP_RUNNING` temp file (env vars don't survive `--amend` subprocess boundary).
+Version bump hook is owned by `/iso-init-repo` (Step 5). Do not wire it here.
 
 ### 3e — Write configs from templates
 
@@ -205,10 +187,12 @@ Only add if not already present:
 ✓ Graphify skill wired — run /graphify to generate initial graph (skipped if graph.json exists)
 ✓ Husky + commitlint   [Node repo]
   ├── .husky/commit-msg   → commitlint (auto-detects PM)
-  ├── .husky/post-commit  → graphify update . + version bump (major/minor/patch)
+  ├── .husky/post-commit  → graphify update .
   └── commitlint: scope required, emoji allowed, scope-enum: [list]
 ✓ git post-commit hook   [non-Node repo — graphify hook install]
 ```
+
+Version bump: run /iso-init-repo to add (Step 5).
 
 Commit format:
 - `fix(italian): 🐛 resolve piva validation`

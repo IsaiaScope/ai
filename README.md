@@ -43,7 +43,7 @@ Re-run anytime to update.
 Initialize any repo with IsaiaScope AI defaults in one command:
 - Caveman ultra + shrink MCP + statusline token badge
 - Graphify knowledge graph (`graphify .` → `graphify-out/`)
-- Husky + commitlint + conventional-commit-aware version bump (patch/minor/major, amends same commit)
+- Husky + commitlint + graphify post-commit hook
 
 ```
 /iso-ai-init
