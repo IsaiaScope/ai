@@ -5,6 +5,8 @@ description: Cascade to target env. Auto-detects start from current branch. /dep
 
 # /deploy-cascade
 
+Invoke the caveman skill immediately: `Skill("caveman")`. All status output and reports use caveman ultra style.
+
 ```
 /deploy-cascade          # → prod
 /deploy-cascade dev      # → dev (stop)
@@ -21,10 +23,10 @@ git fetch origin
 ```
 
 Starting step by current branch:
-- `prod` → refuse
+- `prod` → refuse (protected; never deploy from prod)
 - `test` → Step 3 only; refuse if target dev/test
 - `dev` → Step 2+; refuse if target dev
-- other → Step 1+
+- any other branch → Step 1+
 
 Uncommitted changes on feature branch: stage + commit (derive conventional message from diff, check `commitlint.config.js` for scope rules if present), push.
 
@@ -121,4 +123,4 @@ Report: job, error, fix. Stop. User re-runs.
 - No force-push, no destructive ops
 - `prod` ← `test` only (prod-gate enforces)
 - Never skip CI
-- If on `prod`: refuse
+- Runnable from any branch except `prod`; on `prod`: refuse immediately

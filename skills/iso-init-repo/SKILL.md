@@ -141,7 +141,7 @@ git push origin dev
 
 Read `templates/deploy-cascade-command.md` → write to `.claude/commands/deploy-cascade.md`.
 
-This gives the repo a `/deploy-cascade` command. Starting point is auto-detected from current branch — can cascade from a feature branch, from `dev`, or from `test`.
+This gives the repo a `/deploy-cascade` command. Uses caveman skill for all output. Starting point is auto-detected from current branch — runnable from any branch except `prod`.
 
 ```bash
 mkdir -p .claude/commands
@@ -161,6 +161,6 @@ git push origin dev
 ✓ .claude/commands/deploy-cascade.md       — /deploy-cascade command
 ```
 
-Cascade: `feature → dev → test → prod`
-`/deploy-cascade` auto-detects starting point — run from feature branch, `dev`, or `test`.
+Cascade: `<any branch> → dev → test → prod`
+`/deploy-cascade` auto-detects starting point — run from any branch except `prod`. Uses caveman skill.
 Prod-gate: PRs to `prod` from any branch other than `test` fail CI automatically.
