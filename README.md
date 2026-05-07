@@ -50,14 +50,6 @@ Initialize any repo with IsaiaScope AI defaults in one command:
 /iso-ai-init
 ```
 
-### 🧠 notion-notes *(original)*
-
-Creates well-structured Notion pages with dark mode colors, strategic emojis, and consistent hierarchy.
-
-```bash
-npx skills@latest add IsaiaScope/ai
-```
-
 ### 🗿 caveman
 
 Ultra-compressed communication mode. Cuts token usage ~75% by dropping filler while keeping full technical accuracy.
