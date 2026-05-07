@@ -5,7 +5,7 @@ const { copyFileSync, mkdirSync } = require("fs");
 const { join } = require("path");
 const { homedir } = require("os");
 
-const repoRoot = __dirname;
+const repoRoot = join(__dirname, "..");
 const home = homedir();
 
 console.log("IsaiaScope/ai — installing...\n");
