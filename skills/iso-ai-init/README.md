@@ -11,9 +11,9 @@ Runs a four-step setup sequence inside any git repo:
 1. **Caveman** — installs the `caveman` CLI globally, sets ultra mode, registers `caveman-shrink` as a Claude Code MCP, and writes a live statusline (`…/repo  branch  ctx:75%  $5.82  ULTRA`)
 2. **Graphify** — installs the `graphify` CLI, wires it into `CLAUDE.md` and Codex, builds the initial knowledge graph (LLM call), and adds a `post-commit` hook so the graph stays current on every commit
 3. **Husky + commitlint** — adds `commit-msg` (lint), `post-commit` (graphify + version bump), and `commitlint.config.js` with scope enforcement
-4. **Version bump** — `post-commit-version-bump.sh` auto-bumps `package.json` on every commit: `feat!` → major, `feat` → minor, everything else → patch
+4. **Version bump** — `post-commit-version-bump.sh` reads conventional commit type → bumps `patch`/`minor`/`major`, amends into the same commit; skips merge commits; supports npm, pnpm, yarn, bun
 
-Node.js repos get all four steps. Non-Node repos get steps 1–2 plus a native git hook for graphify.
+Repos with `package.json` get all four steps. Repos without get steps 1–2 plus a native git hook for graphify.
 
 ---
 

@@ -12,8 +12,8 @@ Runs a six-step setup sequence from inside any git repo:
 2. **Branch structure** — creates `prod` ← `test` ← `dev`, sets `dev` as the GitHub default branch, removes `main` if it was the starting point
 3. **Branch protection** — PR required on all three branches, no direct push, no force push
 4. **CI prod-gate** — `.github/workflows/ci-prod-gate.yml` enforces that PRs to `prod` must come from `test` only (GitHub's branch protection API cannot do this natively)
-5. **Version bump hook** — `post-commit-version-bump.sh` auto-bumps `package.json` on every commit (Node.js repos only)
-6. **Deploy cascade** — writes `.claude/commands/deploy-cascade.md`, giving the repo a `/deploy-cascade` slash command that auto-detects the starting branch and cascades through the pipeline
+5. **Version bump hook** — `post-commit-version-bump.sh` reads conventional commit type → bumps `patch`/`minor`/`major`, amends into the same commit; skipped if no `package.json`; supports npm, pnpm, yarn, bun
+6. **Deploy cascade** — writes `.claude/commands/deploy-cascade.md`, giving the repo a `/deploy-cascade` slash command that uses caveman ultra style, auto-detects the starting branch, and cascades through the pipeline from any branch except `prod`
 
 ---
 
@@ -34,7 +34,7 @@ Or ask: *"set up repo governance"*, *"create branch structure"*, *"add prod prot
 ✓ Branches: dev (default) ← test ← prod
 ✓ Protection: PR required on dev, test, prod (no direct push)
 ✓ .github/workflows/ci-prod-gate.yml    — prod accepts PRs from test only
-✓ .husky/post-commit-version-bump.sh   [Node only — or: skipped]
+✓ .husky/post-commit-version-bump.sh   [skipped if no package.json]
 ✓ .claude/commands/deploy-cascade.md   — /deploy-cascade command
 ```
 
@@ -43,7 +43,7 @@ Or ask: *"set up repo governance"*, *"create branch structure"*, *"add prod prot
 ## Branch Flow
 
 ```
-feature branches
+any branch (except prod)
        ↓  PR
       dev  (daily work, GitHub default)
        ↓  PR
@@ -52,7 +52,7 @@ feature branches
      prod  (release)
 ```
 
-`/deploy-cascade` auto-detects your current branch and drives the PR chain from wherever you are.
+`/deploy-cascade` auto-detects your current branch and drives the PR chain from wherever you are — runnable from any branch except `prod`.
 
 ---
 
@@ -105,7 +105,8 @@ To change CI rules or deploy behavior, edit the template — no SKILL.md change 
 - Branch protection is set via the GitHub REST API (`gh api`) — requires repo admin access
 - `ci-prod-gate.yml` uses `github.event.pull_request.base.ref` and `head.ref` to block non-`test` sources; adjust the workflow if your branch names differ
 - Version bump is skipped automatically when no `package.json` is present
-- `/deploy-cascade` starting point is inferred from the current branch at runtime
+- `/deploy-cascade` starting point is inferred from the current branch at runtime; refuses only on `prod`
+- `/deploy-cascade` invokes the caveman skill at start — all output is caveman ultra style
 
 ---
 
