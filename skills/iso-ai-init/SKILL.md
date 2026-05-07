@@ -66,10 +66,18 @@ else
   echo "graphify: already installed, skipping"
 fi
 
-# wire skill (always run)
+# wire skill (always run — global, no repo needed)
 graphify install                      # Claude Code
 graphify install --platform codex     # Codex
 ```
+
+Check if inside a git repo:
+
+```bash
+git rev-parse --is-inside-work-tree 2>/dev/null || echo "not a repo"
+```
+
+**If not a git repo — stop here.** Graph generation requires a repo; skip the steps below.
 
 **Initial graph requires LLM — invoke via Skill tool:**
 ```
