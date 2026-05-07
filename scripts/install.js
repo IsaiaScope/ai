@@ -26,7 +26,7 @@ console.log(`✓ AGENTS.md → ${join(codexDir, "AGENTS.md")}`);
 const packs = [
   ["juliusbrussee/caveman",                   "claude-code,codex"],
   ["safishamsi/graphify",                      "claude-code,codex"],
-  ["forrestchang/andrej-karpathy-skills",      "claude-code"],
+  ["forrestchang/andrej-karpathy-skills",      "claude-code,codex"],
   ["IsaiaScope/ai",                            "claude-code,codex"],
 ];
 

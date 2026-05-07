@@ -28,7 +28,7 @@ This will:
 2. Copy `AGENTS.md` → `~/.codex/AGENTS.md` (Codex global instructions)
 3. Install [caveman](https://github.com/juliusbrussee/caveman) — Claude Code + Codex
 4. Install [graphify](https://github.com/safishamsi/graphify) — Claude Code + Codex
-5. Install [karpathy-guidelines](https://github.com/forrestchang/andrej-karpathy-skills) — Claude Code only
+5. Install [karpathy-guidelines](https://github.com/forrestchang/andrej-karpathy-skills) globally
 6. Install [notion-notes](#-notion-notes) — Claude Code + Codex
 7. Update all global skills to latest versions
 
@@ -58,7 +58,7 @@ Any input → knowledge graph → clustered communities → HTML + JSON + audit 
 
 Source: [safishamsi/graphify](https://github.com/safishamsi/graphify)
 
-### 🎯 karpathy-guidelines *(Claude Code only)*
+### 🎯 karpathy-guidelines
 
 Behavioral guidelines to reduce common LLM coding mistakes, derived from Andrej Karpathy's observations on LLM coding pitfalls.
 
