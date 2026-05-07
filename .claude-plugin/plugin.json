@@ -1,6 +1,7 @@
 {
   "name": "isaiascope-ai",
   "skills": [
-    "./skills/iso-ai-init"
+    "./skills/iso-ai-init",
+    "./skills/iso-init-repo"
   ]
 }

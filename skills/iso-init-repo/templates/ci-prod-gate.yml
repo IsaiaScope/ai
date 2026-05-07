@@ -1,0 +1,18 @@
+name: Prod Gate
+on:
+  pull_request:
+    branches: [prod]
+
+jobs:
+  verify-source:
+    name: Verify Source Branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure PR comes from test branch
+        run: |
+          if [ "${{ github.head_ref }}" != "test" ]; then
+            echo "❌ PRs to prod must come from the 'test' branch."
+            echo "   Got: '${{ github.head_ref }}'"
+            exit 1
+          fi
+          echo "✅ Source branch is 'test'"

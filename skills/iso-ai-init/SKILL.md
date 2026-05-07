@@ -112,18 +112,6 @@ npx husky init
 
 Read `templates/commit-msg.sh` → write to `.husky/commit-msg`, chmod +x. The hook detects the package manager at runtime — no substitution needed.
 Read `templates/post-commit.sh` → write to `.husky/post-commit` (or append graphify block if file exists), chmod +x.
-Read `templates/post-commit-version-bump.sh` → write to `.husky/post-commit-version-bump.sh`, chmod +x.
-Append to `.husky/post-commit`:
-```bash
-bash "$(dirname "$0")/post-commit-version-bump.sh"
-```
-
-`post-commit-version-bump.sh` auto-bumps `package.json` version on every commit and amends it in:
-- `feat!:` / `BREAKING CHANGE:` → major
-- `feat:` → minor
-- everything else → patch
-
-Re-trigger guard uses `.git/VERSION_BUMP_RUNNING` temp file (env vars don't survive `--amend` subprocess boundary).
 
 ### 3e — Write configs from templates
 
@@ -155,7 +143,7 @@ Only add if not already present:
 ✓ Graphify skill wired — run /graphify to generate initial graph
 ✓ Husky + commitlint   [or: skipped — non-Node repo]
   ├── .husky/commit-msg   → commitlint (auto-detects PM)
-  ├── .husky/post-commit  → graphify update . + version bump (major/minor/patch)
+  ├── .husky/post-commit  → graphify update .
   └── commitlint: scope required, emoji allowed, scope-enum: [list]
 ```
 
