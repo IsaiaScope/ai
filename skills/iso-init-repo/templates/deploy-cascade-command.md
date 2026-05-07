@@ -1,95 +1,88 @@
 ---
-allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git branch:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git fetch:*), Bash(git checkout:*), Bash(gh pr:*), Bash(gh run:*), Bash(gh auth:*), AskUserQuestion
-description: Cascade to a target environment. Auto-detects starting point from current branch. /deploy-cascade [dev|test|prod]
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git branch:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git fetch:*), Bash(git checkout:*), Bash(gh pr:*), Bash(gh run:*), Bash(gh auth:*), Bash(cat:*), AskUserQuestion
+description: Cascade to target env. Auto-detects start from current branch. /deploy-cascade [dev|test|prod]
 ---
 
 # /deploy-cascade
 
-Promote to a target environment. Starting point is auto-detected from current branch.
-
-## Invocation
-
 ```
-/deploy-cascade          # cascade from current branch → prod
-/deploy-cascade dev      # cascade from current branch → dev (stop)
-/deploy-cascade test     # cascade from current branch → test (stop)
-/deploy-cascade prod     # cascade from current branch → prod (explicit)
+/deploy-cascade          # → prod
+/deploy-cascade dev      # → dev (stop)
+/deploy-cascade test     # → test (stop)
 ```
 
 ## Pre-flight
 
 ```bash
 BRANCH=$(git branch --show-current)
+TARGET=${1:-prod}
 gh auth status
-git status --porcelain
+git fetch origin
 ```
 
-1. Parse target from args — default: `prod`
-2. Detect starting step from current branch:
-   - On `prod` → refuse (already at destination)
-   - On `test` → start at Step 3 (test → prod); refuse if target is `dev` or `test`
-   - On `dev` → start at Step 2 (dev → test → ...); refuse if target is `dev`
-   - On any other branch → start at Step 1 (feature → dev → test → prod)
-3. If on a feature branch with uncommitted changes: stage + commit (ask user for message or generate from diff), then push
+Starting step by current branch:
+- `prod` → refuse
+- `test` → Step 3 only; refuse if target dev/test
+- `dev` → Step 2+; refuse if target dev
+- other → Step 1+
+
+Uncommitted changes on feature branch: stage + commit (derive conventional message from diff, check `commitlint.config.js` for scope rules if present), push.
+
+## Commit/PR message rules
+
+Before generating any title or message:
+
+```bash
+[ -f commitlint.config.js ] && cat commitlint.config.js
+```
+
+- If `scope-enum` enabled → use only listed scopes
+- If `scope-empty: never` → scope required
+- Cascade PRs: use `chore(cascade):` or `chore:` depending on scope rules above
+- Feature PRs: derive `<type>(<scope>):` from branch commits
 
 ## Step 1 — feature → dev
 
-*Skip if starting from `dev` or `test`.*
-
 ```bash
-gh pr list --head "$BRANCH" --base dev --json number,url --jq '.[0]'
+gh pr list --head "$BRANCH" --base dev --json number --jq '.[0].number'
 ```
 
-If no PR, create:
+Reuse existing PR if found. Else create — title from branch commits, body = commit log only:
 
 ```bash
 gh pr create --base dev --head "$BRANCH" \
-  --title "<type>(<scope>): <summary from commits>" \
-  --body "$(cat <<'EOF'
-## Summary
-[Generated from branch commits — what changed and why]
-
-## Technical Details
-[Files changed, grouped by domain. Key decisions.]
-
-## Testing
-CI pipeline: all checks must pass before merge.
-EOF
-)"
+  --title "<type>(<scope>): <derived from commits>" \
+  --body "$(git log origin/dev.."$BRANCH" --oneline)"
 ```
 
-Poll: `gh pr checks <number> --watch`
-Pass: `gh pr merge <number> --merge --delete-branch`
-Fail: diagnose (see Failure Handling), stop.
+```bash
+gh pr checks <number> --watch
+gh pr merge <number> --merge --delete-branch
+```
 
-**Stop here if target is `dev`.**
+Stop if target `dev`.
 
 ## Step 2 — dev → test
-
-*Skip if starting from `test`.*
 
 ```bash
 git fetch origin
 gh pr list --head dev --base test --json number --jq '.[0].number'
 ```
 
-If no PR, create:
+Reuse if found. Else:
 
 ```bash
 gh pr create --base test --head dev \
-  --title "chore(cascade): promote dev to test" \
-  --body "$(cat <<'EOF'
-## Summary
-Promotes dev to test.
-
-### Changes
-$(git log origin/test..origin/dev --oneline)
-EOF
-)"
+  --title "chore(cascade): dev → test" \
+  --body "$(git log origin/test..origin/dev --oneline)"
 ```
 
-Poll CI, merge on pass.
-**Stop here if target is `test`.**
+```bash
+gh pr checks <number> --watch
+gh pr merge <number> --merge
+```
+
+Stop if target `test`.
 
 ## Step 3 — test → prod
 
@@ -98,36 +91,34 @@ git fetch origin
 gh pr list --head test --base prod --json number --jq '.[0].number'
 ```
 
-If no PR, create:
+Reuse if found. Else:
 
 ```bash
 gh pr create --base prod --head test \
-  --title "chore(cascade): promote test to prod" \
-  --body "$(cat <<'EOF'
-## Summary
-Promotes test to prod.
-
-### Changes
-$(git log origin/prod..origin/test --oneline)
-EOF
-)"
+  --title "chore(cascade): test → prod" \
+  --body "$(git log origin/prod..origin/test --oneline)"
 ```
 
-Poll CI (prod-gate verifies source=test), merge on pass.
+```bash
+gh pr checks <number> --watch
+gh pr merge <number> --merge
+```
 
-Report success with links to all created/merged PRs.
+Report: URLs of all created/merged PRs.
 
-## Failure Handling
+## Failure
 
-1. `gh pr checks <number>` — identify which job failed
-2. `gh run list --branch <branch> --status failure --limit 1` — get run ID
-3. `gh run view <run-id> --log-failed` — read failure logs
-4. Report: which job, specific error, suggested fix
-5. Stop — user fixes and re-runs `/deploy-cascade`
+```bash
+gh pr checks <number>
+gh run list --branch <branch> --status failure --limit 1
+gh run view <run-id> --log-failed
+```
+
+Report: job, error, fix. Stop. User re-runs.
 
 ## Constraints
 
-- Never force-push or use destructive git operations
-- Never merge to `prod` from anything other than `test`
-- Always wait for CI to pass — never skip checks
-- If on `prod`, refuse and explain
+- No force-push, no destructive ops
+- `prod` ← `test` only (prod-gate enforces)
+- Never skip CI
+- If on `prod`: refuse
