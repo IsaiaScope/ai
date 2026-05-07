@@ -42,12 +42,12 @@ Restart Claude Code after running to activate hooks.
 
 ## Dependencies
 
-| Tool | Purpose | Source | Latest |
-|------|---------|--------|--------|
-| `caveman` | Token-compressed Claude responses | [npm](https://www.npmjs.com/package/caveman) | `npm info caveman version` |
-| `caveman-shrink` | Claude Code MCP for token savings | Bundled with `caveman --all` | — |
-| `graphify` | Codebase knowledge graph | [PyPI: graphifyy](https://pypi.org/project/graphifyy/) | `pip index versions graphifyy` |
-| `husky` | Git hooks manager | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) | `npm info husky version` |
+| Tool | Purpose | Source |
+|------|---------|--------|
+| `caveman` | Token-compressed Claude responses | [npm](https://www.npmjs.com/package/caveman) · [GitHub](https://github.com/juliusbrussee/caveman) |
+| `caveman-shrink` | Claude Code MCP for token savings | Bundled with `caveman --all` |
+| `graphify` | Codebase knowledge graph | [PyPI: graphifyy](https://pypi.org/project/graphifyy/) · [GitHub](https://github.com/safishamsi/graphify) |
+| `husky` | Git hooks manager | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) |
 
 ### Install commands (reference)
 

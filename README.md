@@ -53,12 +53,12 @@ Initialize any repo with IsaiaScope AI defaults in one command:
 
 **Dependencies:**
 
-| Tool | Source | Latest |
-|------|--------|--------|
-| `caveman` | [npm](https://www.npmjs.com/package/caveman) · [GitHub](https://github.com/juliusbrussee/caveman) | `npm info caveman version` |
-| `graphify` | [PyPI: graphifyy](https://pypi.org/project/graphifyy/) · [GitHub](https://github.com/safishamsi/graphify) | `pip index versions graphifyy` |
-| `husky` | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) | `npm info husky version` |
-| `@commitlint/cli` | [npm](https://www.npmjs.com/package/@commitlint/cli) · [GitHub](https://github.com/conventional-changelog/commitlint) | `npm info @commitlint/cli version` |
+| Tool | Source |
+|------|--------|
+| `caveman` | [npm](https://www.npmjs.com/package/caveman) · [GitHub](https://github.com/juliusbrussee/caveman) |
+| `graphify` | [PyPI: graphifyy](https://pypi.org/project/graphifyy/) · [GitHub](https://github.com/safishamsi/graphify) |
+| `husky` | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) |
+| `@commitlint/cli` | [npm](https://www.npmjs.com/package/@commitlint/cli) · [GitHub](https://github.com/conventional-changelog/commitlint) |
 
 ---
 
@@ -78,10 +78,12 @@ Wire GitHub repo governance in one command:
 
 **Dependencies:**
 
-| Tool | Source | Latest |
-|------|--------|--------|
-| `gh` (GitHub CLI) | [cli.github.com](https://cli.github.com) · [GitHub](https://github.com/cli/cli) | `gh --version` · [releases](https://github.com/cli/cli/releases) |
-| `git` | [git-scm.com](https://git-scm.com) | `git --version` |
+| Tool | Source |
+|------|--------|
+| `gh` (GitHub CLI) | [cli.github.com](https://cli.github.com) · [GitHub](https://github.com/cli/cli) |
+| `git` | [git-scm.com](https://git-scm.com) |
+| `husky` | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) |
+| `@commitlint/cli` | [npm](https://www.npmjs.com/package/@commitlint/cli) · [GitHub](https://github.com/conventional-changelog/commitlint) |
 
 ---
 

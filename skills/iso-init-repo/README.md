@@ -60,13 +60,13 @@ any branch (except prod)
 
 ## Dependencies
 
-| Tool | Purpose | Source | Latest |
-|------|---------|--------|--------|
-| `gh` (GitHub CLI) | Repo creation, branch protection, API calls | [cli.github.com](https://cli.github.com) · [GitHub](https://github.com/cli/cli) | `gh --version` or [releases](https://github.com/cli/cli/releases) |
-| `git` | Branch creation, remote management | [git-scm.com](https://git-scm.com) | `git --version` |
-| `husky` | Git hooks (commitlint + version bump, optional) | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) | `npm info husky version` |
-| `@commitlint/cli` | Commit message linter | [npm](https://www.npmjs.com/package/@commitlint/cli) | `npm info @commitlint/cli version` |
-| `@commitlint/config-conventional` | Conventional commits ruleset | [npm](https://www.npmjs.com/package/@commitlint/config-conventional) | `npm info @commitlint/config-conventional version` |
+| Tool | Purpose | Source |
+|------|---------|--------|
+| `gh` (GitHub CLI) | Repo creation, branch protection, API calls | [cli.github.com](https://cli.github.com) · [GitHub](https://github.com/cli/cli) |
+| `git` | Branch creation, remote management | [git-scm.com](https://git-scm.com) |
+| `husky` | Git hooks (commitlint + version bump, optional) | [npm](https://www.npmjs.com/package/husky) · [GitHub](https://github.com/typicode/husky) |
+| `@commitlint/cli` | Commit message linter | [npm](https://www.npmjs.com/package/@commitlint/cli) · [GitHub](https://github.com/conventional-changelog/commitlint) |
+| `@commitlint/config-conventional` | Conventional commits ruleset | [npm](https://www.npmjs.com/package/@commitlint/config-conventional) · [GitHub](https://github.com/conventional-changelog/commitlint) |
 
 ### Install `gh` CLI
 
