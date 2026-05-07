@@ -1,6 +1,7 @@
 {
   "name": "isaiascope-ai",
   "skills": [
-    "./skills/notion-notes"
+    "./skills/notion-notes",
+    "./skills/iso-ai-init"
   ]
 }

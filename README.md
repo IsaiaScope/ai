@@ -39,6 +39,17 @@ Re-run anytime to update.
 
 ## 🛠️ Skills
 
+### ⚡ iso-ai-init *(original)*
+
+Initialize any repo with IsaiaScope AI defaults in one command:
+- Caveman ultra + shrink MCP + statusline token badge
+- Graphify knowledge graph (`graphify .` → `graphify-out/`)
+- Husky + release-it + commitlint for conventional commits + changelog (Node.js only, auto-detected)
+
+```
+/iso-ai-init
+```
+
 ### 🧠 notion-notes *(original)*
 
 Creates well-structured Notion pages with dark mode colors, strategic emojis, and consistent hierarchy.
