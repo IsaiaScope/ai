@@ -11,11 +11,12 @@ node install.js
 ```
 
 This will:
-1. Copy `CLAUDE.md` → `~/CLAUDE.md` (always overwrites — repo is source of truth)
-2. Install [caveman](https://github.com/juliusbrussee/caveman) globally
-3. Install [graphify](https://github.com/safishamsi/graphify) globally
-4. Install [notion-notes](#notion-notes) globally
-5. Update all global skills to latest versions
+1. Copy `CLAUDE.md` → `~/CLAUDE.md` (Claude Code global instructions)
+2. Copy `AGENTS.md` → `~/.codex/AGENTS.md` (Codex global instructions)
+3. Install [caveman](https://github.com/juliusbrussee/caveman) globally
+4. Install [graphify](https://github.com/safishamsi/graphify) globally
+5. Install [notion-notes](#notion-notes) globally
+6. Update all global skills to latest versions
 
 Re-run anytime to update.
 
@@ -42,6 +43,11 @@ Any input → knowledge graph → clustered communities → HTML + JSON + audit 
 
 Source: [safishamsi/graphify](https://github.com/safishamsi/graphify)
 
-## CLAUDE.md
+## Config files
 
-The `CLAUDE.md` at the repo root is my personal Claude Code config — applied globally to all projects. Edit here, commit, then re-run `node install.js` to apply.
+| File | Copied to | Agent |
+|------|-----------|-------|
+| `CLAUDE.md` | `~/CLAUDE.md` | Claude Code |
+| `AGENTS.md` | `~/.codex/AGENTS.md` | Codex |
+
+Repo is source of truth. Edit here, commit, re-run `node install.js` to apply.

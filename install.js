@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const { execSync } = require("child_process");
-const { copyFileSync } = require("fs");
+const { copyFileSync, mkdirSync } = require("fs");
 const { join } = require("path");
 const { homedir } = require("os");
 
@@ -15,6 +15,12 @@ const src = join(repoRoot, "CLAUDE.md");
 const dest = join(home, "CLAUDE.md");
 copyFileSync(src, dest);
 console.log(`✓ CLAUDE.md → ${dest}`);
+
+// Copy AGENTS.md to ~/.codex/ (Codex global instructions)
+const codexDir = join(home, ".codex");
+mkdirSync(codexDir, { recursive: true });
+copyFileSync(join(repoRoot, "AGENTS.md"), join(codexDir, "AGENTS.md"));
+console.log(`✓ AGENTS.md → ${join(codexDir, "AGENTS.md")}`);
 
 // Install skill packs
 const packs = [
