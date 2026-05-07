@@ -1,6 +1,6 @@
 ---
 name: iso-init-repo
-description: Set up a repo with IsaiaScope governance defaults — GitHub repo creation, prod/test/dev branch structure with protection, PR template, prod-gate CI, version-bump hook, and /deploy cascade command. Use when the user runs /iso-init-repo or asks to set up repo governance.
+description: Set up a repo with IsaiaScope governance defaults — GitHub repo creation, prod/test/dev branch structure with protection, prod-gate CI, commitlint, version-bump hook, and /deploy-cascade command. Use when the user runs /iso-init-repo or asks to set up repo governance.
 ---
 
 # iso-init-repo
@@ -118,7 +118,78 @@ git commit -m "chore(repo): add prod-gate workflow"
 git push origin dev
 ```
 
-## Step 5 — Version bump hook
+## Step 5 — Commitlint
+
+Skip if no `package.json`.
+
+### 5a — Package manager
+
+```bash
+if [ -f pnpm-lock.yaml ]; then echo "pnpm"
+elif [ -f yarn.lock ]; then echo "yarn"
+elif [ -f bun.lockb ] || [ -f bun.lock ]; then echo "bun"
+else echo "npm"; fi
+```
+
+### 5b — Init Husky (only if `.husky/` missing)
+
+```bash
+[ -d .husky ] || npx husky init
+```
+
+### 5c — Install deps
+
+Only install packages not already in `package.json`. Skip any already present.
+
+```bash
+pnpm add -D -w @commitlint/cli @commitlint/config-conventional   # pnpm
+yarn add -D -W @commitlint/cli @commitlint/config-conventional   # yarn
+bun add -d @commitlint/cli @commitlint/config-conventional       # bun
+npm install --save-dev @commitlint/cli @commitlint/config-conventional  # npm
+```
+
+Also ensure `"prepare": "husky"` is in `package.json` scripts if missing.
+
+### 5d — commit-msg hook
+
+Read `templates/commit-msg.sh` → write to `.husky/commit-msg`, chmod +x.
+
+Guard:
+```bash
+grep -q "commitlint" .husky/commit-msg 2>/dev/null \
+  && echo "commit-msg: already configured, skipping" \
+  || { cat templates/commit-msg.sh > .husky/commit-msg && chmod +x .husky/commit-msg; }
+```
+
+### 5e — commitlint.config.js
+
+Check before writing:
+```bash
+[ -f commitlint.config.js ] \
+  && echo "commitlint.config.js: already exists, skipping — review manually if needed" \
+  || cp templates/commitlint.config.js commitlint.config.js
+```
+
+**Before enabling `scope-enum`**, audit all scopes in git history:
+```bash
+git log --oneline | sed -n 's/[^(]*(\([^)]*\)).*/\1/p' | sort -u
+```
+
+Only uncomment `scope-enum` if the repo has clean, consistent scopes. Populate from:
+- scopes found above
+- names from `ls apps/ packages/`
+- cross-cutting: `ci`, `deps`, `docs`, `repo`
+
+If history has free-text scopes — leave `scope-enum` commented. `scope-empty` alone is sufficient.
+
+Commit:
+```bash
+git add .husky/ commitlint.config.js package.json
+git commit -m "chore(repo): add commitlint"
+git push origin dev
+```
+
+## Step 6 — Version bump hook
 
 Skip if no `package.json`.
 
@@ -137,7 +208,7 @@ git commit -m "chore(repo): add version-bump post-commit hook"
 git push origin dev
 ```
 
-## Step 6 — Deploy cascade command
+## Step 8 — Deploy cascade command
 
 Read `templates/deploy-cascade-command.md` → write to `.claude/commands/deploy-cascade.md`.
 
@@ -150,13 +221,14 @@ git commit -m "chore(repo): add /deploy-cascade command"
 git push origin dev
 ```
 
-## Step 7 — Summary
+## Step 9 — Summary
 
 ```
 ✓ GitHub repo created/configured
 ✓ Branches: dev (default) ← test ← prod
 ✓ Protection: PR required on dev, test, prod (no direct push)
 ✓ .github/workflows/ci-prod-gate.yml       — prod accepts PRs from test only
+✓ .husky/commit-msg + commitlint.config.js [or: skipped — no package.json]
 ✓ .husky/post-commit-version-bump.sh       [or: skipped — no package.json]
 ✓ .claude/commands/deploy-cascade.md       — /deploy-cascade command
 ```

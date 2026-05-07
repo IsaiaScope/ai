@@ -67,7 +67,7 @@ Initialize any repo with IsaiaScope AI defaults in one command:
 Wire GitHub repo governance in one command:
 - `dev ← test ← prod` branch structure with protection rules
 - CI prod-gate workflow — only PRs from `test` merge to `prod`
-- Conventional-commit-aware version bump hook (skipped if no `package.json`)
+- Commitlint + conventional-commit-aware version bump (skipped if no `package.json`)
 - `/deploy-cascade` slash command — caveman ultra output, any branch except `prod`
 
 ```

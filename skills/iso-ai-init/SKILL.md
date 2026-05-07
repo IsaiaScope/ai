@@ -1,6 +1,6 @@
 ---
 name: iso-ai-init
-description: Initialize a repo with IsaiaScope AI defaults — caveman ultra + shrink, graphify knowledge graph, and Husky + commitlint (Node.js only). Use when the user runs /iso-ai-init or asks to set up a new repo with AI tooling.
+description: Initialize a repo with IsaiaScope AI defaults — caveman ultra + shrink, graphify knowledge graph, and Husky (graphify post-commit hook). Use when the user runs /iso-ai-init or asks to set up a new repo with AI tooling.
 ---
 
 # iso-ai-init
@@ -112,69 +112,39 @@ Skip if no `package.json`.
 
 ```bash
 [ -d .husky ] && ls .husky/ || echo "no .husky"
-grep -E '"husky"|"@commitlint"' package.json
+grep '"husky"' package.json
 ```
 
 Do not overwrite existing hooks without checking content first.
 
-### 3b — Install deps
+### 3b — Install husky
 
-Only install packages not already in `package.json` (from 3a audit). Skip any already present.
+Only if not already in `package.json`:
 
-pnpm: `pnpm add -D -w husky @commitlint/cli @commitlint/config-conventional`
-yarn: `yarn add -D -W husky @commitlint/cli @commitlint/config-conventional`
-bun:  `bun add -d husky @commitlint/cli @commitlint/config-conventional`
-npm:  `npm install --save-dev husky @commitlint/cli @commitlint/config-conventional`
+```bash
+pnpm add -D -w husky   # pnpm
+yarn add -D -W husky   # yarn
+bun add -d husky       # bun
+npm install --save-dev husky  # npm
+```
 
 ### 3c — Init Husky (only if `.husky/` missing)
 
 ```bash
-npx husky init
+[ -d .husky ] || npx husky init
 ```
 
-### 3d — Write hooks from templates
+### 3d — post-commit graphify block
 
-Run both sub-steps independently. Each has its own guard — a skip in one does NOT skip the other.
-
-**3d-i — commit-msg:**
-```bash
-grep -q "commitlint" .husky/commit-msg 2>/dev/null \
-  && echo "commit-msg: already configured, skipping" \
-  || { cat templates/commit-msg.sh > .husky/commit-msg && chmod +x .husky/commit-msg; }
-```
-
-**3d-ii — post-commit graphify block:**
 ```bash
 grep -q "graphify-hook-start" .husky/post-commit 2>/dev/null \
   && echo "post-commit: graphify block already present, skipping" \
   || { cat templates/post-commit.sh >> .husky/post-commit && chmod +x .husky/post-commit; }
 ```
 
-Version bump hook is owned by `/iso-init-repo` (Step 5). Do not wire it here.
+Commitlint is owned by `/iso-init-repo` (Step 5). Do not wire it here.
 
-### 3e — Write configs from templates
-
-**commitlint.config.js:** check before writing:
-```bash
-[ -f commitlint.config.js ] \
-  && echo "commitlint.config.js: already exists, skipping — review manually if needed" \
-  || cp templates/commitlint.config.js commitlint.config.js
-```
-
-**Before enabling `scope-enum`**, audit all scopes already in git history — enabling it without this step will block existing commits:
-
-```bash
-git log --oneline | sed -n 's/[^(]*(\([^)]*\)).*/\1/p' | sort -u
-```
-
-Only uncomment `scope-enum` if the repo has a clean, consistent scope set. Populate it with the union of:
-- all scopes found in git history above
-- names from `ls apps/ packages/`
-- cross-cutting: `ci`, `deps`, `docs`, `repo`
-
-If history has free-text scopes (spaces, commas, arbitrary strings) — leave `scope-enum` commented. `scope-empty` alone is sufficient.
-
-### 3f — Add missing scripts to `package.json`
+### 3e — Add missing scripts to `package.json`
 
 Only add if not already present:
 - `"prepare": "husky"`
@@ -185,18 +155,11 @@ Only add if not already present:
 ```
 ✓ Caveman ultra + shrink + statusline (--all)
 ✓ Graphify skill wired — run /graphify to generate initial graph (skipped if graph.json exists)
-✓ Husky + commitlint   [Node repo]
-  ├── .husky/commit-msg   → commitlint (auto-detects PM)
-  ├── .husky/post-commit  → graphify update .
-  └── commitlint: scope required, emoji allowed, scope-enum: [list]
+✓ Husky   [Node repo]
+  └── .husky/post-commit  → graphify update .
 ✓ git post-commit hook   [non-Node repo — graphify hook install]
 ```
 
-Version bump: run /iso-init-repo to add (Step 5).
-
-Commit format:
-- `fix(italian): 🐛 resolve piva validation`
-- `feat(dashboard): ✨ add usage chart`
-- `feat(api-core)!: 💥 remove legacy auth`
+Commitlint + version bump: run /iso-init-repo (Steps 5–6).
 
 Remind user: restart Claude Code to activate hooks.
