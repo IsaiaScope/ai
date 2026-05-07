@@ -1,17 +1,42 @@
-# Global Instructions for Claude Code
+# CLAUDE.md
 
-## Skill Priority
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-When both Matt Pocock and Superpowers skills could apply, always prefer Matt Pocock's:
+## Install / Update
 
-| Task | Use | Not |
-|------|-----|-----|
-| Planning / alignment | `grill-with-docs` or `grill-me` | `superpowers:brainstorming` |
-| Writing a PRD / plan | `to-prd` | `superpowers:writing-plans` |
-| Test-driven work | `tdd` | `superpowers:test-driven-development` |
-| Debugging | `diagnose` | `superpowers:systematic-debugging` |
-| Writing a skill | `write-a-skill` | `superpowers:writing-skills` |
+```bash
+node scripts/install.js
+```
 
-## When Implementing Code
+Copies `config/CLAUDE.md` → `~/CLAUDE.md` and `config/AGENTS.md` → `~/.codex/AGENTS.md`, then installs/updates all skill packs via `npx skills@latest`. No build step, no tests, no package.json.
 
-Always apply the `karpathy-guidelines` skill when writing, reviewing, or refactoring code. Do not apply it during planning, grilling, or brainstorming sessions.
+## Architecture
+
+```
+config/
+  CLAUDE.md   — global Claude Code instructions (copied to ~/CLAUDE.md on install)
+  AGENTS.md   — global Codex instructions (copied to ~/.codex/AGENTS.md on install)
+skills/
+  iso-ai-init/SKILL.md   — original skill, exposed via .claude-plugin/plugin.json
+scripts/
+  install.js             — deploys config files + installs skill packs globally
+.claude-plugin/
+  plugin.json            — registers this repo as a skills.sh plugin
+```
+
+`scripts/install.js` installs these upstream skill packs globally for both `claude-code` and `codex`:
+- `juliusbrussee/caveman` — token-compressed communication
+- `safishamsi/graphify` — codebase → knowledge graph
+- `forrestchang/andrej-karpathy-skills` — LLM coding guidelines
+- `mattpocock/skills` — planning/debugging/TDD workflows
+- `IsaiaScope/ai` — this repo itself (iso-ai-init skill)
+
+## Adding a Skill
+
+1. Create `skills/<name>/SKILL.md`
+2. Register in `.claude-plugin/plugin.json` under `"skills"`
+3. Re-run `node scripts/install.js` — the `IsaiaScope/ai` pack entry picks it up automatically
+
+## Editing Global Agent Instructions
+
+Edit `config/CLAUDE.md` (Claude Code) or `config/AGENTS.md` (Codex), then run `node scripts/install.js` to deploy.

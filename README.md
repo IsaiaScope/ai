@@ -74,10 +74,10 @@ Source: [forrestchang/andrej-karpathy-skills](https://github.com/forrestchang/an
 
 | File | Copied to | Agent |
 |------|-----------|-------|
-| `CLAUDE.md` | `~/CLAUDE.md` | Claude Code |
-| `AGENTS.md` | `~/.codex/AGENTS.md` | Codex |
+| `config/CLAUDE.md` | `~/CLAUDE.md` | Claude Code |
+| `config/AGENTS.md` | `~/.codex/AGENTS.md` | Codex |
 
-Repo is source of truth. Edit here, commit, re-run `node scripts/install.js` to apply.
+Repo is source of truth. Edit in `config/`, commit, re-run `node scripts/install.js` to apply.
 
 ---
 

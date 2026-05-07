@@ -11,16 +11,16 @@ const home = homedir();
 console.log("IsaiaScope/ai — installing...\n");
 
 // Copy CLAUDE.md to home (always overwrite — repo is source of truth)
-const src = join(repoRoot, "CLAUDE.md");
+const src = join(repoRoot, "config", "CLAUDE.md");
 const dest = join(home, "CLAUDE.md");
 copyFileSync(src, dest);
-console.log(`✓ CLAUDE.md → ${dest}`);
+console.log(`✓ config/CLAUDE.md → ${dest}`);
 
 // Copy AGENTS.md to ~/.codex/ (Codex global instructions)
 const codexDir = join(home, ".codex");
 mkdirSync(codexDir, { recursive: true });
-copyFileSync(join(repoRoot, "AGENTS.md"), join(codexDir, "AGENTS.md"));
-console.log(`✓ AGENTS.md → ${join(codexDir, "AGENTS.md")}`);
+copyFileSync(join(repoRoot, "config", "AGENTS.md"), join(codexDir, "AGENTS.md"));
+console.log(`✓ config/AGENTS.md → ${join(codexDir, "AGENTS.md")}`);
 
 // Install skill packs: [pack, agents]
 const packs = [
