@@ -1,6 +1,6 @@
 ---
 name: iso-ai-init
-description: Initialize a repo with IsaiaScope AI defaults — caveman ultra + shrink, graphify knowledge graph, and Husky + release-it + commitlint (Node.js only). Use when the user runs /iso-ai-init or asks to set up a new repo with AI tooling.
+description: Initialize a repo with IsaiaScope AI defaults — caveman ultra + shrink, graphify knowledge graph, and Husky + commitlint (Node.js only). Use when the user runs /iso-ai-init or asks to set up a new repo with AI tooling.
 ---
 
 # iso-ai-init
@@ -87,7 +87,7 @@ Skip if no `package.json`.
 
 ```bash
 [ -d .husky ] && ls .husky/ || echo "no .husky"
-grep -E '"husky"|"release-it"|"@commitlint"' package.json
+grep -E '"husky"|"@commitlint"' package.json
 ```
 
 Do not overwrite existing hooks without checking content first.
@@ -96,8 +96,8 @@ Do not overwrite existing hooks without checking content first.
 
 Only install packages not already in `package.json` (from 3a audit). Skip any already present.
 
-pnpm: `pnpm add -D -w husky release-it @release-it/conventional-changelog @commitlint/cli @commitlint/config-conventional`
-npm:  `npm install --save-dev husky release-it @release-it/conventional-changelog @commitlint/cli @commitlint/config-conventional`
+pnpm: `pnpm add -D -w husky @commitlint/cli @commitlint/config-conventional`
+npm:  `npm install --save-dev husky @commitlint/cli @commitlint/config-conventional`
 
 ### 3c — Init Husky (only if `.husky/` missing)
 
@@ -127,13 +127,10 @@ Only uncomment `scope-enum` if the repo has a clean, consistent scope set. Popul
 
 If history has free-text scopes (spaces, commas, arbitrary strings) — leave `scope-enum` commented. `scope-empty` alone is sufficient.
 
-Read `templates/release-it.json` → write to `.release-it.json`.
-
 ### 3f — Add missing scripts to `package.json`
 
 Only add if not already present:
 - `"prepare": "husky"`
-- `"release": "release-it"`
 - `"graphify": "graphify update ."`
 
 ## Step 4 — Summary
@@ -141,15 +138,15 @@ Only add if not already present:
 ```
 ✓ Caveman ultra + shrink + statusline (--all)
 ✓ Graphify skill wired — run /graphify to generate initial graph
-✓ Husky + release-it + commitlint   [or: skipped — non-Node repo]
+✓ Husky + commitlint   [or: skipped — non-Node repo]
   ├── .husky/commit-msg   → auto-detects PM (pnpm/bun/yarn/npm)
   ├── .husky/post-commit  → graphify update .
   └── commitlint: scope required, emoji allowed, scope-enum: [list]
 ```
 
 Commit format:
-- `fix(italian): 🐛 resolve piva validation` → patch
-- `feat(dashboard): ✨ add usage chart` → minor
-- `feat(api-core)!: 💥 remove legacy auth` → major
+- `fix(italian): 🐛 resolve piva validation`
+- `feat(dashboard): ✨ add usage chart`
+- `feat(api-core)!: 💥 remove legacy auth`
 
 Remind user: restart Claude Code to activate hooks.
