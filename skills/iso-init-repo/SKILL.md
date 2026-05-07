@@ -11,13 +11,55 @@ All templates live in `templates/` next to this file.
 
 ## Pre-flight
 
-```bash
-# Verify gh CLI authenticated
-gh auth status
+Run these checks before any step.
 
-# Detect if remote already exists
+### git
+```bash
+command -v git &>/dev/null \
+  || { echo "✗ git not found. Install Xcode CLI tools: xcode-select --install"; exit 1; }
+```
+
+### gh (GitHub CLI)
+```bash
+if ! command -v gh &>/dev/null; then
+  echo "⚠ gh not found — installing..."
+  brew install gh
+  command -v gh &>/dev/null \
+    || { echo "✗ gh install failed. Run manually: brew install gh"; exit 1; }
+  echo "✓ gh installed"
+fi
+```
+
+### gh authentication
+
+Authentication is interactive — cannot be automated. If not authenticated, stop and run the login command manually.
+
+```bash
+if ! gh auth status &>/dev/null; then
+  echo "⚠ gh not authenticated."
+  echo "  Run: gh auth login"
+  echo "  Then re-run /iso-init-repo"
+  exit 1
+fi
+```
+
+### Remote detection
+```bash
 git remote get-url origin 2>/dev/null || echo "no remote"
 ```
+
+### node / npx (Node repos — commitlint + version-bump)
+
+Only relevant when `package.json` exists. Warns rather than fails — repo/branch steps still run.
+
+```bash
+if [ -f package.json ] && ! command -v npx &>/dev/null; then
+  echo "⚠ node/npx not found — Steps 5–6 (commitlint, version-bump) will be skipped."
+  echo "  Install Node.js: https://nodejs.org or via nvm/fnm"
+fi
+```
+
+All checks pass → proceed to Step 1.
 
 ## Step 1 — GitHub repo
 
