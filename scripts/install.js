@@ -27,6 +27,7 @@ const packs = [
   ["juliusbrussee/caveman",                   "claude-code,codex"],
   ["safishamsi/graphify",                      "claude-code,codex"],
   ["forrestchang/andrej-karpathy-skills",      "claude-code,codex"],
+  ["mattpocock/skills",                        "claude-code,codex"],
   ["IsaiaScope/ai",                            "claude-code,codex"],
 ];
 

@@ -28,9 +28,10 @@ This will:
 2. Copy `AGENTS.md` → `~/.codex/AGENTS.md` (Codex global instructions)
 3. Install [caveman](https://github.com/juliusbrussee/caveman) — Claude Code + Codex
 4. Install [graphify](https://github.com/safishamsi/graphify) — Claude Code + Codex
-5. Install [karpathy-guidelines](https://github.com/forrestchang/andrej-karpathy-skills) globally
-6. Install [notion-notes](#-notion-notes) — Claude Code + Codex
-7. Update all global skills to latest versions
+5. Install [karpathy-guidelines](https://github.com/forrestchang/andrej-karpathy-skills) — Claude Code + Codex
+6. Install [mattpocock/skills](https://github.com/mattpocock/skills) — Claude Code + Codex
+7. Install [notion-notes](#-notion-notes) — Claude Code + Codex
+8. Update all global skills to latest versions
 
 Re-run anytime to update.
 
