@@ -7,6 +7,7 @@ When both Matt Pocock and Superpowers skills could apply, always prefer Matt Poc
 | Task | Use | Not |
 |------|-----|-----|
 | Planning / alignment | `grill-with-docs` or `grill-me` | `superpowers:brainstorming` |
+| Writing a PRD / plan | `to-prd` | `superpowers:writing-plans` |
 | Test-driven work | `tdd` | `superpowers:test-driven-development` |
 | Debugging | `diagnose` | `superpowers:systematic-debugging` |
 | Writing a skill | `write-a-skill` | `superpowers:writing-skills` |
