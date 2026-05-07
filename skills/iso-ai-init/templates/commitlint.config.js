@@ -11,7 +11,13 @@ module.exports = {
     // 'scope-enum': [2, 'always', [
     //   'dashboard', 'italian', 'marketing',       // apps
     //   'api-core', 'auth', 'billing', 'config', 'db', 'fiscal-it', 'types', 'ui', // packages
-    //   'ci', 'deps', 'docs', 'release', 'repo',  // cross-cutting
+    //   'ci', 'deps', 'docs', 'repo',              // cross-cutting
     // ]],
   },
 };
+
+// Version-bump contract (post-commit-version-bump.sh):
+//   feat(scope)!: or BREAKING CHANGE: in body → major
+//   feat(scope):                               → minor
+//   everything else                            → patch
+// --amend uses --no-verify so commitlint never runs twice.
