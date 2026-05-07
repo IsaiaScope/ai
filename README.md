@@ -30,8 +30,7 @@ This will:
 4. Install [graphify](https://github.com/safishamsi/graphify) — Claude Code + Codex
 5. Install [karpathy-guidelines](https://github.com/forrestchang/andrej-karpathy-skills) — Claude Code + Codex
 6. Install [mattpocock/skills](https://github.com/mattpocock/skills) — Claude Code + Codex
-7. Install [notion-notes](#-notion-notes) — Claude Code + Codex
-8. Update all global skills to latest versions
+7. Update all global skills to latest versions
 
 Re-run anytime to update.
 
@@ -44,7 +43,7 @@ Re-run anytime to update.
 Initialize any repo with IsaiaScope AI defaults in one command:
 - Caveman ultra + shrink MCP + statusline token badge
 - Graphify knowledge graph (`graphify .` → `graphify-out/`)
-- Husky + commitlint + auto version-bump on every commit (Node.js only, auto-detected)
+- Husky + commitlint + conventional-commit-aware version bump (patch/minor/major, amends same commit)
 
 ```
 /iso-ai-init
@@ -68,8 +67,8 @@ Initialize any repo with IsaiaScope AI defaults in one command:
 Wire GitHub repo governance in one command:
 - `dev ← test ← prod` branch structure with protection rules
 - CI prod-gate workflow — only PRs from `test` merge to `prod`
-- Auto version-bump post-commit hook (Node.js only)
-- `/deploy-cascade` slash command for Claude Code
+- Conventional-commit-aware version bump hook (skipped if no `package.json`)
+- `/deploy-cascade` slash command — caveman ultra output, any branch except `prod`
 
 ```
 /iso-init-repo
