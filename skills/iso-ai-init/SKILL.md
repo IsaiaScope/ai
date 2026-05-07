@@ -29,10 +29,11 @@ else echo "npm"; fi
 
 All caveman setup lives in `templates/caveman-init.sh` + `templates/caveman-config.json`.
 
-Read `templates/caveman-init.sh` and execute it from inside the repo:
+Read `templates/caveman-init.sh` and execute it from inside the repo.
+Use the skill base directory (where this SKILL.md lives) to resolve the path:
 
 ```bash
-bash ~/.claude/skills/iso-ai-init/templates/caveman-init.sh
+bash <skill-base-dir>/templates/caveman-init.sh
 ```
 
 The script handles all three sub-steps:
@@ -97,6 +98,8 @@ Do not overwrite existing hooks without checking content first.
 Only install packages not already in `package.json` (from 3a audit). Skip any already present.
 
 pnpm: `pnpm add -D -w husky @commitlint/cli @commitlint/config-conventional`
+yarn: `yarn add -D -W husky @commitlint/cli @commitlint/config-conventional`
+bun:  `bun add -d husky @commitlint/cli @commitlint/config-conventional`
 npm:  `npm install --save-dev husky @commitlint/cli @commitlint/config-conventional`
 
 ### 3c — Init Husky (only if `.husky/` missing)
@@ -108,8 +111,12 @@ npx husky init
 ### 3d — Write hooks from templates
 
 Read `templates/commit-msg.sh` → write to `.husky/commit-msg`, chmod +x. The hook detects the package manager at runtime — no substitution needed.
-Read `templates/post-commit.sh`     → write to `.husky/post-commit` (or append graphify block if file exists), chmod +x.
-Read `templates/post-commit-version-bump.sh` → append to `.husky/post-commit`, chmod +x.
+Read `templates/post-commit.sh` → write to `.husky/post-commit` (or append graphify block if file exists), chmod +x.
+Read `templates/post-commit-version-bump.sh` → write to `.husky/post-commit-version-bump.sh`, chmod +x.
+Append to `.husky/post-commit`:
+```bash
+bash "$(dirname "$0")/post-commit-version-bump.sh"
+```
 
 `post-commit-version-bump.sh` auto-bumps `package.json` version on every commit and amends it in:
 - `feat!:` / `BREAKING CHANGE:` → major
@@ -131,7 +138,7 @@ git log --oneline | sed -n 's/[^(]*(\([^)]*\)).*/\1/p' | sort -u
 Only uncomment `scope-enum` if the repo has a clean, consistent scope set. Populate it with the union of:
 - all scopes found in git history above
 - names from `ls apps/ packages/`
-- cross-cutting: `ci`, `deps`, `docs`, `release`, `repo`
+- cross-cutting: `ci`, `deps`, `docs`, `repo`
 
 If history has free-text scopes (spaces, commas, arbitrary strings) — leave `scope-enum` commented. `scope-empty` alone is sufficient.
 
