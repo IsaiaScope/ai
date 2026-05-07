@@ -15,8 +15,9 @@ This will:
 2. Copy `AGENTS.md` → `~/.codex/AGENTS.md` (Codex global instructions)
 3. Install [caveman](https://github.com/juliusbrussee/caveman) globally
 4. Install [graphify](https://github.com/safishamsi/graphify) globally
-5. Install [notion-notes](#notion-notes) globally
-6. Update all global skills to latest versions
+5. Install [karpathy-guidelines](https://github.com/forrestchang/andrej-karpathy-skills) globally
+6. Install [notion-notes](#notion-notes) globally
+7. Update all global skills to latest versions
 
 Re-run anytime to update.
 
@@ -30,6 +31,12 @@ Install standalone:
 ```bash
 npx skills@latest add IsaiaScope/ai
 ```
+
+### karpathy-guidelines
+
+Behavioral guidelines to reduce common LLM coding mistakes, derived from Andrej Karpathy's observations on LLM coding pitfalls.
+
+Source: [forrestchang/andrej-karpathy-skills](https://github.com/forrestchang/andrej-karpathy-skills)
 
 ### caveman
 
