@@ -1,6 +1,6 @@
 # IsaiaScope/ai
 
-My personal AI config layer — Claude Code skills, agent rules, and `CLAUDE.md` in one place.
+My personal AI config layer — skills for Claude Code and Codex, agent rules, and `CLAUDE.md` in one place.
 
 ## Quickstart
 

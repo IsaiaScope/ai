@@ -25,11 +25,11 @@ const packs = [
 
 for (const pack of packs) {
   console.log(`\n→ Installing ${pack}`);
-  execSync(`npx skills@latest add ${pack} -g -y`, { stdio: "inherit" });
+  execSync(`npx skills@latest add ${pack} -g -y --agent claude-code,codex`, { stdio: "inherit" });
 }
 
 // Update all global skills to latest versions
 console.log("\n→ Updating all global skills");
-execSync("npx skills@latest update -g -y", { stdio: "inherit" });
+execSync("npx skills@latest update -g -y --agent claude-code,codex", { stdio: "inherit" });
 
 console.log("\n✓ Done.");
