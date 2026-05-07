@@ -59,34 +59,50 @@ Statusline shows: `…/repo/dir   branch   ctx:75%   $5.82   ULTRA`
 ## Step 2 — Graphify
 
 ```bash
-# install if missing (prefer uv, fall back to pipx)
+# 2a — install CLI if missing (prefer uv, fall back to pipx)
 if ! command -v graphify 2>/dev/null; then
   uv tool install graphifyy || pipx install graphifyy
 else
   echo "graphify: already installed, skipping"
 fi
 
-# wire skill (always run — global, no repo needed)
-graphify install                      # Claude Code
-graphify install --platform codex     # Codex
+# 2b — wire skill (graphify install is idempotent, but check first to avoid noise)
+grep -q "## graphify" CLAUDE.md 2>/dev/null \
+  && echo "graphify: CLAUDE.md block already present, skipping install" \
+  || { graphify install; graphify install --platform codex; }
+
+# 2c — add graphify-out/ to .gitignore if missing
+grep -q "graphify-out" .gitignore 2>/dev/null \
+  || echo "graphify-out/" >> .gitignore
 ```
 
-Check if inside a git repo:
-
+**2d — Initial graph (requires LLM):** check first:
 ```bash
-git rev-parse --is-inside-work-tree 2>/dev/null || echo "not a repo"
+[ -f graphify-out/graph.json ] \
+  && echo "graphify: graph.json exists — run graphify update . to refresh (no LLM)" \
+  || echo "graphify: no graph found — need to build"
 ```
 
-**If not a git repo — stop here.** Graph generation requires a repo; skip the steps below.
-
-**Initial graph requires LLM — invoke via Skill tool:**
+If graph missing → invoke via Skill tool:
 ```
 Skill("graphify")   # pass repo root as input
 ```
 
-`graphify update .` = AST-only rebuild (no LLM) — used in hooks and scripts.
+If graph exists → skip LLM build. Optionally run `graphify update .` (AST-only, no cost).
 
-Add `graphify-out/` to `.gitignore` if missing.
+**2e — Non-Node repos: native git post-commit hook**
+
+Skip if `package.json` exists (Husky handles it in Step 3).
+
+```bash
+if [ ! -f package.json ]; then
+  if grep -q "graphify-hook-start" .git/hooks/post-commit 2>/dev/null; then
+    echo "graphify: post-commit hook already installed, skipping"
+  else
+    graphify hook install
+  fi
+fi
+```
 
 ## Step 3 — Node.js tooling
 
@@ -118,12 +134,50 @@ npx husky init
 
 ### 3d — Write hooks from templates
 
-Read `templates/commit-msg.sh` → write to `.husky/commit-msg`, chmod +x. The hook detects the package manager at runtime — no substitution needed.
-Read `templates/post-commit.sh` → write to `.husky/post-commit` (or append graphify block if file exists), chmod +x.
+Run all four sub-steps independently. Each has its own guard — a skip in one does NOT skip the others.
+
+**3d-i — commit-msg:**
+```bash
+grep -q "commitlint" .husky/commit-msg 2>/dev/null \
+  && echo "commit-msg: already configured, skipping" \
+  || { cat templates/commit-msg.sh > .husky/commit-msg && chmod +x .husky/commit-msg; }
+```
+
+**3d-ii — post-commit graphify block** (independent of 3d-iii and 3d-iv):
+```bash
+grep -q "graphify-hook-start" .husky/post-commit 2>/dev/null \
+  && echo "post-commit: graphify block already present, skipping" \
+  || { cat templates/post-commit.sh >> .husky/post-commit && chmod +x .husky/post-commit; }
+```
+
+**3d-iii — post-commit-version-bump.sh script** (always overwrite — self-contained, safe):
+```bash
+cp templates/post-commit-version-bump.sh .husky/post-commit-version-bump.sh
+chmod +x .husky/post-commit-version-bump.sh
+```
+
+**3d-iv — version-bump invocation in post-commit** (independent of 3d-ii — MUST always run):
+```bash
+grep -q "post-commit-version-bump.sh" .husky/post-commit 2>/dev/null \
+  && echo "post-commit: version-bump invocation already present, skipping" \
+  || echo 'bash "$(dirname "$0")/post-commit-version-bump.sh"' >> .husky/post-commit
+```
+
+`post-commit-version-bump.sh` auto-bumps `package.json` version on every commit and amends it in:
+- `feat!:` / `BREAKING CHANGE:` → major
+- `feat:` → minor
+- everything else → patch
+
+Re-trigger guard uses `.git/VERSION_BUMP_RUNNING` temp file (env vars don't survive `--amend` subprocess boundary).
 
 ### 3e — Write configs from templates
 
-Read `templates/commitlint.config.js` → write to `commitlint.config.js`.
+**commitlint.config.js:** check before writing:
+```bash
+[ -f commitlint.config.js ] \
+  && echo "commitlint.config.js: already exists, skipping — review manually if needed" \
+  || cp templates/commitlint.config.js commitlint.config.js
+```
 
 **Before enabling `scope-enum`**, audit all scopes already in git history — enabling it without this step will block existing commits:
 
@@ -148,11 +202,12 @@ Only add if not already present:
 
 ```
 ✓ Caveman ultra + shrink + statusline (--all)
-✓ Graphify skill wired — run /graphify to generate initial graph
-✓ Husky + commitlint   [or: skipped — non-Node repo]
+✓ Graphify skill wired — run /graphify to generate initial graph (skipped if graph.json exists)
+✓ Husky + commitlint   [Node repo]
   ├── .husky/commit-msg   → commitlint (auto-detects PM)
-  ├── .husky/post-commit  → graphify update .
+  ├── .husky/post-commit  → graphify update . + version bump (major/minor/patch)
   └── commitlint: scope required, emoji allowed, scope-enum: [list]
+✓ git post-commit hook   [non-Node repo — graphify hook install]
 ```
 
 Commit format:
