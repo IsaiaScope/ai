@@ -109,13 +109,12 @@ Branch protection can't restrict PR source branch — that's what `ci-prod-gate.
 
 ## Step 4 — GitHub files
 
-Read `templates/pull_request_template.md` → write to `.github/pull_request_template.md`.
 Read `templates/ci-prod-gate.yml` → write to `.github/workflows/ci-prod-gate.yml`.
 
 ```bash
 git checkout dev
 git add .github/
-git commit -m "chore(repo): add PR template and prod-gate workflow"
+git commit -m "chore(repo): add prod-gate workflow"
 git push origin dev
 ```
 
@@ -138,16 +137,16 @@ git commit -m "chore(repo): add version-bump post-commit hook"
 git push origin dev
 ```
 
-## Step 6 — Deploy command
+## Step 6 — Deploy cascade command
 
-Read `templates/deploy-command.md` → write to `.claude/commands/deploy.md`.
+Read `templates/deploy-cascade-command.md` → write to `.claude/commands/deploy-cascade.md`.
 
-This gives the repo a `/deploy` command for the feature→dev→test→prod cascade.
+This gives the repo a `/deploy-cascade` command. Starting point is auto-detected from current branch — can cascade from a feature branch, from `dev`, or from `test`.
 
 ```bash
 mkdir -p .claude/commands
-git add .claude/commands/deploy.md
-git commit -m "chore(repo): add /deploy cascade command"
+git add .claude/commands/deploy-cascade.md
+git commit -m "chore(repo): add /deploy-cascade command"
 git push origin dev
 ```
 
@@ -157,11 +156,11 @@ git push origin dev
 ✓ GitHub repo created/configured
 ✓ Branches: dev (default) ← test ← prod
 ✓ Protection: PR required on dev, test, prod (no direct push)
-✓ .github/pull_request_template.md
-✓ .github/workflows/ci-prod-gate.yml  — prod accepts PRs from test only
-✓ .husky/post-commit-version-bump.sh  [or: skipped — no package.json]
-✓ .claude/commands/deploy.md          — /deploy cascade command
+✓ .github/workflows/ci-prod-gate.yml       — prod accepts PRs from test only
+✓ .husky/post-commit-version-bump.sh       [or: skipped — no package.json]
+✓ .claude/commands/deploy-cascade.md       — /deploy-cascade command
 ```
 
 Cascade: `feature → dev → test → prod`
+`/deploy-cascade` auto-detects starting point — run from feature branch, `dev`, or `test`.
 Prod-gate: PRs to `prod` from any branch other than `test` fail CI automatically.
