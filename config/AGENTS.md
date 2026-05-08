@@ -2,16 +2,16 @@
 
 ## Skill Priority
 
-Prefer these Matt Pocock skills for their respective tasks:
+When both Matt Pocock and Superpowers skills could apply, always prefer Matt Pocock's:
 
-| Task | Use |
-|------|-----|
-| Planning / alignment | `grill-with-docs` or `grill-me` |
-| Writing a PRD / plan | `to-prd` |
-| Test-driven work | `tdd` |
-| Debugging | `diagnose` |
-| Writing a skill | `write-a-skill` |
+| Task | Use | Not |
+|------|-----|-----|
+| Planning / alignment | `grill-with-docs` or `grill-me` | `superpowers:brainstorming` |
+| Writing a PRD / plan | `to-prd` | `superpowers:writing-plans` |
+| Test-driven work | `tdd` | `superpowers:test-driven-development` |
+| Debugging | `diagnose` | `superpowers:systematic-debugging` |
+| Writing a skill | `write-a-skill` | `superpowers:writing-skills` |
 
 ## When Implementing Code
 
-Always apply the `karpathy-guidelines` skill when writing, reviewing, or refactoring code. Do not apply it during planning or alignment sessions.
+Always apply the `karpathy-guidelines` skill when writing, reviewing, or refactoring code. Do not apply it during planning, grilling, or brainstorming sessions.
