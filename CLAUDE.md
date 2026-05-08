@@ -17,11 +17,15 @@ config/
   CLAUDE.md   — global Claude Code instructions (copied to ~/CLAUDE.md on install)
   AGENTS.md   — global Codex instructions (copied to ~/.codex/AGENTS.md on install)
 skills/
-  iso-ai-init/SKILL.md   — original skill, exposed via .claude-plugin/plugin.json
+  iso-ai-init/SKILL.md             — initialize a repo with IsaiaScope AI defaults
+  iso-init-repo/SKILL.md           — initialize repo governance (branches, CI, hooks)
+  iso-implementation/SKILL.md      — Claude-side pipeline orchestrator
+  iso-dispatch-to-codex/SKILL.md   — Claude-side thin brief builder for Codex handoff
+  iso-codex-implementation/SKILL.md — Codex-side TDD execution protocol
 scripts/
-  install.js             — deploys config files + installs skill packs globally
+  install.js                        — deploys config files + installs skill packs globally
 .claude-plugin/
-  plugin.json            — registers this repo as a skills.sh plugin
+  plugin.json                       — registers this repo as a skills.sh plugin
 ```
 
 `scripts/install.js` installs these upstream skill packs globally for both `claude-code` and `codex`:
