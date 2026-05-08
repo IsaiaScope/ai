@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 node scripts/install.js
 ```
 
-Copies `config/CLAUDE.md` → `~/CLAUDE.md` and `config/AGENTS.md` → `~/.codex/AGENTS.md`, then installs/updates all skill packs via `npx skills@latest`. No build step, no tests, no package.json.
+Copies `config/CLAUDE.md` → `~/CLAUDE.md` and `config/AGENTS.md` → `~/.codex/AGENTS.md`, installs upstream skill packs via `npx skills@latest`, and symlinks the local `IsaiaScope/ai` skills directly into the right agent's skills dir (Claude-side → `~/.claude/skills/`, Codex-side → `~/.codex/skills/`) so each skill only appears for the agent that needs it. No build step, no tests, no package.json.
 
 ## Architecture
 
@@ -33,13 +33,15 @@ scripts/
 - `safishamsi/graphify` — codebase → knowledge graph
 - `forrestchang/andrej-karpathy-skills` — LLM coding guidelines
 - `mattpocock/skills` — planning/debugging/TDD workflows
-- `IsaiaScope/ai` — this repo itself (iso-ai-init skill)
+
+The local `IsaiaScope/ai` skills are NOT installed via the marketplace pack. They are listed inline in `scripts/install.js` with an explicit per-agent target so each skill is symlinked only into the agent that should see it. Update that list when adding a new skill.
 
 ## Adding a Skill
 
 1. Create `skills/<name>/SKILL.md`
-2. Register in `.claude-plugin/plugin.json` under `"skills"`
-3. Re-run `node scripts/install.js` — the `IsaiaScope/ai` pack entry picks it up automatically
+2. Register in `.claude-plugin/plugin.json` under `"skills"` (for marketplace discovery)
+3. Add an entry to the `localSkills` array in `scripts/install.js` with the right `agent` (`claude-code` or `codex`)
+4. Re-run `node scripts/install.js`
 
 ## Editing Global Agent Instructions
 

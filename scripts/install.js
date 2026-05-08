@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const { execSync } = require("child_process");
-const { copyFileSync, mkdirSync } = require("fs");
+const { copyFileSync, mkdirSync, readdirSync, lstatSync, unlinkSync, symlinkSync, rmSync } = require("fs");
 const { join } = require("path");
 const { homedir } = require("os");
 
@@ -22,13 +22,13 @@ mkdirSync(codexDir, { recursive: true });
 copyFileSync(join(repoRoot, "config", "AGENTS.md"), join(codexDir, "AGENTS.md"));
 console.log(`✓ config/AGENTS.md → ${join(codexDir, "AGENTS.md")}`);
 
-// Install skill packs: [pack, agents[]]
+// Install upstream skill packs: [pack, agents[]]
+// IsaiaScope/ai is NOT here — its skills are deployed locally below with per-agent targeting.
 const packs = [
   ["juliusbrussee/caveman",                   ["claude-code", "codex"]],
   ["safishamsi/graphify",                      ["claude-code", "codex"]],
   ["forrestchang/andrej-karpathy-skills",      ["claude-code", "codex"]],
   ["mattpocock/skills",                        ["claude-code", "codex"]],
-  ["IsaiaScope/ai",                            ["claude-code", "codex"]],
 ];
 
 for (const [pack, agents] of packs) {
@@ -37,8 +37,67 @@ for (const [pack, agents] of packs) {
   execSync(`npx skills@latest add ${pack} -g -y ${agentFlags}`, { stdio: "inherit" });
 }
 
-// Update all global skills to latest versions
-console.log("\n→ Updating all global skills");
+// Update upstream global skills to latest versions
+console.log("\n→ Updating upstream global skills");
 execSync("npx skills@latest update -g -y --agent claude-code --agent codex", { stdio: "inherit" });
+
+// Local skills with explicit per-agent targeting.
+// Each entry deploys via direct symlink into the agent's skills dir.
+const localSkills = [
+  { dir: "iso-ai-init",              agent: "claude-code" },
+  { dir: "iso-init-repo",            agent: "claude-code" },
+  { dir: "iso-implementation",       agent: "claude-code" },
+  { dir: "iso-dispatch-to-codex",    agent: "claude-code" },
+  { dir: "iso-codex-implementation", agent: "codex" },
+];
+
+const agentSkillsDir = {
+  "claude-code": join(home, ".claude", "skills"),
+  "codex":       join(home, ".codex", "skills"),
+};
+
+console.log("\n→ Linking local IsaiaScope/ai skills (per-agent)");
+for (const dir of Object.values(agentSkillsDir)) mkdirSync(dir, { recursive: true });
+
+// Remove any pre-existing IsaiaScope/ai skill links from the wrong agent (cleanup from prior dual-deploy)
+const isaiaSkillNames = new Set(localSkills.map(s => s.dir));
+for (const [agent, dir] of Object.entries(agentSkillsDir)) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!isaiaSkillNames.has(entry.name)) continue;
+    const targetAgent = localSkills.find(s => s.dir === entry.name).agent;
+    if (targetAgent === agent) continue;
+    const wrongLink = join(dir, entry.name);
+    try {
+      const stat = lstatSync(wrongLink);
+      if (stat.isSymbolicLink()) unlinkSync(wrongLink);
+      else rmSync(wrongLink, { recursive: true, force: true });
+      console.log(`  ✗ removed wrong-agent install: ${wrongLink}`);
+    } catch {}
+  }
+}
+
+// Create or refresh symlinks for the right agent
+for (const { dir, agent } of localSkills) {
+  const src = join(repoRoot, "skills", dir);
+  const target = join(agentSkillsDir[agent], dir);
+  try { unlinkSync(target); } catch {}
+  symlinkSync(src, target);
+  console.log(`  ✓ ${dir.padEnd(28)} → ${target}`);
+}
+
+// Also clean up any old IsaiaScope/ai symlinks from ~/.agents/skills/ (the universal storage skills.sh used)
+const universalDir = join(home, ".agents", "skills");
+try {
+  for (const entry of readdirSync(universalDir, { withFileTypes: true })) {
+    if (!isaiaSkillNames.has(entry.name) && entry.name !== "dispatch-to-codex") continue;
+    const path = join(universalDir, entry.name);
+    try {
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) unlinkSync(path);
+      else rmSync(path, { recursive: true, force: true });
+      console.log(`  ✗ removed stale universal install: ${path}`);
+    } catch {}
+  }
+} catch {}
 
 console.log("\n✓ Done.");
