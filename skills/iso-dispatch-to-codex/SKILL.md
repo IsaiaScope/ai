@@ -141,16 +141,21 @@ That is the entire brief. The protocol body lives in `iso-codex-implementation`.
 
 ## Step 6: Launch Warp
 
+Copy the codex command to the clipboard and activate Warp. The user opens a new tab and pastes manually (Cmd-T, Cmd-V, Enter) — 3 keystrokes. This avoids macOS Accessibility permission grants that `System Events` keystrokes would require.
+
 ```bash
-ENCODED_CMD=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.stdin.read()))" <<< 'codex "$(cat /tmp/codex-dispatch.txt)"')
-open "warp://action/new_tab?command=${ENCODED_CMD}"
+printf 'codex "$(cat /tmp/codex-dispatch.txt)"' | pbcopy
+osascript -e 'tell application "Warp" to activate' 2>/dev/null
 ```
 
-If the Warp URL scheme fails, print the manual fallback:
+If Warp is not installed, `osascript` exits non-zero — proceed; the printed fallback covers it.
+
+Always print the dispatch hint:
 
 ```
-Run in a new terminal:
-  codex "$(cat /tmp/codex-dispatch.txt)"
+✓ Codex command on clipboard. In Warp: Cmd-T (new tab) → Cmd-V (paste) → Enter.
+  Manual fallback: open any terminal, paste from clipboard, run.
+  Brief at: /tmp/codex-dispatch.txt
 ```
 
 ## Step 7: Confirm
