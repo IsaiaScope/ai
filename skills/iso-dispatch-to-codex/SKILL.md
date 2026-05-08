@@ -139,23 +139,41 @@ Begin now. Do not commit. Stay in REPL after completion.
 
 That is the entire brief. The protocol body lives in `iso-codex-implementation`.
 
-## Step 6: Launch Warp
+## Step 6: Launch Warp (automatic via osascript keystrokes)
 
-Copy the codex command to the clipboard and activate Warp. The user opens a new tab and pastes manually (Cmd-T, Cmd-V, Enter) — 3 keystrokes. This avoids macOS Accessibility permission grants that `System Events` keystrokes would require.
+Drive Warp via `osascript`: copy the codex command to the clipboard, activate Warp, open a new tab (Cmd-T), paste (Cmd-V), and press Enter. Fully automatic — no manual paste.
+
+**Requires Accessibility permission** for `/usr/bin/osascript` (System Settings → Privacy & Security → Accessibility → add `/usr/bin/osascript`, toggle on). Without it, `System Events` keystrokes fail with error 1002.
 
 ```bash
 printf 'codex "$(cat /tmp/codex-dispatch.txt)"' | pbcopy
-osascript -e 'tell application "Warp" to activate' 2>/dev/null
+
+osascript <<'AS' 2>/tmp/iso-dispatch-osa.err
+tell application "Warp" to activate
+delay 0.5
+tell application "System Events"
+  keystroke "t" using command down
+  delay 0.6
+  keystroke "v" using command down
+  delay 0.2
+  key code 36
+end tell
+AS
+osa_status=$?
 ```
 
-If Warp is not installed, `osascript` exits non-zero — proceed; the printed fallback covers it.
-
-Always print the dispatch hint:
+If `osa_status` is non-zero (Accessibility not granted, Warp not installed, or other error), print the manual fallback and the error:
 
 ```
+⚠ osascript failed (see /tmp/iso-dispatch-osa.err). Falling back to manual paste.
 ✓ Codex command on clipboard. In Warp: Cmd-T (new tab) → Cmd-V (paste) → Enter.
-  Manual fallback: open any terminal, paste from clipboard, run.
   Brief at: /tmp/codex-dispatch.txt
+```
+
+On success, print:
+
+```
+✓ Codex dispatched to a new Warp tab automatically.
 ```
 
 ## Step 7: Confirm
