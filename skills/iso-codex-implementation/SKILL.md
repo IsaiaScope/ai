@@ -38,12 +38,13 @@ Read `<plan_path>` end-to-end before any action. Understand all tasks, file stru
 Parse the plan filename: `YYYY-MM-DD-<type>-<slug>.md`.
 
 - Strip the date prefix (`YYYY-MM-DD-`).
-- Extract `<type>` from the next token; must be one of `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `perf`. If unknown, halt with: `iso-codex-implementation: unknown type prefix in plan filename`.
-- The remainder is `<slug>`. Empty slug → halt: `iso-codex-implementation: empty slug after type prefix`.
+- Extract `<type>` from the next token; if it is one of `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `perf`, use it and set `<slug>` to the remainder.
+- If the next token is not a known type, default `<type>=feat` and set `<slug>` to the full filename remainder after the date prefix.
+- Empty slug → halt: `iso-codex-implementation: empty slug after type prefix`.
 - Branch: `<type>/<slug>`
 - Worktree path: `<worktree_base>/<repo>-<slug>`
 
-If `<type>` field is missing entirely (e.g. `2026-05-08-something.md`), default `<type>=feat`, `<slug>=something`.
+If `<type>` field is missing entirely or unknown (e.g. `2026-05-08-something.md` or `2026-05-08-open-design.md`), default `<type>=feat`.
 
 ## Step 3: Check collisions and create worktree
 
