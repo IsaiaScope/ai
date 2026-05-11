@@ -5,7 +5,7 @@ description: Dispatch a plan to Codex CLI in a new Warp tab. Builds a thin brief
 
 # iso-dispatch-to-codex
 
-Hand off an implementation plan to Codex CLI. Builds a parameter-only brief written to `/tmp/codex-dispatch.txt`, then opens a new Warp terminal tab running `codex "$(cat /tmp/codex-dispatch.txt)"`. The Codex side activates `iso-codex-implementation`, which owns the protocol.
+Hand off an implementation plan to Codex CLI. Builds a parameter-only brief written to `/tmp/codex-dispatch-<run_id>.txt` (per-run path to avoid collisions with concurrent dispatches), then opens a new Warp terminal tab running `codex "$(cat /tmp/codex-dispatch-<run_id>.txt)"`. The Codex side activates `iso-codex-implementation`, which owns the protocol.
 
 ## Pre-flight
 
@@ -120,7 +120,7 @@ From the current working directory:
 
 ## Step 5: Build the thin brief
 
-Write to `/tmp/codex-dispatch.txt`:
+Write to `/tmp/codex-dispatch-${run_id}.txt` (per-run path — a single global `/tmp/codex-dispatch.txt` would race with concurrent dispatches):
 
 ```
 You have been dispatched a plan from Claude Code via iso-dispatch-to-codex.
@@ -146,7 +146,8 @@ Drive Warp via `osascript`: copy the codex command to the clipboard, activate Wa
 **Requires Accessibility permission** for `/usr/bin/osascript` (System Settings → Privacy & Security → Accessibility → add `/usr/bin/osascript`, toggle on). Without it, `System Events` keystrokes fail with error 1002.
 
 ```bash
-printf 'codex --dangerously-bypass-approvals-and-sandbox "$(cat /tmp/codex-dispatch.txt)"' | pbcopy
+brief_path="/tmp/codex-dispatch-${run_id}.txt"
+printf 'codex "$(cat %s)"' "$brief_path" | pbcopy
 
 osascript <<'AS' 2>/tmp/iso-dispatch-osa.err
 tell application "Warp" to activate
@@ -167,7 +168,7 @@ If `osa_status` is non-zero (Accessibility not granted, Warp not installed, or o
 ```
 ⚠ osascript failed (see /tmp/iso-dispatch-osa.err). Falling back to manual paste.
 ✓ Codex command on clipboard. In Warp: Cmd-T (new tab) → Cmd-V (paste) → Enter.
-  Brief at: /tmp/codex-dispatch.txt
+  Brief at: /tmp/codex-dispatch-<run_id>.txt
 ```
 
 On success, print:
