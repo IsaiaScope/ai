@@ -147,7 +147,10 @@ Drive Warp via `osascript`: copy the codex command to the clipboard, activate Wa
 
 ```bash
 brief_path="/tmp/codex-dispatch-${run_id}.txt"
-printf 'codex "$(cat %s)"' "$brief_path" | pbcopy
+# Shell-quote the path before embedding into the clipboard command.
+# `${var@Q}` is bash's portable single-quote-with-escape, safe for any chars
+# in run_id (spaces, $, backticks, etc.).
+printf 'codex "$(cat %s)"' "${brief_path@Q}" | pbcopy
 
 osascript <<'AS' 2>/tmp/iso-dispatch-osa.err
 tell application "Warp" to activate
