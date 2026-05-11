@@ -146,7 +146,7 @@ Drive Warp via `osascript`: copy the codex command to the clipboard, activate Wa
 **Requires Accessibility permission** for `/usr/bin/osascript` (System Settings → Privacy & Security → Accessibility → add `/usr/bin/osascript`, toggle on). Without it, `System Events` keystrokes fail with error 1002.
 
 ```bash
-printf 'codex "$(cat /tmp/codex-dispatch.txt)"' | pbcopy
+printf 'codex --dangerously-bypass-approvals-and-sandbox "$(cat /tmp/codex-dispatch.txt)"' | pbcopy
 
 osascript <<'AS' 2>/tmp/iso-dispatch-osa.err
 tell application "Warp" to activate
