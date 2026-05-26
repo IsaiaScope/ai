@@ -7,6 +7,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Claude_Code-skills-CC785C?logo=anthropic&logoColor=white" alt="Claude Code" />
   <img src="https://img.shields.io/badge/Codex-skills-412991?logo=openai&logoColor=white" alt="Codex" />
+  <img src="https://img.shields.io/badge/Node-install-339933?logo=node.js&logoColor=white" alt="Node" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT" />
 </p>
 
