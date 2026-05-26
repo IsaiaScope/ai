@@ -56,8 +56,10 @@ fi
 #    before grep/find/rg-style Bash calls and, if graphify-out/graph.json
 #    exists, echoes a one-line suggestion to query the graph instead. It is
 #    read-only: no rebuild, no git, nothing destructive — categorically unlike a
-#    commit/husky hook. These files (.claude/, .agents/, CLAUDE.md, AGENTS.md)
-#    are meant to be version-controlled. Idempotent via grep guards.
+#    commit/husky hook. The portable guidance (CLAUDE.md/AGENTS.md "## graphify"
+#    section, .claude/settings.json query-nudge) is version-controlled; the
+#    regenerated/machine-specific wiring (skill copies, .codex/hooks.json) is
+#    gitignored in step 4. Idempotent via grep guards.
 if grep -q "## graphify" CLAUDE.md 2>/dev/null; then
   echo "graphify: CLAUDE.md already wired, skipping"
 else
@@ -115,15 +117,26 @@ else
     || echo "graphify: hook install failed (non-fatal)"
 fi
 
-# 4. Gitignore graphify artifacts. Two kinds:
+# 4. Gitignore graphify artifacts. Four kinds:
 #    - graphify-out/        : the graph output dir.
 #    - /.graphify_*.json    : transient pipeline scratch (detect/ast/analysis)
 #                             that the build can drop in the repo ROOT (cwd),
 #                             where graphify-out/ ignore doesn't reach → noise
 #                             in `git status`. Root-anchored (leading `/`) so it
-#                             never matches the committed `.graphify_version`
-#                             inside .claude/.agents skill copies. Idempotent
-#                             (exact-line match).
+#                             never matches a `.graphify_version` inside the skill
+#                             copies. Idempotent (exact-line match).
+#    - {.claude,.agents}/skills/graphify/ : the per-repo skill COPIES graphify
+#                             drops. Regenerated on every init, drift between
+#                             graphify versions, and the codex (.agents) copy
+#                             ships a stale/buggy variant (writes the python
+#                             marker into graphify-out/ but reads it from root).
+#                             Machine-local + regenerated → not version-controlled.
+#    - .codex/hooks.json    : the codex query-nudge hook, which graphify writes
+#                             with a MACHINE-SPECIFIC absolute graphify path
+#                             (e.g. /Users/<you>/.local/bin/graphify) → not
+#                             portable, regenerated per machine → gitignored.
+#    The portable, human-readable guidance — CLAUDE.md/AGENTS.md "## graphify"
+#    section and the .claude/settings.json query-nudge hook — stays committed.
 ignore_line() {
   local pat="$1" label="$2"
   if grep -qxF "$pat" .gitignore 2>/dev/null; then
@@ -135,6 +148,9 @@ ignore_line() {
 }
 ignore_line "graphify-out/" "graphify-out/"
 ignore_line "/.graphify_*.json" "root scratch (.graphify_*.json)"
+ignore_line ".claude/skills/graphify/" "claude skill copy"
+ignore_line ".agents/skills/graphify/" "codex skill copy"
+ignore_line ".codex/hooks.json" "codex hook (machine-specific path)"
 
 # 5. Sweep leftover root scratch. graphify drops pipeline intermediates as
 #    .graphify_*.json (detect/ast/analysis/extract/labels/semantic) in the repo

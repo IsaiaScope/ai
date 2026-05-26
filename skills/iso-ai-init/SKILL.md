@@ -81,7 +81,7 @@ bash <skill-base-dir>/templates/graphify-init.sh
 - installs/auto-updates the graphify CLI;
 - runs `graphify claude install --project` + `graphify codex install --project` — writes a `## graphify` section into repo-local `CLAUDE.md` / `AGENTS.md` telling the agent to prefer `graphify query "<q>"` over grepping. On Claude Code this also adds a PreToolUse **query-nudge hook** (`.claude/settings.json`) that fires *only* before grep/find-style Bash calls and just suggests querying the graph — read-only, no rebuild, no git: categorically unlike a commit/husky hook;
 - installs **auto-update git hooks** via `graphify hook install` — native `post-commit` + `post-checkout` scripts that rebuild the graph via AST on each commit/checkout. No LLM, no husky — plain `.git/hooks`. Doc/concept (LLM) changes still need a manual `/graphify --update`; the hook refreshes the *code* graph only;
-- gitignores `graphify-out/` (the graph artifacts). The wiring files `.claude/`, `.agents/`, `CLAUDE.md`, `AGENTS.md` are meant to be committed.
+- gitignores `graphify-out/` (the graph artifacts) plus the regenerated/machine-specific wiring: the per-repo skill copies (`.claude/skills/graphify/`, `.agents/skills/graphify/` — drift between graphify versions, codex copy ships buggy) and `.codex/hooks.json` (bakes in a machine-specific absolute graphify path). The portable guidance — the `## graphify` section in `CLAUDE.md`/`AGENTS.md` and the `.claude/settings.json` query-nudge hook — stays committed.
 
 It only drives the `graphify` CLI binary (its own interpreter — no `python` guessing). It does **not** build the graph itself — there is no CLI build verb; the full deep/semantic build is orchestrated by the `/graphify` *skill* (LLM subagents), which Step 3b runs next.
 
