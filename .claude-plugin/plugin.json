@@ -5,6 +5,7 @@
     "./skills/iso-init-repo",
     "./skills/iso-plan",
     "./skills/iso-write",
-    "./skills/iso-spawn"
+    "./skills/iso-spawn",
+    "./skills/iso-readme"
   ]
 }

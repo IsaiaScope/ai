@@ -47,6 +47,7 @@ Re-run anytime to update.
 | 🧭 [iso-plan](skills/iso-plan/) | Raw idea → written implementation plan (no code) | `/iso-plan` |
 | ✍️ [iso-write](skills/iso-write/) | Build a plan on a branch with TDD, no commits | `/iso-write <plan>` |
 | 🚀 [iso-spawn](skills/iso-spawn/) | Spawn a codex/claude agent in a herdr tab beside you | `/iso-spawn` |
+| 📝 [iso-readme](skills/iso-readme/) | Write/refine any README in the house style, commit + push | `/iso-readme` |
 
 **Upstream packs** — installed globally by `install.js`: [caveman](#-caveman) · [graphify](#-graphify) · [karpathy-guidelines](#-karpathy-guidelines) · [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -156,6 +157,24 @@ Spawn a `codex` or `claude` agent in its own [herdr](https://herdr.dev) tab — 
 → [Full documentation](skills/iso-spawn/README.md)
 
 **Dependencies:** [`herdr`](https://herdr.dev) · `codex` / `claude` CLIs
+
+---
+
+### 📝 iso-readme *(original)*
+
+Write or refine any README in the house style — curated badges, context-aware layout, scannable prose — then commit just the README and push. Global, stack-agnostic.
+
+- 🎨 **Curated badges** — shields.io flat, 3–6 identity badges, no spam
+- 🧱 **Layout by context** — root/app · skill · lib/pkg
+- 🔍 **Stack-agnostic** — reads any manifest to derive badges
+
+```
+/iso-readme
+```
+
+→ [Full documentation](skills/iso-readme/README.md)
+
+**Dependencies:** `git`
 
 ---
 

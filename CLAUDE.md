@@ -22,6 +22,7 @@ skills/
   iso-plan/SKILL.md                — planning pipeline orchestrator
   iso-write/SKILL.md               — TDD plan executor on a feature branch, no commits
   iso-spawn/SKILL.md               — spawn a codex/claude agent in a herdr tab
+  iso-readme/SKILL.md              — write/refine READMEs in house style, commit + push
 scripts/
   install.js                        — deploys config files + installs skill packs globally
 .claude-plugin/

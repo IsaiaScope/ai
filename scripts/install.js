@@ -48,6 +48,7 @@ const localSkills = [
   { dir: "iso-plan",      agents: ["claude-code", "codex"] },
   { dir: "iso-write",     agents: ["claude-code", "codex"] },
   { dir: "iso-spawn",     agents: ["claude-code", "codex"] },
+  { dir: "iso-readme",    agents: ["claude-code", "codex"] },
 ];
 
 const agentSkillsDir = {

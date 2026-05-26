@@ -467,3 +467,4 @@ Expected: pushed. (On default-branch repo this hits the push-gate prompt — app
 ---
 
 ## Implementation Log
+- Implemented inline: 2026-05-26 — all 6 tasks complete; verified files, wiring, links.
