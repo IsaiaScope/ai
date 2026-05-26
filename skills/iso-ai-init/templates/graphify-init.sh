@@ -59,21 +59,22 @@ fi
 #    commit/husky hook. The portable guidance (CLAUDE.md/AGENTS.md "## graphify"
 #    section, .claude/settings.json query-nudge) is version-controlled; the
 #    regenerated/machine-specific wiring (skill copies, .codex/hooks.json) is
-#    gitignored in step 4. Idempotent via grep guards.
-if grep -q "## graphify" CLAUDE.md 2>/dev/null; then
-  echo "graphify: CLAUDE.md already wired, skipping"
-else
-  graphify claude install --project >/dev/null 2>&1 \
-    && echo "graphify: wired into CLAUDE.md (+ query-nudge hook)" \
-    || echo "graphify: claude install failed (non-fatal)"
-fi
-if grep -q "graphify" AGENTS.md 2>/dev/null; then
-  echo "graphify: AGENTS.md already wired, skipping"
-else
-  graphify codex install --project >/dev/null 2>&1 \
-    && echo "graphify: wired into AGENTS.md" \
-    || echo "graphify: codex install failed (non-fatal)"
-fi
+#    gitignored in step 4.
+#    Run install UNCONDITIONALLY — no grep guard. Two reasons: (a) graphify's own
+#    install is self-idempotent on the doc section (re-running does NOT duplicate
+#    the "## graphify" block — verified), so a guard buys nothing; (b) a guard
+#    keyed on the COMMITTED doc section would, on a fresh clone, see the section
+#    already present and skip — but the clone is MISSING the gitignored wiring
+#    (.claude/skills/graphify/, .agents/skills/graphify/, .codex/hooks.json),
+#    which install also regenerates. Guarding on the doc would leave the /graphify
+#    skill copy + codex hook uninstalled. So always run; install repairs the
+#    machine-local wiring every time without touching the already-present docs.
+graphify claude install --project >/dev/null 2>&1 \
+  && echo "graphify: wired into CLAUDE.md (+ query-nudge hook, skill copy)" \
+  || echo "graphify: claude install failed (non-fatal)"
+graphify codex install --project >/dev/null 2>&1 \
+  && echo "graphify: wired into AGENTS.md (+ codex hook, skill copy)" \
+  || echo "graphify: codex install failed (non-fatal)"
 
 # 2b. Build-quality default: graphify's own "## graphify" section documents how
 #     to *query* the graph but not how to *build* it. Inject one rule so every
