@@ -119,5 +119,6 @@ All generated files come from `templates/` next to this file:
 
 ## 🔗 Related
 
-- [`iso-ai-init`](../iso-ai-init/) — AI tooling setup: caveman, graphify, husky post-commit hook
-- [`graphify`](../graphify/) — knowledge graph skill (manual invocation via `/graphify`)
+- [`iso-ai-init`](../iso-ai-init/) — AI *tooling* setup (caveman, graphify, statusline); pairs with this skill's repo *governance*.
+- [`iso-write`](../iso-write/) — builds reviewed work on the feature branches this governance protects.
+- [`graphify`](https://github.com/safishamsi/graphify) — knowledge-graph skill (manual invocation via `/graphify`).

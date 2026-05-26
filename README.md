@@ -38,6 +38,22 @@ Re-run anytime to update.
 
 ## 🛠️ Skills
 
+**Original skills** — built here, symlinked into Claude Code *and* Codex on install:
+
+| Skill | One-liner | Trigger |
+|-------|-----------|---------|
+| ⚡ [iso-ai-init](skills/iso-ai-init/) | Wire a repo with AI defaults — caveman, graphify, statusline | `/iso-ai-init` |
+| 🏛️ [iso-init-repo](skills/iso-init-repo/) | GitHub governance — branches, protection, CI, deploy cascade | `/iso-init-repo` |
+| 🧭 [iso-plan](skills/iso-plan/) | Raw idea → written implementation plan (no code) | `/iso-plan` |
+| ✍️ [iso-write](skills/iso-write/) | Build a plan on a branch with TDD, no commits | `/iso-write <plan>` |
+| 🚀 [iso-spawn](skills/iso-spawn/) | Spawn a codex/claude agent in a herdr tab beside you | `/iso-spawn` |
+
+**Upstream packs** — installed globally by `install.js`: [caveman](#-caveman) · [graphify](#-graphify) · [karpathy-guidelines](#-karpathy-guidelines) · [mattpocock/skills](https://github.com/mattpocock/skills).
+
+A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → you review and commit → **`iso-init-repo`** governs how it ships.
+
+---
+
 ### ⚡ iso-ai-init *(original)*
 
 Initialize any repo with IsaiaScope AI defaults in one command — caveman ultra mode, a living knowledge graph, and Husky wired for graphify.
@@ -86,6 +102,60 @@ Wire GitHub repo governance in one command — branch structure, protection, CI,
 | `git` | [git-scm.com](https://git-scm.com) |
 | `husky` | [GitHub](https://github.com/typicode/husky) |
 | `@commitlint/cli` | [GitHub](https://github.com/conventional-changelog/commitlint) |
+
+---
+
+### 🧭 iso-plan *(original)*
+
+Turn a raw idea into a written implementation plan — chains four planning skills, then shows a visual summary. **Plans only; nothing is built or committed.**
+
+- 💭 **Brainstorm → grill → (prototype) → write** in one continuous context
+- 🎯 **Grilled against your domain model** (`CONTEXT.md` + ADRs), not just vibes
+- 📄 **One plan file** under `docs/superpowers/plans/` + a scannable summary card
+
+```
+/iso-plan <seed idea>
+```
+
+→ [Full documentation](skills/iso-plan/README.md)
+
+**Dependencies:** [`superpowers`](https://github.com/obra/superpowers) (brainstorming, writing-plans) · [`mattpocock/skills`](https://github.com/mattpocock/skills) (grill-with-docs, prototype)
+
+---
+
+### ✍️ iso-write *(original)*
+
+Build a written plan on a fresh feature branch with TDD — then **stop without committing**, so you review the whole diff and commit yourself.
+
+- 🌿 **Auto-branches** from the plan filename (`feat/…`, `fix/…`)
+- 🧪 **Red-green-refactor** per task; ticks checkboxes as it goes
+- 🛑 **Never commits** — leaves everything staged for your review (Claude *or* Codex)
+
+```
+/iso-write <plan_path>
+```
+
+→ [Full documentation](skills/iso-write/README.md)
+
+**Dependencies:** `git` · [`superpowers`](https://github.com/obra/superpowers) (executing-plans, test-driven-development)
+
+---
+
+### 🚀 iso-spawn *(original)*
+
+Spawn a `codex` or `claude` agent in its own [herdr](https://herdr.dev) tab — same workspace, full permissions, optional auto-running task, delivered in the background.
+
+- 🪟 **Same workspace, own tab** — resolved from your pane, immune to focus drift
+- ⚡ **Full perms + auto-run prompt** by default; `--safe` and `--wait` when you want them
+- 📂 **Starts in your cwd**, not `~`
+
+```
+/iso-spawn
+```
+
+→ [Full documentation](skills/iso-spawn/README.md)
+
+**Dependencies:** [`herdr`](https://herdr.dev) · `codex` / `claude` CLIs
 
 ---
 

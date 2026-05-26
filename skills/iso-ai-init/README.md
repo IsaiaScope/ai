@@ -6,17 +6,44 @@
 
 ## 🧩 What It Does
 
-A **gate** (`templates/preflight-gate.sh`) runs first and decides scope. Global steps run anywhere; repo-scoped steps run only inside a git repo (being outside a repo is not an error — it just skips them).
+A **gate** (`templates/preflight-gate.sh`) runs first and decides scope:
 
-**Global (run anywhere):**
+- **Global steps** run anywhere — even outside a repo.
+- **Repo-scoped steps** run only inside a git repo. Being outside one isn't an error; those steps just skip.
 
-1. **🗿 Caveman** — installs the `caveman` CLI globally, activates ultra mode (tokens ~75% cheaper), registers `caveman-shrink` as a Claude Code MCP, and writes a live statusline (`…/repo  main  ctx:75%  $5.82  ULTRA`).
+### Global steps (run anywhere)
 
-2. **🗜️ MCP shrink** — wraps allowlisted, token-heavy MCP servers with `caveman-shrink`. Driven by an **allowlist of names** (`ALLOWLIST` in `templates/shrink-known-mcps.js`). It makes **no assumption about any server's transport** — whether an MCP is stdio (shrinkable) or remote/HTTP (not) is checked at runtime, because the same MCP can be local for one person and hosted for another. Present + stdio → wrapped; remote/HTTP, absent, or already-shrunk → skipped. Never installs an MCP you don't have.
+**1. 🗿 Caveman** — installs the `caveman` CLI, turns on ultra mode (~75% cheaper tokens), registers `caveman-shrink` as a Claude Code MCP, and writes a live statusline:
 
-**Repo-scoped (git repo only):**
+```
+…/repo  main  ctx:75%  $5.82  ULTRA
+```
 
-3. **🕸️ Graphify** — two parts. **(3a) Wiring** via `templates/graphify-init.sh` (deterministic, like `caveman-init.sh`): installs/auto-updates the `graphify` CLI, then does graphify's **officially recommended** repo setup — `graphify claude install --project` + `graphify codex install --project` write a `## graphify` section into repo-local `CLAUDE.md`/`AGENTS.md` (prefer `graphify query` over grep) plus a read-only **query-nudge** PreToolUse hook on Claude Code; installs **auto-update git hooks** (`graphify hook install` — native post-commit/post-checkout, AST rebuild, no LLM, no husky) so the code graph stays current on every commit; gitignores `graphify-out/` (+ `/.graphify_*.json` root scratch, the regenerated `.claude/skills/graphify/` + `.agents/skills/graphify/` skill copies, and the machine-specific `.codex/hooks.json`); sweeps any leftover root scratch from a prior interrupted/old-version run. **(3b) Deep build:** the skill then invokes `/graphify . --mode deep` to build (or refresh) the full semantic graph, then re-sweeps root scratch (in case the build itself was interrupted). There is no CLI build verb — the deep build is LLM-orchestrated by the `/graphify` skill, so it runs as a skill step, not inside the script.
+**2. 🗜️ MCP shrink** — wraps token-heavy MCP servers with `caveman-shrink`. Driven by a **name allowlist** (`ALLOWLIST` in `templates/shrink-known-mcps.js`). It assumes nothing about transport — the same MCP can be local for you and hosted for someone else — so it checks at runtime:
+
+| Server is… | Result |
+|------------|--------|
+| present **and** stdio | ✅ wrapped |
+| remote / HTTP | ⏭️ skipped (can't wrap) |
+| absent, or already shrunk | ⏭️ skipped |
+
+It never installs an MCP you don't already have.
+
+### Repo-scoped steps (git repo only)
+
+**3. 🕸️ Graphify** — runs in two parts:
+
+**(3a) Wiring** — `templates/graphify-init.sh`, deterministic (no LLM):
+
+- Installs / auto-updates the `graphify` CLI.
+- Runs graphify's **officially recommended** setup: `graphify claude install --project` + `graphify codex install --project` write a `## graphify` section into the repo's `CLAUDE.md` / `AGENTS.md` ("prefer `graphify query` over grep") plus a read-only **query-nudge** PreToolUse hook for Claude Code.
+- Installs **auto-update git hooks** (`graphify hook install`) — native post-commit / post-checkout, AST-only rebuild, no LLM, no husky — so the graph stays current on every commit.
+- Gitignores the generated + machine-specific bits: `graphify-out/`, `/.graphify_*.json` root scratch, the regenerated `.claude/skills/graphify/` + `.agents/skills/graphify/` copies, and `.codex/hooks.json`.
+- Sweeps leftover root scratch from any interrupted or older run.
+
+**(3b) Deep build** — the skill then invokes `/graphify . --mode deep` to build (or refresh) the full semantic graph, and re-sweeps scratch afterward in case the build was interrupted.
+
+> Why is the deep build a skill step and not part of the script? There's no CLI build verb — the deep build is LLM-orchestrated by the `/graphify` skill, so it can't live inside a deterministic shell script.
 
 ---
 
@@ -85,6 +112,7 @@ All config is generated from `templates/` next to this file:
 
 ## 🔗 Related
 
+- [`iso-init-repo`](../iso-init-repo/) — repo *governance* (branches, CI, hooks); pairs with this skill's AI *tooling* setup.
 - `setup-matt-pocock-skills` — per-repo config (issue tracker, triage labels, domain docs) for the engineering skills (`to-issues`, `triage`, `tdd`, …). Interactive; iso-ai-init only *points* to it when `docs/agents/` is absent — never runs it.
-- [`graphify`](../graphify/) — knowledge graph skill (manual invocation via `/graphify`)
-- [`caveman`](../caveman/) — caveman mode skill (toggle via `/caveman`)
+- [`graphify`](https://github.com/safishamsi/graphify) — the knowledge-graph skill this wires up (manual invocation via `/graphify`).
+- [`caveman`](https://github.com/juliusbrussee/caveman) — the caveman-mode skill this activates (toggle via `/caveman`).
