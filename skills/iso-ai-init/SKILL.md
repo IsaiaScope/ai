@@ -1,200 +1,116 @@
 ---
 name: iso-ai-init
-description: Initialize a repo with IsaiaScope AI defaults — caveman ultra + shrink, graphify knowledge graph, and Husky (graphify post-commit hook). Use when the user runs /iso-ai-init or asks to set up a new repo with AI tooling.
+description: Initialize AI defaults. Global steps run anywhere — install/verify caveman (ultra + shrink + statusline) and shrink any allowlisted MCP server that is present and stdio-launchable. Repo-scoped steps (graphify CLI install + /graphify wiring) run only inside a git repo. A gate decides which steps apply. Use when the user runs /iso-ai-init or asks to set up AI tooling.
 ---
 
 # iso-ai-init
 
-Set up a repo with IsaiaScope AI defaults. Run from inside the target repo.
+Set up IsaiaScope AI defaults. Some steps are **global** (run anywhere, even outside a git repo); others are **repo-scoped** (run only inside a git working tree). A gate script decides which apply — being outside a repo is not an error, it just skips the repo-scoped steps.
 
-All config templates live in `templates/` next to this file — Read each one, then Write it to the target path.
+| Scope | Step | Runs |
+|-------|------|------|
+| global | Caveman (ultra + shrink + statusline) | always |
+| global | MCP shrink (allowlist) | always |
+| repo   | Graphify CLI install + `/graphify` wiring | only inside a git repo |
 
-## Pre-flight
+All config templates live in `templates/` next to this file — Read each one, then Write/execute it. Resolve paths against the skill base directory (where this SKILL.md lives), referred to below as `<skill-base-dir>`.
 
-Run these checks before any step. All checks are idempotent — re-running is safe.
+## Step 0 — Gate
 
-### git
-```bash
-command -v git &>/dev/null \
-  || { echo "✗ git not found. Install Xcode CLI tools: xcode-select --install"; exit 1; }
-```
-
-### uv (graphify installer)
-```bash
-if ! command -v uv &>/dev/null; then
-  echo "⚠ uv not found — installing..."
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH"
-  command -v uv &>/dev/null \
-    || { echo "✗ uv install failed. Run manually: curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1; }
-  echo "✓ uv installed"
-fi
-```
-
-### node / npx (Node repos — Husky)
-
-Only relevant when `package.json` exists. Warns rather than fails — non-Node steps still run.
+Run the gate first. It does a hard **node** check (node is required by caveman install, the MCP-shrink script, and the statusline merge — fail fast here, not mid-step), then prints `IN_GIT_REPO=true|false` on its first line plus a human-readable plan. Capture that value; it decides whether the repo-scoped step (Step 3) runs.
 
 ```bash
-if [ -f package.json ] && ! command -v npx &>/dev/null; then
-  echo "⚠ node/npx not found — Husky steps (Step 3) will be skipped."
-  echo "  Install Node.js: https://nodejs.org or via nvm/fnm"
-fi
+bash <skill-base-dir>/templates/preflight-gate.sh
 ```
 
-All checks pass → proceed to Step 0.
+The gate is the single source of truth for what is repo- vs globally-scoped, and the one upfront dependency check. When you add future repo-scoped steps, add them to the gate's plan too. (`uv` is checked/auto-installed inside `graphify-init.sh`, since it's only needed for the repo-scoped graphify step.)
 
-## Step 0 — Detect package manager
-
-```bash
-if [ -f pnpm-lock.yaml ]; then echo "pnpm"
-elif [ -f yarn.lock ]; then echo "yarn"
-elif [ -f bun.lockb ] || [ -f bun.lock ]; then echo "bun"
-else echo "npm"; fi
-```
-
-| PM | Install flags | Workspace flag |
-|----|--------------|----------------|
-| pnpm | `add -D` | `-w` |
-| yarn | `add -D` | `-W` |
-| bun | `add -d` | — |
-| npm | `install --save-dev` | — |
-
-## Step 1 — Caveman
+## Step 1 — Caveman (global)
 
 All caveman setup lives in `templates/caveman-init.sh` + `templates/caveman-config.json`.
-
-Read `templates/caveman-init.sh` and execute it from inside the repo.
-Use the skill base directory (where this SKILL.md lives) to resolve the path:
 
 ```bash
 bash <skill-base-dir>/templates/caveman-init.sh
 ```
 
-The script handles all three sub-steps:
-- **1a** check if `caveman` installed globally — install with `--all` only if missing (no per-repo install needed)
+The script handles two sub-steps:
+- **1a** install caveman **globally** if not already set up. Detection uses an installed-artifact marker (`~/.claude/hooks/caveman-config.js`), **not** `command -v caveman` — caveman is a Claude *plugin*, not a PATH binary, so `command -v` always fails and would re-run the installer every time. Install flags: **not** `--all` (it turns on `--with-init`, which writes IDE rule files into the repo); instead `--non-interactive --skip-skills`, run from `$HOME`, so the install is global-only with **zero repo writes**. Defaults keep hooks + `caveman-shrink` (the binary our wrappers need) ON. Codex gets the caveman skill via a separate global `skills add -a codex` (also from `$HOME`).
 - **1b** write `templates/caveman-config.json` → `~/.config/caveman/config.json` (sets `ultra` globally)
-- **1c** check if `caveman-shrink` already registered in `~/.claude.json`; if not, print the command to add it with an upstream — **do not register blindly without an upstream**
 
-### 1d — Statusline
+- **1c — Statusline** copy `templates/statusline.sh` → `~/.claude/statusline-command.sh`, then **safely merge** the `statusLine` key into `~/.claude/settings.json` (read-modify-write via node: preserves all other keys, skips if already set, backs up before writing). No hand-editing.
 
-Read `templates/statusline.sh` → write to `~/.claude/statusline-command.sh`.
-
-Wire in `~/.claude/settings.json` if not already set:
-```json
-"statusLine": { "type": "command", "command": "bash ~/.claude/statusline-command.sh" }
-```
-
-Check first — do not overwrite an existing `statusLine` config without confirming with the user.
+Wrapping MCP servers with `caveman-shrink` is **not** done here — it's owned by Step 2, which registers concrete entries from the allowlist.
 
 Statusline shows: `…/repo/dir   branch   ctx:75%   $5.82   ULTRA`
-- ctx% red at ≥ 90% usage (actual danger zone), magenta below
+- ctx% red at ≥ 90% usage, magenta below
 - `ULTRA` → caveman mode; switches to token savings after `/caveman-stats`
 
-## Step 2 — Graphify
+## Step 2 — MCP shrink (global)
+
+Wrap allowlisted, token-heavy MCP servers with `caveman-shrink`. Runs everywhere — MCP config is global, not per-repo.
 
 ```bash
-# 2a — install CLI if missing (prefer uv, fall back to pipx)
-if ! command -v graphify 2>/dev/null; then
-  uv tool install graphifyy || pipx install graphifyy
-else
-  echo "graphify: already installed, skipping"
-fi
-
-# 2b — wire skill (graphify install is idempotent, but check first to avoid noise)
-grep -q "## graphify" CLAUDE.md 2>/dev/null \
-  && echo "graphify: CLAUDE.md block already present, skipping install" \
-  || { graphify install; graphify install --platform codex; }
-
-# 2c — add graphify-out/ to .gitignore if missing
-grep -q "graphify-out" .gitignore 2>/dev/null \
-  || echo "graphify-out/" >> .gitignore
+node <skill-base-dir>/templates/shrink-known-mcps.js
 ```
 
-**2d — Initial graph (requires LLM):** check first:
-```bash
-[ -f graphify-out/graph.json ] \
-  && echo "graphify: graph.json exists — run graphify update . to refresh (no LLM)" \
-  || echo "graphify: no graph found — need to build"
-```
+How it works (idempotent; backs up `~/.claude.json` + `~/.claude/settings.json` before any write):
 
-If graph missing → invoke via Skill tool:
-```
-Skill("graphify")   # pass repo root as input
-```
+- **Precondition** — verifies `caveman-shrink` is resolvable (installed by Step 1). If absent → no changes, tells you to run the caveman step first. Wrapping without the proxy would write entries that fail at MCP launch.
+- **Prunes bare entries** — removes any upstream-less `caveman-shrink` MCP entry (what `caveman --with-mcp-shrink` registers: `npx -y caveman-shrink` with nothing to proxy) from top-level and per-project config. Wrapped entries (caveman-shrink + a real upstream) are kept. This is how the installer's bare registration is managed away while keeping the shrink binary.
+- Carries an **allowlist of names worth shrinking** (`ALLOWLIST` array — edit to add more). It makes **no assumption about any MCP's transport**: whether a server is stdio or remote/HTTP is a per-machine fact, so it is checked at runtime, not hardcoded. The same name (e.g. `notion`) may be a local stdio server on one machine and a hosted HTTP endpoint on another.
+- For each allowlisted name, based on what is actually configured on **this** machine:
+  - **present as stdio in `~/.claude.json`** → wrap in place (reads its own command, so paths/env are preserved).
+  - **present as stdio via an enabled plugin** → disable the plugin's copy and add a wrapped entry built from the plugin's own launch command (no duplicate server).
+  - **present but remote/HTTP** → skipped — caveman-shrink spawns a local child process; there is nothing to spawn for a URL. (Not an error, just not compressible here.)
+  - **already shrunk** → skipped.
+  - **absent** → skipped. The script never installs an MCP you don't already have.
 
-If graph exists → skip LLM build. Optionally run `graphify update .` (AST-only, no cost).
+The allowlist is the only thing to maintain. Transport and launch command are discovered, never assumed — so the skill stays agnostic to any one machine's MCP setup.
 
-**2e — Non-Node repos: native git post-commit hook**
+## Step 3 — Graphify (repo-scoped — skip if `IN_GIT_REPO=false`)
 
-Skip if `package.json` exists (Husky handles it in Step 3).
+**Only run this step if the gate reported `IN_GIT_REPO=true`.** Outside a git repo, skip it entirely.
+
+This step has two parts: **3a** deterministic wiring (`graphify-init.sh` — installs/updates the CLI, wires the skill, hooks, gitignore) and **3b** the actual **deep graph build** (an LLM step the skill drives, not the script). Like caveman, the wiring logic lives in a deterministic template script (no inline assembly):
 
 ```bash
-if [ ! -f package.json ]; then
-  if grep -q "graphify-hook-start" .git/hooks/post-commit 2>/dev/null; then
-    echo "graphify: post-commit hook already installed, skipping"
-  else
-    graphify hook install
-  fi
-fi
+bash <skill-base-dir>/templates/graphify-init.sh
 ```
 
-## Step 3 — Node.js tooling
+`graphify-init.sh` (idempotent) does graphify's **officially recommended** repo setup:
+- installs/auto-updates the graphify CLI;
+- runs `graphify claude install --project` + `graphify codex install --project` — writes a `## graphify` section into repo-local `CLAUDE.md` / `AGENTS.md` telling the agent to prefer `graphify query "<q>"` over grepping. On Claude Code this also adds a PreToolUse **query-nudge hook** (`.claude/settings.json`) that fires *only* before grep/find-style Bash calls and just suggests querying the graph — read-only, no rebuild, no git: categorically unlike a commit/husky hook;
+- installs **auto-update git hooks** via `graphify hook install` — native `post-commit` + `post-checkout` scripts that rebuild the graph via AST on each commit/checkout. No LLM, no husky — plain `.git/hooks`. Doc/concept (LLM) changes still need a manual `/graphify --update`; the hook refreshes the *code* graph only;
+- gitignores `graphify-out/` (the graph artifacts). The wiring files `.claude/`, `.agents/`, `CLAUDE.md`, `AGENTS.md` are meant to be committed.
 
-Skip if no `package.json`.
+It only drives the `graphify` CLI binary (its own interpreter — no `python` guessing). It does **not** build the graph itself — there is no CLI build verb; the full deep/semantic build is orchestrated by the `/graphify` *skill* (LLM subagents), which Step 3b runs next.
 
-### 3a — Audit existing setup
+### Step 3b — Build / refresh the deep graph (repo-scoped)
 
-```bash
-[ -d .husky ] && ls .husky/ || echo "no .husky"
-grep '"husky"' package.json
-```
+After wiring, build the graph at its best quality. The build is **not** a CLI call — invoke the **`/graphify` skill** on the repo root with `--mode deep` (richest semantic + INFERRED edges; the standing default per the `## graphify` rule). This is an LLM step and may take a while on a large repo — expected, the user wants completeness over cost.
 
-Do not overwrite existing hooks without checking content first.
+- **`graphify-out/graph.json` absent** → initial deep build: `/graphify . --mode deep`.
+- **`graphify-out/graph.json` present** → refresh it: re-run `/graphify . --mode deep` (full deep re-extract — `graphify update .` is AST-only and would *not* refresh semantic edges, so it is not a substitute here).
 
-### 3b — Install husky
+Either way the command is the same (`/graphify . --mode deep`); only the framing differs. Skip only if the gate reported `IN_GIT_REPO=false`.
 
-Only if not already in `package.json`:
-
-```bash
-pnpm add -D -w husky   # pnpm
-yarn add -D -W husky   # yarn
-bun add -d husky       # bun
-npm install --save-dev husky  # npm
-```
-
-### 3c — Init Husky (only if `.husky/` missing)
-
-```bash
-[ -d .husky ] || npx husky init
-```
-
-### 3d — post-commit graphify block
-
-```bash
-grep -q "graphify-hook-start" .husky/post-commit 2>/dev/null \
-  && echo "post-commit: graphify block already present, skipping" \
-  || { cat templates/post-commit.sh >> .husky/post-commit && chmod +x .husky/post-commit; }
-```
-
-Commitlint is owned by `/iso-init-repo` (Step 5). Do not wire it here.
-
-### 3e — Add missing scripts to `package.json`
-
-Only add if not already present:
-- `"prepare": "husky"`
-- `"graphify": "graphify update ."`
+**After the build, sweep leftover root scratch:** `rm -f ./.graphify_*.json`. graphify drops pipeline intermediates as `.graphify_{detect,ast,analysis,extract,labels,semantic}.json` in the repo root and does not reliably clean them — confirmed on 0.8.18 (latest) after a normal completed deep build, so this is the common case, not a rare interruption. `graphify-init.sh` (3a) sweeps these *before* the build (clears the previous run's); run the same sweep *after* the build to clear the one this run just produced. Root-only glob — never `graphify-out/` or the committed `.graphify_version` skill files.
 
 ## Step 4 — Summary
 
+Report only the steps that actually ran (omit graphify if it was gated out):
+
 ```
-✓ Caveman ultra + shrink + statusline (--all)
-✓ Graphify skill wired — run /graphify to generate initial graph (skipped if graph.json exists)
-✓ Husky   [Node repo]
-  └── .husky/post-commit  → graphify update .
-✓ git post-commit hook   [non-Node repo — graphify hook install]
+✓ [global] Caveman ultra + shrink + statusline (--all)
+✓ [global] MCP shrink — allowlisted servers wrapped if present + stdio (remote/HTTP skipped)
+✓ [repo  ] Graphify CLI installed/updated + native always-on wiring (CLAUDE.md/AGENTS.md + query-nudge hook)
+  · auto-update git hook installed (post-commit/post-checkout, AST rebuild)
+  · graphify-out/ gitignored
+  · deep graph built/refreshed via /graphify --mode deep
 ```
 
-Commitlint + version bump: run /iso-init-repo (Steps 5–6).
+Then surface the natural follow-up (a pointer only — do **not** run it; it is an interactive skill outside this skill's deterministic scope):
 
-Remind user: restart Claude Code to activate hooks.
+- **Only if `IN_GIT_REPO=true` AND `docs/agents/` does not already exist:** the engineering workflow skills (`to-issues`, `to-prd`, `triage`, `diagnose`, `tdd`, `improve-codebase-architecture`) need per-repo config (issue tracker, triage labels, domain docs). Suggest: run `/setup-matt-pocock-skills`. Omit this line if `docs/agents/` is already present (already configured) or outside a git repo.
+
+Remind user: restart Claude Code to activate the statusline, shrink wrappers, and skill wiring.

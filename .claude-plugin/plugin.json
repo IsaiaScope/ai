@@ -3,8 +3,8 @@
   "skills": [
     "./skills/iso-ai-init",
     "./skills/iso-init-repo",
-    "./skills/iso-implementation",
-    "./skills/iso-dispatch-to-codex",
-    "./skills/iso-codex-implementation"
+    "./skills/iso-plan",
+    "./skills/iso-write",
+    "./skills/iso-spawn"
   ]
 }

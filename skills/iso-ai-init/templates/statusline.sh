@@ -25,6 +25,9 @@ if [ -z "$used" ]; then
   remaining=$(echo "$input" | jq -r '.context_window.remaining_percentage // empty')
   [ -n "$remaining" ] && used=$(awk -v r="$remaining" 'BEGIN { printf "%.0f", 100 - r }')
 fi
+# Floor to an integer: used_percentage may be a float (e.g. 75.4), and the `-ge`
+# test below is integer-only — an unfloored float errors on every render.
+[ -n "$used" ] && used=$(awk -v u="$used" 'BEGIN { printf "%.0f", u }')
 
 # Colors
 reset='\033[0m'

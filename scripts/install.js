@@ -23,7 +23,7 @@ copyFileSync(join(repoRoot, "config", "AGENTS.md"), join(codexDir, "AGENTS.md"))
 console.log(`✓ config/AGENTS.md → ${join(codexDir, "AGENTS.md")}`);
 
 // Install upstream skill packs: [pack, agents[]]
-// IsaiaScope/ai is NOT here — its skills are deployed locally below with per-agent targeting.
+// IsaiaScope/ai is NOT here — its skills are deployed locally below for both supported agents.
 const packs = [
   ["juliusbrussee/caveman",                   ["claude-code", "codex"]],
   ["safishamsi/graphify",                      ["claude-code", "codex"]],
@@ -41,14 +41,13 @@ for (const [pack, agents] of packs) {
 console.log("\n→ Updating upstream global skills");
 execSync("npx skills@latest update -g -y --agent claude-code --agent codex", { stdio: "inherit" });
 
-// Local skills with explicit per-agent targeting.
-// Each entry deploys via direct symlink into the agent's skills dir.
+// Local skills are installed for every supported agent; each gets a direct symlink.
 const localSkills = [
-  { dir: "iso-ai-init",              agent: "claude-code" },
-  { dir: "iso-init-repo",            agent: "claude-code" },
-  { dir: "iso-implementation",       agent: "claude-code" },
-  { dir: "iso-dispatch-to-codex",    agent: "claude-code" },
-  { dir: "iso-codex-implementation", agent: "codex" },
+  { dir: "iso-ai-init",   agents: ["claude-code", "codex"] },
+  { dir: "iso-init-repo", agents: ["claude-code", "codex"] },
+  { dir: "iso-plan",      agents: ["claude-code", "codex"] },
+  { dir: "iso-write",     agents: ["claude-code", "codex"] },
+  { dir: "iso-spawn",     agents: ["claude-code", "codex"] },
 ];
 
 const agentSkillsDir = {
@@ -56,7 +55,7 @@ const agentSkillsDir = {
   "codex":       join(home, ".codex", "skills"),
 };
 
-console.log("\n→ Linking local IsaiaScope/ai skills (per-agent)");
+console.log("\n→ Linking local IsaiaScope/ai skills (claude-code, codex)");
 for (const dir of Object.values(agentSkillsDir)) mkdirSync(dir, { recursive: true });
 
 // Remove any pre-existing IsaiaScope/ai skill links from the wrong agent (cleanup from prior dual-deploy)
@@ -64,8 +63,8 @@ const isaiaSkillNames = new Set(localSkills.map(s => s.dir));
 for (const [agent, dir] of Object.entries(agentSkillsDir)) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!isaiaSkillNames.has(entry.name)) continue;
-    const targetAgent = localSkills.find(s => s.dir === entry.name).agent;
-    if (targetAgent === agent) continue;
+    const targetAgents = localSkills.find(s => s.dir === entry.name).agents;
+    if (targetAgents.includes(agent)) continue;
     const wrongLink = join(dir, entry.name);
     try {
       const stat = lstatSync(wrongLink);
@@ -76,13 +75,15 @@ for (const [agent, dir] of Object.entries(agentSkillsDir)) {
   }
 }
 
-// Create or refresh symlinks for the right agent
-for (const { dir, agent } of localSkills) {
+// Create or refresh symlinks for every targeted agent
+for (const { dir, agents } of localSkills) {
   const src = join(repoRoot, "skills", dir);
-  const target = join(agentSkillsDir[agent], dir);
-  try { unlinkSync(target); } catch {}
-  symlinkSync(src, target);
-  console.log(`  ✓ ${dir.padEnd(28)} → ${target}`);
+  for (const agent of agents) {
+    const target = join(agentSkillsDir[agent], dir);
+    try { unlinkSync(target); } catch {}
+    symlinkSync(src, target);
+    console.log(`  ✓ ${dir.padEnd(28)} → ${target}`);
+  }
 }
 
 // Also clean up any old IsaiaScope/ai symlinks from ~/.agents/skills/ (the universal storage skills.sh used)
