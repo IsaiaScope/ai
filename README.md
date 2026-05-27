@@ -5,10 +5,10 @@
 </p>
 
 <p align="center">
-  <img src="https://shieldcn.dev/badge/Claude_Code-skills-CC785C.png?logo=anthropic&logoColor=white&variant=default&size=sm" alt="Claude Code" />
-  <img src="https://shieldcn.dev/badge/Codex-skills-412991.png?logo=openai&logoColor=white&variant=default&size=sm" alt="Codex" />
-  <img src="https://shieldcn.dev/badge/Node-install-339933.png?logo=nodedotjs&logoColor=white&variant=default&size=sm" alt="Node" />
-  <img src="https://shieldcn.dev/badge/license-MIT-green.png?variant=default&size=sm" alt="MIT" />
+  <img src="https://shieldcn.dev/badge/Claude_Code-skills-CC785C.svg?logo=anthropic&logoColor=fff&variant=default&size=sm" alt="Claude Code" />
+  <img src="https://shieldcn.dev/badge/Codex-skills-412991.svg?logo=openai&logoColor=fff&variant=default&size=sm" alt="Codex" />
+  <img src="https://shieldcn.dev/badge/Node-install-339933.svg?logo=nodedotjs&logoColor=fff&variant=default&size=sm" alt="Node" />
+  <img src="https://shieldcn.dev/badge/license-MIT-green.svg?variant=default&size=sm" alt="MIT" />
 </p>
 
 ---
