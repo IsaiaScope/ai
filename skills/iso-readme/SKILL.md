@@ -1,6 +1,6 @@
 ---
 name: iso-readme
-description: Write or refine README files in the IsaiaScope house style — curated shields.io badges, context-aware layout (repo root/app · skill · lib/pkg), scannable prose — then commit only the README changes and push. Global, stack-agnostic (node, python, rust, go, docs-only, monorepo). Use when invoked as /iso-readme [path], or asked to write/refine/beautify a README in my style.
+description: Write or refine README files in the IsaiaScope house style — curated shieldcn (shadcn-styled) badges, context-aware layout (repo root/app · skill · lib/pkg), scannable prose — then commit only the README changes and push. Global, stack-agnostic (node, python, rust, go, docs-only, monorepo). Use when invoked as /iso-readme [path], or asked to write/refine/beautify a README in my style.
 ---
 
 # iso-readme
@@ -47,6 +47,8 @@ Parse whatever manifest exists to derive badge signals:
 - **README missing → generate fresh** from the matching STYLE.md skeleton.
 - **README exists → refine:** preserve all real content (install steps, env vars, credits, commands) — restyle layout + badges only. **Never invent** features or commands.
 - Derive badges from Step 2, curate to **3–6 identity badges** (primary lang/runtime · 1–2 defining frameworks · license) using the STYLE.md hex table. Add a missing tech as a new row in STYLE.md.
+- **Icon realism:** use only a `logo=` slug you've verified (hex-table slugs are done). Look up brands at simpleicons.org; if absent, try React Icons `ri:Si<Name>` (e.g. OpenAI → `ri:SiOpenai`); only then fall back to `logo=false` + an emoji in the label. A miss renders blank — confirm with `curl … | grep -c '<path'` > the `logo=false` baseline. See STYLE.md "Icons".
+- **Format/quality:** `.svg` (crisp, GitHub-safe), `logoColor` as bare hex (`fff`, never `white`), light brand colors → dark `bg hex` + bright `logoColor`. Measure real language bytes before picking language badges; don't assume.
 
 ## Step 4: Commit README-only + push
 

@@ -28,7 +28,7 @@ Or ask: *"beautify this README"*, *"write a README in my style"*
 
 ## 🎨 The Look
 
-- **Badges:** shields.io flat + logo + brand hex, curated to 3–6 (primary lang · defining frameworks · license). No badge spam.
+- **Badges:** shieldcn (shadcn-styled, crisp `.svg`) + verified logo + brand hex, curated to 3–6 identity badges (primary languages · defining frameworks/targets). No badge spam.
 - **Layout by context:** centered + badges for repo root/app; `# emoji + tagline` for skills; version/install/API for libs.
 - **Scannable:** tables for decision logic, chunked prose, quickstart first.
 
