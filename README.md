@@ -6,9 +6,9 @@
 
 <p align="center">
   <img src="https://shieldcn.dev/badge/Claude_Code-skills-CC785C.svg?logo=anthropic&logoColor=fff&variant=default&size=sm" alt="Claude Code" />
-  <img src="https://shieldcn.dev/badge/Codex-skills-412991.svg?logo=openai&logoColor=fff&variant=default&size=sm" alt="Codex" />
-  <img src="https://shieldcn.dev/badge/Node-install-339933.svg?logo=nodedotjs&logoColor=fff&variant=default&size=sm" alt="Node" />
-  <img src="https://shieldcn.dev/badge/license-MIT-green.svg?variant=default&size=sm" alt="MIT" />
+  <img src="https://shieldcn.dev/badge/Codex-skills-412991.svg?logo=ri:SiOpenai&logoColor=fff&variant=default&size=sm" alt="Codex" />
+  <img src="https://shieldcn.dev/badge/Shell-scripts-4EAA25.svg?logo=gnubash&logoColor=fff&variant=default&size=sm" alt="Shell" />
+  <img src="https://shieldcn.dev/badge/JavaScript-installer-323330.svg?logo=javascript&logoColor=F7DF1E&variant=default&size=sm" alt="JavaScript" />
 </p>
 
 ---
