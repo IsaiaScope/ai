@@ -5,10 +5,10 @@
 </p>
 
 <p align="center">
-  <img src="https://shieldcn.dev/badge/Claude_Code-skills-CC785C.svg?logo=anthropic&logoColor=fff&variant=default&size=sm" alt="Claude Code" />
-  <img src="https://shieldcn.dev/badge/Codex-skills-412991.svg?logo=ri:SiOpenai&logoColor=fff&variant=default&size=sm" alt="Codex" />
-  <img src="https://shieldcn.dev/badge/Shell-scripts-4EAA25.svg?logo=gnubash&logoColor=fff&variant=default&size=sm" alt="Shell" />
-  <img src="https://shieldcn.dev/badge/JavaScript-installer-323330.svg?logo=javascript&logoColor=F7DF1E&variant=default&size=sm" alt="JavaScript" />
+  <img src="https://shieldcn.dev/badge/Claude_Code-skills-CC785C.svg?logo=anthropic&logoColor=fff&variant=default&size=xs" alt="Claude Code" />
+  <img src="https://shieldcn.dev/badge/Codex-skills-412991.svg?logo=ri:SiOpenai&logoColor=fff&variant=default&size=xs" alt="Codex" />
+  <img src="https://shieldcn.dev/badge/Shell-scripts-4EAA25.svg?logo=gnubash&logoColor=fff&variant=default&size=xs" alt="Shell" />
+  <img src="https://shieldcn.dev/badge/JavaScript-installer-323330.svg?logo=javascript&logoColor=F7DF1E&variant=default&size=xs" alt="JavaScript" />
 </p>
 
 ---

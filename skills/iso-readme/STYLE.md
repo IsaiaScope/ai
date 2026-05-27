@@ -5,8 +5,8 @@ The house look for every README. `SKILL.md` references this file; humans can rea
 ## Badges
 
 - Source: **shieldcn** (`shieldcn.dev`) — shadcn/ui-styled badges. Same `label-message-color` grammar as shields.io.
-- Canon variant: **`default`** (solid hex fill, white text — loud). Canon size: **`sm`**.
-- Format: `https://shieldcn.dev/badge/<label>-<message>-<hex>.svg?logo=<slug>&logoColor=fff&variant=default&size=sm`
+- Canon variant: **`default`** (solid hex fill, white text — loud). Canon size: **`xs`**.
+- Format: `https://shieldcn.dev/badge/<label>-<message>-<hex>.svg?logo=<slug>&logoColor=fff&variant=default&size=xs`
 - **`logoColor` must be hex, no `#`** (`fff`, not `white`) — shieldcn blindly prepends `#`, so a named color becomes invalid `#white` and the logo renders black. Same for the `<hex>` color segment.
 - **`.svg`, not `.png`** — shieldcn SVG inlines text + logo as vector paths (no `@font-face`/`<style>`/external refs), so GitHub renders it crisp at any DPI and has nothing to sanitize. PNG is 1x-only (no `scale`/`dpr` param) → blurry on retina. Verified self-contained 2026-05-27.
 - **Light brand colors need a dark bg.** `default` variant always paints text/logo light, so a light `<hex>` (JS `F7DF1E`, etc.) = unreadable. Use the brand's dark color as `<hex>` and put the bright color on `logoColor` (e.g. JavaScript → `JavaScript-installer-323330.svg?logo=javascript&logoColor=F7DF1E`).
@@ -23,7 +23,7 @@ The house look for every README. `SKILL.md` references this file; humans can rea
 
 shieldcn has first-class provider endpoints; prefer these over hand-built shields.io query URLs.
 
-| Want | URL stem (append `.svg?variant=default&size=sm`) |
+| Want | URL stem (append `.svg?variant=default&size=xs`) |
 |------|--------------------------------------------------|
 | npm version | `shieldcn.dev/npm/v/<pkg>` |
 | PyPI version | `shieldcn.dev/pypi/v/<pkg>` |
