@@ -5,10 +5,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Claude_Code-skills-CC785C?logo=anthropic&logoColor=white" alt="Claude Code" />
-  <img src="https://img.shields.io/badge/Codex-skills-412991?logo=openai&logoColor=white" alt="Codex" />
-  <img src="https://img.shields.io/badge/Node-install-339933?logo=node.js&logoColor=white" alt="Node" />
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT" />
+  <img src="https://shieldcn.dev/badge/Claude_Code-skills-CC785C.png?logo=anthropic&logoColor=white&variant=default&size=sm" alt="Claude Code" />
+  <img src="https://shieldcn.dev/badge/Codex-skills-412991.png?logo=openai&logoColor=white&variant=default&size=sm" alt="Codex" />
+  <img src="https://shieldcn.dev/badge/Node-install-339933.png?logo=nodedotjs&logoColor=white&variant=default&size=sm" alt="Node" />
+  <img src="https://shieldcn.dev/badge/license-MIT-green.png?variant=default&size=sm" alt="MIT" />
 </p>
 
 ---
@@ -166,7 +166,7 @@ Spawn a `codex` or `claude` agent in its own [herdr](https://herdr.dev) tab — 
 
 Write or refine any README in the house style — curated badges, context-aware layout, scannable prose — then commit just the README and push. Global, stack-agnostic.
 
-- 🎨 **Curated badges** — shields.io flat, 3–6 identity badges, no spam
+- 🎨 **Curated badges** — shieldcn (shadcn-styled), 3–6 identity badges, no spam
 - 🧱 **Layout by context** — root/app · skill · lib/pkg
 - 🔍 **Stack-agnostic** — reads any manifest to derive badges
 
