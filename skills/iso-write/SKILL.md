@@ -1,18 +1,30 @@
 ---
 name: iso-write
-description: Implement a written plan on a fresh feature branch using TDD, without committing. Use when invoked as /iso-write <plan_path> or handed an implementation plan to build. Creates the branch, delegates execution to superpowers executing-plans (red-green-refactor per task), stamps the plan done, and stops so the user reviews all changes before any commit. Agent-independent (Claude Code or Codex).
+description: Implement a written plan using TDD, without committing. Use when invoked as /iso-write <plan_path> [--no-branch | --branch=<name> | --worktree] or handed an implementation plan to build. Default creates a fresh branch from the plan filename; --no-branch implements on the current branch; --branch=<name> uses a named branch; --worktree runs in an isolated worktree. Delegates execution to superpowers executing-plans (red-green-refactor per task), stamps the plan done, and stops so the user reviews all changes before any commit. Agent-independent (Claude Code or Codex).
 ---
 
 # iso-write
 
-Execute a Claude/Codex-authored plan on a new feature branch using TDD. **Never commit.** Leave every change in the working tree so the user reviews the full diff at the end of the writing session and commits manually.
+Execute a Claude/Codex-authored plan using TDD in the workspace mode the user picks. **Never commit.** Leave every change in the working tree so the user reviews the full diff at the end of the writing session and commits manually.
 
 ## Input
 
-Invoked as `/iso-write <plan_path>` — `<plan_path>` is the path to the plan markdown file (e.g. `docs/superpowers/plans/2026-05-26-feat-thing.md`).
+Invoked as `/iso-write <plan_path> [workspace-flag]` — `<plan_path>` is the path to the plan markdown file (e.g. `docs/superpowers/plans/2026-05-26-feat-thing.md`).
+
+An optional **workspace flag** selects where the implementation happens. The flags are mutually exclusive:
+
+| Flag | Workspace |
+|------|-----------|
+| *(none)* | **Fresh branch** — derive `<type>/<slug>` from the plan filename and create it (default, unchanged). |
+| `--no-branch` | **In place** — stay on the current branch, no checkout. |
+| `--branch=<name>` | **Named branch** — checkout `<name>`, creating it if missing. |
+| `--worktree` | **Worktree** — isolated worktree on a fresh `<type>/<slug>` branch via the `using-git-worktrees` skill. |
 
 If `<plan_path>` is missing or the file does not exist, halt:
 `iso-write: plan not found: <plan_path>`.
+
+If more than one workspace flag is given, halt:
+`iso-write: pick one workspace mode`.
 
 ## Pre-flight
 
@@ -22,45 +34,80 @@ git rev-parse --is-inside-work-tree &>/dev/null || { echo "✗ not a git repo"; 
 [ -f "$plan_path" ] || { echo "✗ plan not found: $plan_path"; exit 1; }
 ```
 
-A dirty working tree (staged or unstaged) is **not** refused — Step 2 stashes the changes and carries them onto the new branch.
+A dirty working tree (staged or unstaged) is **not** refused. How Step 2 handles it depends on the mode: the default and `--branch=<name>` modes stash the changes and carry them onto the target branch; `--no-branch` leaves them in place; `--worktree` leaves them in the main checkout (the worktree starts clean).
 
 ## Step 1: Read the full plan
 
 Read `<plan_path>` end-to-end before touching anything. Understand all tasks, file layout, and architectural decisions.
 
-## Step 2: Derive and create the branch
+## Step 2: Resolve the workspace mode
 
-Parse the plan filename `YYYY-MM-DD-<type>-<slug>.md`:
+Derive the branch name from the plan filename `YYYY-MM-DD-<type>-<slug>.md` — needed by the default and `--worktree` modes:
 
 - Strip the `YYYY-MM-DD-` date prefix.
 - Take the next token as `<type>` if it is one of `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `perf`; `<slug>` is the remainder.
 - If that token is not a known type, default `<type>=feat` and `<slug>` is the full remainder after the date prefix.
 - Empty slug → halt: `iso-write: empty slug after type prefix`.
 
-Branch name: `<type>/<slug>`.
+Derived branch name: `<type>/<slug>`. The branch name always follows the plan's type, so a `fix` plan lands on `fix/<slug>`, a `feat` plan on `feat/<slug>`, and so on.
+
+Then prepare the workspace according to the flag.
+
+**Stash-carry** (shared by the default and `--branch=<name>` modes): before switching branches, carry any uncommitted work across via a named stash, then pop exactly that stash.
+
+```bash
+stash_carry() {  # arg: target branch name, used to label the stash
+  local stash_name="iso-write/$1"
+  if [ -n "$(git status --porcelain)" ]; then
+    git stash push -u -m "$stash_name" >&2 || { echo "✗ stash failed" >&2; exit 1; }
+    echo "$stash_name"   # echo the label (only this) so the caller can pop it after checkout
+  fi
+}
+stash_pop() {  # arg: the stash label returned by stash_carry (empty = nothing to pop)
+  [ -z "$1" ] && return 0
+  local ref
+  ref=$(git stash list --format='%gd %s' | grep -F "$1" | head -1 | cut -d' ' -f1)
+  ref="${ref:-stash@{0}}"
+  git stash pop "$ref" || { echo "✗ stash pop conflict. Resolve, then re-run."; exit 1; }
+}
+```
+
+### Default — fresh branch
 
 ```bash
 if git rev-parse --verify "$branch" &>/dev/null; then
-  echo "✗ branch $branch already exists. Delete it or rename the plan."
+  echo "✗ branch $branch already exists. Delete it, rename the plan, or pass --branch=$branch."
   exit 1
 fi
-# Carry any uncommitted work onto the new branch via a named stash.
-stash_name="iso-write/$branch"
-carried=0
-if [ -n "$(git status --porcelain)" ]; then
-  git stash push -u -m "$stash_name"
-  carried=1
-fi
+label=$(stash_carry "$branch")
 git checkout -b "$branch"
-if [ "$carried" = "1" ]; then
-  # Pop the specific stash we made, not whatever happens to be on top.
-  ref=$(git stash list --format='%gd %s' | grep -F "$stash_name" | head -1 | cut -d' ' -f1)
-  ref="${ref:-stash@{0}}"
-  git stash pop "$ref" || { echo "✗ stash pop conflict on $branch. Resolve, then re-run."; exit 1; }
-fi
+stash_pop "$label"
 ```
 
-All edits and tests happen on this branch in the current working directory. No worktree. Any pre-existing uncommitted work is carried onto the branch and will appear in the final review diff alongside the plan's changes.
+All edits and tests happen on this branch in the current working directory. Any pre-existing uncommitted work is carried onto the branch and appears in the final review diff alongside the plan's changes.
+
+### `--no-branch` — implement in place
+
+No checkout, no stash. The plan is implemented on whatever branch is currently checked out. Pre-existing uncommitted work stays put and lands in the final review diff alongside the plan's changes. Record the current branch (`git branch --show-current`) for the Step 6 summary.
+
+### `--branch=<name>` — named branch
+
+```bash
+label=$(stash_carry "$name")
+if git rev-parse --verify "$name" &>/dev/null; then
+  git checkout "$name"          # existing branch — reuse it, no halt (named on purpose)
+else
+  git checkout -b "$name"       # create it
+fi
+stash_pop "$label"
+branch="$name"
+```
+
+### `--worktree` — isolated worktree
+
+Invoke the **superpowers `using-git-worktrees` skill** to create the isolated workspace, requesting the derived `<type>/<slug>` branch name. That skill prefers a native worktree tool, falls back to `git worktree`, picks the directory (`.worktrees/` convention), and verifies the directory is git-ignored. All subsequent edits and tests run **inside the worktree**.
+
+Uncommitted work in the main checkout is **not** carried — the worktree is isolated by design and starts clean from the current HEAD. Tell the user their uncommitted changes remain in the original checkout. Record the worktree path for the Step 6 summary.
 
 ## Step 3: Execute the plan with TDD (no commits)
 
@@ -98,7 +145,7 @@ Append a footer:
 ```
 ## Implementation Log
 - Implemented: <iso-timestamp>
-- Branch: <branch>
+- Workspace: <mode> — <branch> (worktree mode also records the worktree path)
 - Committed: no — awaiting user review
 ```
 
@@ -106,12 +153,16 @@ Append a footer:
 
 ```
 ✓ Implementation complete — nothing committed.
-  Branch:  <branch>
+  Mode:    <fresh-branch | no-branch | named-branch | worktree>
+  Branch:  <branch>          (the current branch for --no-branch)
+  Worktree: <path>           (only printed in --worktree mode)
   Plan:    <plan_path> (stamped)
   Files changed:
 <output of `git diff --stat`>
 
 Review the full diff, then commit yourself when satisfied.
 ```
+
+For `--worktree`, remind the user the changes live in the worktree directory, not the main checkout.
 
 Then halt all autonomous action. Treat further messages as in-branch refinement requests. **Do not commit. Do not open a PR.** The user reviews everything and commits manually.

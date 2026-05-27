@@ -46,7 +46,7 @@ Re-run anytime to update.
 | ⚡ [iso-ai-init](skills/iso-ai-init/) | Wire a repo with AI defaults — caveman, graphify, statusline | `/iso-ai-init` |
 | 🏛️ [iso-init-repo](skills/iso-init-repo/) | GitHub governance — branches, protection, CI, deploy cascade | `/iso-init-repo` |
 | 🧭 [iso-plan](skills/iso-plan/) | Raw idea → written implementation plan (no code) | `/iso-plan` |
-| ✍️ [iso-write](skills/iso-write/) | Build a plan on a branch with TDD, no commits | `/iso-write <plan>` |
+| ✍️ [iso-write](skills/iso-write/) | Build a plan with TDD (branch/in-place/worktree), no commits | `/iso-write <plan> [--no-branch\|--branch=<name>\|--worktree]` |
 | 🚀 [iso-spawn](skills/iso-spawn/) | Spawn a codex/claude agent in a herdr tab beside you | `/iso-spawn` |
 | 📝 [iso-readme](skills/iso-readme/) | Write/refine any README in the house style, commit + push | `/iso-readme` |
 
@@ -127,19 +127,20 @@ Turn a raw idea into a written implementation plan — chains four planning skil
 
 ### ✍️ iso-write *(original)*
 
-Build a written plan on a fresh feature branch with TDD — then **stop without committing**, so you review the whole diff and commit yourself.
+Build a written plan with TDD in the workspace mode you pick — then **stop without committing**, so you review the whole diff and commit yourself.
 
-- 🌿 **Auto-branches** from the plan filename (`feat/…`, `fix/…`)
+- 🗂️ **Four workspace modes:** fresh branch (default), current branch (`--no-branch`), named branch (`--branch=<name>`), or isolated worktree (`--worktree`)
+- 🌿 **Auto-branches** from the plan filename (`feat/…`, `fix/…`) in default/worktree modes
 - 🧪 **Red-green-refactor** per task; ticks checkboxes as it goes
 - 🛑 **Never commits** — leaves everything staged for your review (Claude *or* Codex)
 
 ```
-/iso-write <plan_path>
+/iso-write <plan_path> [--no-branch | --branch=<name> | --worktree]
 ```
 
 → [Full documentation](skills/iso-write/README.md)
 
-**Dependencies:** `git` · [`superpowers`](https://github.com/obra/superpowers) (executing-plans, test-driven-development)
+**Dependencies:** `git` · [`superpowers`](https://github.com/obra/superpowers) (executing-plans, test-driven-development, using-git-worktrees)
 
 ---
 
