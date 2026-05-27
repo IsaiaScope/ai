@@ -108,6 +108,7 @@ badges (center)             ---                         > tagline
 - Cross-link siblings; link up to root (`→ Full documentation`, `## 🔗 Related`).
 - Fix broken relative links; point deps that aren't local dirs to their upstream source.
 - **Stop ugly table wraps:** hyphenated names in a narrow table cell (`iso-ai-init`) break mid-word. Use a **literal non-breaking hyphen `‑` (U+2011)** in the *visible* text only — keep real `-` in the link target / `code` span. e.g. `[iso‑ai‑init](skills/iso-ai-init/)`. Prefer the literal char over the `&#8209;` entity (renders more reliably across GitHub views).
+- **Keep table cells short — one long cell widens the whole column.** A trigger/command column shows the *base* command only (`/iso-write`); full arg/flag syntax goes in the per-item body section below, never in the table. Same for any long value: summarise in the cell, detail in prose.
 
 ## Skeletons
 

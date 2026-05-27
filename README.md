@@ -47,7 +47,7 @@ Re-run anytime to update.
 | ⚡ [iso‑ai‑init](skills/iso-ai-init/) | Wire a repo with AI defaults — caveman, graphify, statusline | `/iso-ai-init` |
 | 🏛️ [iso‑init‑repo](skills/iso-init-repo/) | GitHub governance — branches, protection, CI, deploy cascade | `/iso-init-repo` |
 | 🧭 [iso‑plan](skills/iso-plan/) | Raw idea → written implementation plan (no code) | `/iso-plan` |
-| ✍️ [iso‑write](skills/iso-write/) | Build a plan with TDD (branch/in-place/worktree), no commits | `/iso-write <plan> [--no-branch\|--branch=<name>\|--worktree]` |
+| ✍️ [iso‑write](skills/iso-write/) | Build a plan with TDD (branch/in-place/worktree), no commits | `/iso-write` |
 | 🚀 [iso‑spawn](skills/iso-spawn/) | Spawn a codex/claude agent in a herdr tab beside you | `/iso-spawn` |
 | 📝 [iso‑readme](skills/iso-readme/) | Write/refine any README in the house style, commit + push | `/iso-readme` |
 
