@@ -107,7 +107,7 @@ badges (center)             ---                         > tagline
 - Code fences for every command and sample output. A real example beats a description.
 - Cross-link siblings; link up to root (`→ Full documentation`, `## 🔗 Related`).
 - Fix broken relative links; point deps that aren't local dirs to their upstream source.
-- **Stop ugly table wraps:** hyphenated names in a narrow table cell (`iso-ai-init`) break mid-word. Use non-breaking hyphens `&#8209;` in the *visible* text only — keep real `-` in the link target / `code` span. e.g. `[iso&#8209;ai&#8209;init](skills/iso-ai-init/)`.
+- **Stop ugly table wraps:** hyphenated names in a narrow table cell (`iso-ai-init`) break mid-word. Use a **literal non-breaking hyphen `‑` (U+2011)** in the *visible* text only — keep real `-` in the link target / `code` span. e.g. `[iso‑ai‑init](skills/iso-ai-init/)`. Prefer the literal char over the `&#8209;` entity (renders more reliably across GitHub views).
 
 ## Skeletons
 
