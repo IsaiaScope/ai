@@ -9,6 +9,7 @@
   <img src="https://shieldcn.dev/badge/Codex-skills-412991.svg?logo=ri:SiOpenai&logoColor=fff&variant=default&size=xs" alt="Codex" />
   <img src="https://shieldcn.dev/badge/Shell-scripts-4EAA25.svg?logo=gnubash&logoColor=fff&variant=default&size=xs" alt="Shell" />
   <img src="https://shieldcn.dev/badge/JavaScript-installer-323330.svg?logo=javascript&logoColor=F7DF1E&variant=default&size=xs" alt="JavaScript" />
+  <img src="https://shieldcn.dev/badge/Node-runtime-339933.svg?logo=nodedotjs&logoColor=fff&variant=default&size=xs" alt="Node" />
 </p>
 
 ---
