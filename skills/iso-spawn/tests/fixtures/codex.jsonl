@@ -1,0 +1,7 @@
+{"type":"session_meta","payload":{"id":"test-uuid-codex","timestamp":"2026-05-27T00:00:00Z","cwd":"/tmp/fixture"}}
+{"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"hello question"}}
+{"type":"response_item","payload":{"type":"reasoning","summary":[]}}
+{"type":"event_msg","payload":{"type":"agent_message","message":"FINAL_ANSWER_42"}}
+{"type":"event_msg","payload":{"type":"token_count"}}
+{"type":"event_msg","payload":{"type":"task_complete"}}

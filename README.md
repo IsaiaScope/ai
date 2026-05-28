@@ -11,6 +11,10 @@
   <img src="https://shieldcn.dev/badge/JavaScript-installer-323330.svg?logo=javascript&logoColor=F7DF1E&variant=default&size=xs" alt="JavaScript" />
   <img src="https://shieldcn.dev/badge/Node-runtime-339933.svg?logo=nodedotjs&logoColor=fff&variant=default&size=xs" alt="Node" />
 </p>
+<p align="center">
+  <img src="https://shieldcn.dev/badge/AI-tooling-7C3AED.svg?logo=ri:RiSparkling2Fill&logoColor=fff&variant=default&size=xs&gradient=aurora" alt="AI tooling" />
+  <img src="https://shieldcn.dev/badge/status-stable-22C55E.svg?statusDot=true&variant=default&size=xs" alt="status: stable" />
+</p>
 
 ---
 

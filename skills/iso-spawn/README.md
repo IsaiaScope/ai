@@ -30,6 +30,9 @@ scripts/spawn.sh claude
 # dispatch and BLOCK until done, then report status
 scripts/spawn.sh codex --prompt "Run tests and fix failures" --wait
 
+# spawn + wait + recover output + kill the tab in one call
+scripts/spawn.sh deliver codex --prompt "Summarise the repo" --kill
+
 # sandboxed, split the current tab, jump focus to it
 scripts/spawn.sh codex --safe --split right --focus
 ```
@@ -47,11 +50,21 @@ scripts/spawn.sh codex --safe --split right --focus
 
 ---
 
-## 🎛️ Options
+## 🎛️ Verbs & Options
+
+**Verbs:** `spawn` (default bare alias), `deliver`, `send`, `recover`, `status`, `cleanup`
+
+```bash
+scripts/spawn.sh send    <TERM> "Follow-up instruction"  # send text to a live agent
+scripts/spawn.sh status  <TERM>                          # idle|working|blocked|unknown
+scripts/spawn.sh recover <TERM> --what chat              # read the full transcript
+scripts/spawn.sh cleanup <TERM> --kill                   # kill tab + remove sidecar
+scripts/spawn.sh cleanup --orphaned                      # reap all stale sidecars
+```
 
 | flag | meaning |
 |------|---------|
-| `<codex\|claude>` | required first arg |
+| `<codex\|claude>` | required first arg of spawn/deliver |
 | `--prompt TEXT` | inject + auto-run on boot (delivered async) |
 | `--cwd PATH` | working dir (default: caller's pane cwd) |
 | `--label TEXT` | tab label (default: agent type) |
@@ -60,6 +73,24 @@ scripts/spawn.sh codex --safe --split right --focus
 | `--split right\|down` | split current tab instead of new tab |
 | `--focus` | switch focus to the new tab |
 | `--wait` | block until the agent finishes, then print status |
+| `--recover [output\|chat]` | with `--wait`: after idle, print the agent's recovered output |
+| `--what output\|chat` | (deliver) what to recover (default `output`) |
+| `--kill` | after the action, close the tab and remove the sidecar (opt-in; not on bare async `spawn`) |
+
+---
+
+## 📤 Recover Output
+
+After an agent finishes, pull its work back from its **native transcript** (codex/claude JSONL) — the clean final answer, or the full chat for debugging:
+
+```bash
+scripts/spawn.sh recover <TERM>              # clean final answer
+scripts/spawn.sh recover <TERM> --what chat  # full transcript
+scripts/spawn.sh codex --prompt "…" --wait --recover   # block, then print answer
+scripts/spawn.sh deliver codex --prompt "…" --kill     # spawn + wait + recover + cleanup
+```
+
+Keyed off the `term` printed at spawn. A `.spawn` sidecar written at spawn maps `<TERM>` → the agent's transcript file (race-free: snapshot-diff → prompt fingerprint → newest-by-mtime). If unmappable, it falls back to herdr scrollback (bounded; may truncate long chats), flagged with a `# source: scrollback` header.
 
 ---
 
@@ -71,7 +102,7 @@ herdr agent get <term>                              # one agent's status
 herdr agent wait <term> --status idle --timeout MS  # block on completion
 ```
 
-Background spawns log to `<cwd>/.iso/logs/spawn/<date>__<agent>__<name>__<term>.log`.
+Each spawn writes a `.spawn` sidecar to `<cwd>/.iso/logs/spawn/<date>__<agent>__<name>__<term>.spawn` — `[meta]` (TERM→transcript mapping, read by `--recover`) plus the delivery `[trace]`.
 
 ---
 

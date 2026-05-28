@@ -58,6 +58,50 @@ shell/tool-call ending and to ride out claude's boot.
 finishes (`agent wait --status idle` — which also matches the terminal `done` state, confirmed by
 timing: it returned in ~10s, far under the 600s timeout, on a `done` codex), then prints final status.
 
+### The `.spawn` sidecar (one file per spawn)
+
+`<cwd>/.iso/logs/spawn/<date>__<agent>__<name>__<TERM>.spawn` holds two regions:
+- **meta** (always, both `--wait` and background): `term=`, `agent=`, `cwd=`, `slug=`
+  (claude), `pre=` (the candidate transcript set snapshotted before `agent start`), and
+  `session_file=` (the resolved transcript, appended by `__deliver` after the agent boots).
+- **trace** (background always; `--wait` only when `ISO_TRACE=1`): the delivery xtrace
+  used to diagnose a silently-lost prompt / worker death / unrecognised trust modal.
+
+`recover <TERM>` reads the meta region; debugging reads the trace region. This file
+replaces the former `.log` — same one-file-per-spawn footprint, now carrying the mapping.
+
+Transcript sources: codex `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
+(final answer = `event_msg`/`agent_message`); claude `~/.claude/projects/<slug>/*.jsonl`
+(`slug` = cwd with `/` and `.` → `-`; final answer = last `assistant` message with text).
+
+### Concurrency model
+
+**`TERM` (herdr terminal_id) is the single global-unique anchor.** Every verb addresses one
+`<TERM>`; every sidecar is named `…__<TERM>.spawn`. N agents = N independent lanes; the skill
+reads no shared mutable file, so concurrent invocations never contend.
+
+**Transcript mapping** resolves in this order for each spawn:
+1. **snapshot-diff** — files that appeared after the pre-snapshot (`pre=` in the sidecar)
+2. **prompt fingerprint** — if a prompt was delivered, pick the candidate whose *content*
+   contains that prompt string (race-proof: the agent writes its own prompt into the transcript)
+3. **newest-by-mtime** — fallback when no prompt exists to fingerprint (bare promptless spawn)
+
+Every `deliver` / `--prompt` spawn is concurrency-proof; promptless spawns fall to best-effort newest.
+
+**Cleanup race.** `cleanup --orphaned` reaps a sidecar only when **both**: the `TERM` is
+absent from the live agent list **and** the sidecar mtime is older than the grace window
+(`ISO_ORPHAN_GRACE`, default 60s). A deliberately killed agent's sidecar (`cleanup <TERM> --kill`)
+is removed immediately.
+
+### Module map
+
+| module | responsibility |
+|--------|---------------|
+| `lib/herdr.sh` | herdr CLI wrappers: pane read/run, agent status, tab close, agent list, scrollback |
+| `lib/transcript.sh` | JSONL mapping: slug, candidate-set, snapshot-diff, prompt-fingerprint resolver, sidecar search/write |
+| `lib/deliver.sh` | delivery poll loop (trust modals, prompt inject, classify, acceptance confirm) |
+| `lib/cleanup.sh` | orphan detection (`ISO_ORPHAN_GRACE`), sidecar removal, tab kill |
+
 ### The pane is resolved once, in the parent
 After root-collapse the parent resolves the agent's `pane_id` (via `agent get`, falling back to
 `pane list` by tab) and passes it to `__deliver`. The worker therefore makes **one `pane read` per

@@ -32,6 +32,26 @@ shieldcn has first-class provider endpoints; prefer these over hand-built shield
 | GitHub CI status | `shieldcn.dev/github/actions/workflow/status/<owner>/<repo>/<file>` |
 | Codecov | `shieldcn.dev/codecov/c/github/<owner>/<repo>` |
 
+shieldcn also serves live provider badges directly (`/github/<o>/<r>/stars`, `/npm/<pkg>/downloads`, `/discord/<id>`, …) and `/badge/dynamic/json.svg?url=<json>&query=<jsonpath>` for any value from any JSON feed. Use sparingly — a live counter must *say something* about the project, not just move.
+
+### Advanced styling (optional — identity-first rule still wins)
+
+Reach for these only when they add meaning or a deliberate accent; never to decorate.
+
+| Param | Values | Use |
+|-------|--------|-----|
+| `split=true` | — | dark label \| colored value (classic shields two-tone) |
+| `theme=` | 18 shadcn palettes: `zinc`(def) `slate` `stone` `neutral` `gray` `blue` `green` `rose` `orange` `amber` `violet` `purple` `red` `cyan` `emerald` | auto dark-label/bright-value — skip the manual hex+contrast dance |
+| `gradient=` | `sunset` `ocean` `mint` `aurora` `fire` `neon` (+combos) | multi-stop fill; reserve for **one** accent badge |
+| `statusDot=true` | — | small lifecycle dot before the text |
+| `mode=` | `dark` `light` | force theme (no GitHub auto dark/light switch) |
+| tuning | `radius` `padX` `gap` `labelGap` `fontSize` `iconSize` `height` `labelOpacity` | pixel-level fit; rarely needed |
+| group | `shieldcn.dev/group/<a>+<b>+<c>.svg` | a whole row in ONE request — perfectly aligned, but **not individually linkable** |
+
+**Lifecycle badge (apps/libs):** signal maturity with `status-<stable\|beta\|alpha\|experimental\|deprecated>-<hex>.svg?statusDot=true`. Stable/maintained = green `22C55E`, beta/experimental = amber `F59E0B`, deprecated = red. One per README, in a meta row.
+
+**AI-project accent:** a repo whose identity *is* AI tooling may carry **one** flair badge (e.g. `AI-tooling` with `gradient=aurora` + a sparkle logo `ri:RiSparkling2Fill`). Put it + lifecycle on a **second** centered `<p>` row so the identity row stays pure. Brand-hex identity badges remain the default; gradient/fun badges (`Works on My Machine`, etc.) stay off disciplined READMEs.
+
 ### Icons (40,000+ via shieldcn — but only use ones that exist)
 
 | Source | `logo=` syntax | Covers |
