@@ -141,7 +141,8 @@ if [ "$VERB" = recover ]; then
     fi
   fi
   [ -n "$RAGENT" ] || { echo "error: --agent required (could not infer)" >&2; exit 1; }
-  python3 "$SELFDIR/recover.py" "$RAGENT" "$RWHAT" "$RSESS" "$RFMT"; rc=$?
+  rc=0
+  python3 "$SELFDIR/recover.py" "$RAGENT" "$RWHAT" "$RSESS" "$RFMT" || rc=$?
   [ "$RKILL" = 1 ] && cleanup_kill_agent "$RTERM"
   exit $rc
 fi
@@ -164,7 +165,7 @@ while [ $# -gt 0 ]; do
     --split) SPLIT="$2"; shift 2;;
     --focus) FOCUS="--focus"; shift;;
     --wait) WAIT=1; shift;;
-    --recover) RECOVER_WHAT="${2:-output}"; case "$RECOVER_WHAT" in output|chat) shift 2;; *) RECOVER_WHAT=output; shift;; esac;;
+    --recover) case "${2:-}" in output|chat) RECOVER_WHAT="$2"; shift 2;; *) RECOVER_WHAT=output; shift;; esac;;
     --what) RECOVER_WHAT="${2:-output}"; shift 2;;
     --kill) KILL=1; shift;;
     *) echo "error: unknown option $1" >&2; usage; exit 1;;
@@ -214,13 +215,13 @@ START_ARGS+=(-- "${ARGV[@]}")
 PRE_SNAPSHOT=$(transcript_candidate_set "$TYPE" "$CWD")
 SR=$(herdr "${START_ARGS[@]}" 2>&1) \
   || { echo "error: agent start failed: $SR" >&2; [ -n "$TAB" ] && herdr tab close "$TAB" >/dev/null 2>&1; exit 1; }
-TERM=$(printf '%s' "$SR" | herdr_jget '["result"]["agent"]["terminal_id"]') \
+ATERM=$(printf '%s' "$SR" | herdr_jget '["result"]["agent"]["terminal_id"]') \
   || { echo "error: agent start returned no terminal" >&2; [ -n "$TAB" ] && herdr tab close "$TAB" >/dev/null 2>&1; exit 1; }
 PANE0=$(printf '%s' "$SR" | herdr_jget '["result"]["agent"]["pane_id"]' 2>/dev/null || true)
 
 # 6. Collapse root shell; resolve agent pane once.
 if [ -z "$SPLIT" ] && [ -n "$ROOT" ]; then herdr pane close "$ROOT" >/dev/null 2>&1; sleep 1; fi
-PANE=$(herdr agent get "$TERM" 2>/dev/null | herdr_jget '["result"]["agent"]["pane_id"]' 2>/dev/null || true)
+PANE=$(herdr agent get "$ATERM" 2>/dev/null | herdr_jget '["result"]["agent"]["pane_id"]' 2>/dev/null || true)
 if [ -z "$PANE" ] && [ -n "$TAB" ]; then
   PANE=$(herdr pane list --workspace "$WS" 2>/dev/null | python3 -c 'import json,sys
 tab=sys.argv[1]; ps=[p["pane_id"] for p in json.load(sys.stdin)["result"]["panes"] if p["tab_id"]==tab]
@@ -228,33 +229,36 @@ print(ps[0] if ps else "")' "$TAB" 2>/dev/null || true)
 fi
 [ -n "$PANE" ] || PANE="$PANE0"
 
-echo "spawned: $NAME  type=$TYPE  ws=$WS  cwd=$CWD  tab=${TAB:-split:$SPLIT}  term=$TERM  pane=$PANE  full=$FULL"
+echo "spawned: $NAME  type=$TYPE  ws=$WS  cwd=$CWD  tab=${TAB:-split:$SPLIT}  term=$ATERM  pane=$PANE  full=$FULL"
 
 # 7. Sidecar: write meta.
 LOGDIR="${TMPDIR:-/tmp}"
 if [ -n "$CWD" ] && mkdir -p "$CWD/.iso/logs/spawn" 2>/dev/null; then LOGDIR="$CWD/.iso/logs/spawn"; fi
 [ "$TYPE" = claude ] && AGENTLABEL=claude-code || AGENTLABEL=codex
-SPAWNFILE="$LOGDIR/$(date +%Y%m%d-%H%M%S)__${AGENTLABEL}__${NAME}__${TERM}.spawn"
-transcript_write_meta "$SPAWNFILE" "$TERM" "$TYPE" "$CWD" "$PRE_SNAPSHOT"
+SPAWNFILE="$LOGDIR/$(date +%Y%m%d-%H%M%S)__${AGENTLABEL}__${NAME}__${ATERM}.spawn"
+transcript_record_logdir "$LOGDIR"
+transcript_write_meta "$SPAWNFILE" "$ATERM" "$TYPE" "$CWD" "$PRE_SNAPSHOT"
 echo "spawn-file: $SPAWNFILE"
 
 # 8. Delivery.
 if [ "$WAIT" = 1 ]; then
-  "$SELF" __deliver "$TERM" "$PANE" 1 "$WAIT_MS" "$PROMPT" "$SPAWNFILE"
-  st=$(herdr_agent_status "$TERM")
+  "$SELF" __deliver "$ATERM" "$PANE" 1 "$WAIT_MS" "$PROMPT" "$SPAWNFILE"
+  st=$(herdr_agent_status "$ATERM")
   echo "status: $st"
   if [ "$VERB" = deliver ] || [ -n "$RECOVER_WHAT" ]; then
     echo "--- recovered (${RECOVER_WHAT:-output}) ---"
-    RESULT=$("$SELF" recover "$TERM" --what "${RECOVER_WHAT:-output}" || true)
+    RECOVER_STATUS=0
+    RESULT=$("$SELF" recover "$ATERM" --what "${RECOVER_WHAT:-output}") || RECOVER_STATUS=$?
     printf '%s\n' "$RESULT"
     if [ "$VERB" = deliver ] && [ -z "$(printf '%s' "$RESULT" | tr -d '[:space:]')" ]; then
-      echo "warning: deliver got an empty result from $TERM" >&2
+      echo "warning: deliver got an empty result from $ATERM" >&2
     fi
-    [ "$KILL" = 1 ] && cleanup_kill_agent "$TERM"
+    [ "$KILL" = 1 ] && cleanup_kill_agent "$ATERM"
+    [ "$RECOVER_STATUS" = 0 ] || exit "$RECOVER_STATUS"
   fi
 else
-  ISO_TRACE=1 nohup "$SELF" __deliver "$TERM" "$PANE" 0 "$WAIT_MS" "$PROMPT" "$SPAWNFILE" >>"$SPAWNFILE" 2>&1 &
+  ISO_TRACE=1 nohup "$SELF" __deliver "$ATERM" "$PANE" 0 "$WAIT_MS" "$PROMPT" "$SPAWNFILE" >>"$SPAWNFILE" 2>&1 &
   disown 2>/dev/null || true
-  [ -n "$PROMPT" ] && echo "delivering prompt in background — monitor: herdr agent get $TERM  |  sidecar: $SPAWNFILE"
+  [ -n "$PROMPT" ] && echo "delivering prompt in background — monitor: herdr agent get $ATERM  |  sidecar: $SPAWNFILE"
 fi
 echo "done"

@@ -7,7 +7,7 @@ description: Write or refine README files in the IsaiaScope house style — cura
 
 Write a fresh README or refine an existing one to the house look defined in [STYLE.md](STYLE.md), then commit **only** the README file(s) and push. Runs in any repo, under Claude Code or Codex.
 
-Read [STYLE.md](STYLE.md) before writing — it is the single source of truth for badges, layout, voice, and writing rules.
+Read [STYLE.md](STYLE.md) before writing — it is the single source of truth for badges, layout, voice, and writing rules (each rule carries a stable anchor like `B4`/`L1`). Before committing, clear every applicable gate in [CHECKLIST.md](CHECKLIST.md) — the Definition of Done.
 
 ## Input
 
@@ -47,10 +47,20 @@ Parse whatever manifest exists to derive badge signals:
 - **README missing → generate fresh** from the matching STYLE.md skeleton.
 - **README exists → refine:** preserve all real content (install steps, env vars, credits, commands) — restyle layout + badges only. **Never invent** features or commands.
 - Derive badges from Step 2, curate to **3–6 identity badges** (primary lang/runtime · 1–2 defining frameworks · license) using the STYLE.md hex table. Add a missing tech as a new row in STYLE.md.
-- **Icon realism:** use only a `logo=` slug you've verified (hex-table slugs are done). Look up brands at simpleicons.org; if absent, try React Icons `ri:Si<Name>` (e.g. OpenAI → `ri:SiOpenai`); only then fall back to `logo=false` + an emoji in the label. A miss renders blank — confirm with `curl … | grep -c '<path'` > the `logo=false` baseline. See STYLE.md "Icons".
+- **Icon realism:** use only a `logo=` slug you've verified. Look up brands at simpleicons.org; if absent, try React Icons `ri:Si<Name>` (e.g. OpenAI → `ri:SiOpenai`); only then fall back to `logo=false` + an emoji in the label. A miss renders blank. Don't hand-wave hex-table slugs as "done" — the Step 4 DoD curl-verifies **every** `logo=` badge (gate U1), so a typo or table-rot surfaces regardless. See STYLE.md "Icons".
 - **Format/quality:** `.svg` (crisp, GitHub-safe), `logoColor` as bare hex (`fff`, never `white`), light brand colors → dark `bg hex` + bright `logoColor`. Measure real language bytes before picking language badges; don't assume.
 
-## Step 4: Commit README-only + push
+## Step 4: Verify against the DoD (gate)
+
+Before staging anything, walk [CHECKLIST.md](CHECKLIST.md):
+
+1. Take the **Universal** block **plus** the one block for the context detected in Step 1 (root/app · skill · lib/pkg).
+2. Create **one TodoWrite item per applicable gate** and verify each — U1 means actually running `curl` on every `logo=` badge, not eyeballing it.
+3. Any gate fails → fix the README and re-check. **Do not commit until every applicable gate passes.**
+
+A skill README has no badges (gate S2), so the curl gates simply confirm none exist — don't add any to satisfy a badge gate that doesn't apply.
+
+## Step 5: Commit README-only + push
 
 Stage **only** the README path(s) written this run — never `git add -A`. Unrelated working-tree changes stay untouched.
 

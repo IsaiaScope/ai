@@ -18,20 +18,21 @@ cleanup_kill_agent() { # $1=term
 }
 
 # Remove sidecars whose TERM is absent from the live agent list AND older than the grace
-# window (ISO_ORPHAN_GRACE seconds, default 60). Searches ISO_SPAWN_LOGDIR or ./.iso.
+# window (ISO_ORPHAN_GRACE seconds, default 60). Searches known local and indexed logdirs.
 cleanup_orphaned() {
   local dir grace live now mtime term f
-  dir="${ISO_SPAWN_LOGDIR:-./.iso/logs/spawn}"
   grace="${ISO_ORPHAN_GRACE:-60}"
-  [ -d "$dir" ] || return 0
   live=$(herdr_agent_terms)
   now=$(date +%s)
-  for f in "$dir"/*.spawn; do
-    [ -f "$f" ] || continue
-    term=$(grep '^term=' "$f" | head -1 | cut -d= -f2- || true)
-    [ -n "$term" ] || term="${f##*__}"; term="${term%.spawn}"
-    printf '%s\n' "$live" | grep -qx "$term" && continue          # still alive -> keep
-    mtime=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo "$now")
-    [ $((now - mtime)) -ge "$grace" ] && rm -f "$f" 2>/dev/null || true
-  done
+  while IFS= read -r dir; do
+    [ -d "$dir" ] || continue
+    for f in "$dir"/*__*.spawn; do
+      [ -f "$f" ] || continue
+      term=$(grep '^term=' "$f" | head -1 | cut -d= -f2- || true)
+      [ -n "$term" ] || term="${f##*__}"; term="${term%.spawn}"
+      printf '%s\n' "$live" | grep -qx "$term" && continue          # still alive -> keep
+      mtime=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo "$now")
+      [ $((now - mtime)) -ge "$grace" ] && rm -f "$f" 2>/dev/null || true
+    done
+  done < <(transcript_known_logdirs)
 }

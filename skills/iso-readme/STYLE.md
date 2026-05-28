@@ -2,26 +2,28 @@
 
 The house look for every README. `SKILL.md` references this file; humans can read it directly to tweak colors or sections.
 
+**Rule anchors.** Each rule carries a stable ID so [CHECKLIST.md](CHECKLIST.md) can cite it without restating it: **`B#`** badges · **`L#`** layout · **`I#`** icons · **`V#`** voice/writing. IDs are append-only — never renumber; retire by marking *(deprecated)*, don't reuse.
+
 ## Badges
 
-- Source: **shieldcn** (`shieldcn.dev`) — shadcn/ui-styled badges. Same `label-message-color` grammar as shields.io.
-- Canon variant: **`default`** (solid hex fill, white text — loud). Canon size: **`xs`**.
-- Format: `https://shieldcn.dev/badge/<label>-<message>-<hex>.svg?logo=<slug>&logoColor=fff&variant=default&size=xs`
-- **`logoColor` must be hex, no `#`** (`fff`, not `white`) — shieldcn blindly prepends `#`, so a named color becomes invalid `#white` and the logo renders black. Same for the `<hex>` color segment.
-- **`.svg`, not `.png`** — shieldcn SVG inlines text + logo as vector paths (no `@font-face`/`<style>`/external refs), so GitHub renders it crisp at any DPI and has nothing to sanitize. PNG is 1x-only (no `scale`/`dpr` param) → blurry on retina. Verified self-contained 2026-05-27.
-- **Light brand colors need a dark bg.** `default` variant always paints text/logo light, so a light `<hex>` (JS `F7DF1E`, etc.) = unreadable. Use the brand's dark color as `<hex>` and put the bright color on `logoColor` (e.g. JavaScript → `JavaScript-installer-323330.svg?logo=javascript&logoColor=F7DF1E`).
-- **Curated 3–6, identity-only:** primary language(s) by real bytes · 1–2 defining frameworks/targets. (Measure: `git ls-files | … wc -c` by extension — don't guess which language dominates.) Add a version or CI badge only when meaningful.
-- **Skip:** license-only vanity, minor/transitive deps, counters, anything that doesn't define what the project *is*.
-- Placement: centered `<p align="center">` row directly under the title (root/app); single row under the `#` heading (lib/pkg); usually none for skills.
-- **Link badges to their source** where one exists (npm/repo/docs): wrap `<a href="…"><img … alt="…" /></a>`. Always set `alt`.
+- **[B1]** Source: **shieldcn** (`shieldcn.dev`) — shadcn/ui-styled badges. Same `label-message-color` grammar as shields.io.
+- **[B2]** Canon variant: **`default`** (solid hex fill, white text — loud). Canon size: **`xs`**.
+- **[B3]** Format: `https://shieldcn.dev/badge/<label>-<message>-<hex>.svg?logo=<slug>&logoColor=fff&variant=default&size=xs`
+- **[B4] `logoColor` must be hex, no `#`** (`fff`, not `white`) — shieldcn blindly prepends `#`, so a named color becomes invalid `#white` and the logo renders black. Same for the `<hex>` color segment.
+- **[B5] `.svg`, not `.png`** — shieldcn SVG inlines text + logo as vector paths (no `@font-face`/`<style>`/external refs), so GitHub renders it crisp at any DPI and has nothing to sanitize. PNG is 1x-only (no `scale`/`dpr` param) → blurry on retina. Verified self-contained 2026-05-27.
+- **[B6] Light brand colors need a dark bg.** `default` variant always paints text/logo light, so a light `<hex>` (JS `F7DF1E`, etc.) = unreadable. Use the brand's dark color as `<hex>` and put the bright color on `logoColor` (e.g. JavaScript → `JavaScript-installer-323330.svg?logo=javascript&logoColor=F7DF1E`).
+- **[B7] Curated 3–6, identity-only:** primary language(s) by real bytes · 1–2 defining frameworks/targets. (Measure: `git ls-files | … wc -c` by extension — don't guess which language dominates.) Add a version or CI badge only when meaningful.
+- **[B8] Skip:** license-only vanity, minor/transitive deps, counters, anything that doesn't define what the project *is*.
+- **[B9]** Placement: centered `<p align="center">` row directly under the title (root/app); single row under the `#` heading (lib/pkg); usually none for skills.
+- **[B10] Link badges to their source** where one exists (npm/repo/docs): wrap `<a href="…"><img … alt="…" /></a>`. Always set `alt`.
 
 ### Variants (shieldcn `variant=`)
 
-`default` (canon — primary bg, bold) · `secondary` (muted) · `outline` (transparent + border, themed text) · `ghost` (transparent, no border) · `destructive` (red) · `branded` (bg = logo's own brand color). Stick to `default` for identity rows unless a README has a reason.
+**[B11]** `default` (canon — primary bg, bold) · `secondary` (muted) · `outline` (transparent + border, themed text) · `ghost` (transparent, no border) · `destructive` (red) · `branded` (bg = logo's own brand color). Stick to `default` for identity rows unless a README has a reason.
 
 ### Dynamic badges (shieldcn native — use only when meaningful)
 
-shieldcn has first-class provider endpoints; prefer these over hand-built shields.io query URLs.
+**[B12]** shieldcn has first-class provider endpoints; prefer these over hand-built shields.io query URLs.
 
 | Want | URL stem (append `.svg?variant=default&size=xs`) |
 |------|--------------------------------------------------|
@@ -36,7 +38,7 @@ shieldcn also serves live provider badges directly (`/github/<o>/<r>/stars`, `/n
 
 ### Advanced styling (optional — identity-first rule still wins)
 
-Reach for these only when they add meaning or a deliberate accent; never to decorate.
+**[B13]** Reach for these only when they add meaning or a deliberate accent; never to decorate.
 
 | Param | Values | Use |
 |-------|--------|-----|
@@ -48,9 +50,9 @@ Reach for these only when they add meaning or a deliberate accent; never to deco
 | tuning | `radius` `padX` `gap` `labelGap` `fontSize` `iconSize` `height` `labelOpacity` | pixel-level fit; rarely needed |
 | group | `shieldcn.dev/group/<a>+<b>+<c>.svg` | a whole row in ONE request — perfectly aligned, but **not individually linkable** |
 
-**Lifecycle badge (apps/libs):** signal maturity with `status-<stable\|beta\|alpha\|experimental\|deprecated>-<hex>.svg?statusDot=true`. Stable/maintained = green `22C55E`, beta/experimental = amber `F59E0B`, deprecated = red. One per README, in a meta row.
+**[B14] Lifecycle badge (apps/libs):** signal maturity with `status-<stable\|beta\|alpha\|experimental\|deprecated>-<hex>.svg?statusDot=true`. Stable/maintained = green `22C55E`, beta/experimental = amber `F59E0B`, deprecated = red. One per README, in a meta row.
 
-**AI-project accent:** a repo whose identity *is* AI tooling may carry **one** flair badge (e.g. `AI-tooling` with `gradient=aurora` + a sparkle logo `ri:RiSparkling2Fill`). Put it + lifecycle on a **second** centered `<p>` row so the identity row stays pure. Brand-hex identity badges remain the default; gradient/fun badges (`Works on My Machine`, etc.) stay off disciplined READMEs.
+**[B15] AI-project accent:** a repo whose identity *is* AI tooling may carry **one** flair badge (e.g. `AI-tooling` with `gradient=aurora` + a sparkle logo `ri:RiSparkling2Fill`). Put it + lifecycle on a **second** centered `<p>` row so the identity row stays pure. Brand-hex identity badges remain the default; gradient/fun badges (`Works on My Machine`, etc.) stay off disciplined READMEs.
 
 ### Icons (40,000+ via shieldcn — but only use ones that exist)
 
@@ -61,20 +63,20 @@ Reach for these only when they add meaning or a deliberate accent; never to deco
 | Custom SVG | `logo=data:image/svg+xml;base64,…` | anything else |
 | none | `logo=false` | text-only badge |
 
-**Where to look up / verify slugs (official):**
+**[I2] Where to look up / verify slugs (official):**
 - Simple Icons (brands): browse **simpleicons.org** — use the exact slug shown.
 - React Icons (everything else, incl. brands missing from Simple Icons): **react-icons.github.io/react-icons** — pass the component name with its library prefix, e.g. `ri:SiOpenai`, `ri:FaRobot`, `ri:GoStarFill`.
 - Preview any badge live at **shieldcn.dev/gen**. Official agent-skill docs: **shieldcn.dev/docs/skill**.
 
-**Realism rule — never invent a slug.** Use only an icon you're confident resolves:
+**[I3] Realism rule — never invent a slug.** Use only an icon you're confident resolves:
 - Tech in the hex table → use its listed slug (already verified).
 - New brand tech → check Simple Icons first. **If absent there, try React Icons `ri:Si<Name>`** before giving up (e.g. OpenAI is *not* in shieldcn's Simple Icons set but `ri:SiOpenai` works). Some brands only live in React Icons.
 - Still nothing (a concept, not a product) → `logo=false` **and lead the label with a fitting emoji** (e.g. `📦-packaged-green`).
-- **Verify by request, not by faith:** a resolved icon adds `<path>`s; a miss returns the no-logo baseline. Quick check — `curl -s "<url>" | grep -oc '<path'` should exceed the `logo=false` count. A missed slug renders blank.
+- **[I4] Verify by request, not by faith:** a resolved icon adds `<path>`s; a miss returns the no-logo baseline. Quick check — `curl -s "<url>" | grep -oc '<path'` should exceed the `logo=false` count. A missed slug renders blank. **The DoD curl gate (CHECKLIST.md) applies this to _every_ `logo=` badge before commit, not only ad-hoc slugs.**
 
 ### Brand hex table (extendable — add a row per new tech)
 
-Slugs are canonical Simple Icons (no shorthand dots — `nodedotjs`, not `node.js`). `logoColor` column = recommended logo tint.
+**[B16]** Slugs are canonical Simple Icons (no shorthand dots — `nodedotjs`, not `node.js`). `logoColor` column = recommended logo tint.
 
 | Tech | logo slug | bg hex | logoColor |
 |------|-----------|--------|-----------|
@@ -100,6 +102,8 @@ Tech not listed → pick a sensible color (hex or shadcn color token) and **add 
 
 ## Layouts by context
 
+**[L1]** Section order + headers by context — emit exactly the skeleton for the detected context; add no sections, reorder none. (Full templates: [Skeletons](#skeletons).)
+
 ```
 ROOT / APP                  SKILL                       LIB / PKG
 ──────────                  ─────                       ─────────
@@ -116,19 +120,19 @@ badges (center)             ---                         > tagline
 
 ## Voice
 
-- Confident, terse. Light emoji section headers. No marketing fluff, no hedging.
-- Tagline = one line: what it *is* + why it matters.
+- **[V1]** Confident, terse. Light emoji section headers. No marketing fluff, no hedging.
+- **[V2]** Tagline = one line: what it *is* + why it matters.
 
 ## Writing best-practices
 
-- **Tables for decision logic** (X → result, flag → meaning), not prose paragraphs.
-- **Chunk walls of text** into bullets / sub-headings. No paragraph longer than ~4 lines.
-- **Quickstart before deep docs** — a runnable command appears early.
-- Code fences for every command and sample output. A real example beats a description.
-- Cross-link siblings; link up to root (`→ Full documentation`, `## 🔗 Related`).
-- Fix broken relative links; point deps that aren't local dirs to their upstream source.
-- **Stop ugly table wraps:** hyphenated names in a narrow table cell (`iso-ai-init`) break mid-word. Use a **literal non-breaking hyphen `‑` (U+2011)** in the *visible* text only — keep real `-` in the link target / `code` span. e.g. `[iso‑ai‑init](skills/iso-ai-init/)`. Prefer the literal char over the `&#8209;` entity (renders more reliably across GitHub views).
-- **Keep table cells short — one long cell widens the whole column.** A trigger/command column shows the *base* command only (`/iso-write`); full arg/flag syntax goes in the per-item body section below, never in the table. Same for any long value: summarise in the cell, detail in prose.
+- **[V3] Tables for decision logic** (X → result, flag → meaning), not prose paragraphs.
+- **[V4] Chunk walls of text** into bullets / sub-headings. No paragraph longer than ~4 lines.
+- **[V5] Quickstart before deep docs** — a runnable command appears early.
+- **[V6]** Code fences for every command and sample output. A real example beats a description.
+- **[V7]** Cross-link siblings; link up to root (`→ Full documentation`, `## 🔗 Related`).
+- **[V8]** Fix broken relative links; point deps that aren't local dirs to their upstream source.
+- **[V9] Stop ugly table wraps:** hyphenated names in a narrow table cell (`iso-ai-init`) break mid-word. Use a **literal non-breaking hyphen `‑` (U+2011)** in the *visible* text only — keep real `-` in the link target / `code` span. e.g. `[iso‑ai‑init](skills/iso-ai-init/)`. Prefer the literal char over the `&#8209;` entity (renders more reliably across GitHub views).
+- **[V10] Keep table cells short — one long cell widens the whole column.** A trigger/command column shows the *base* command only (`/iso-write`); full arg/flag syntax goes in the per-item body section below, never in the table. Same for any long value: summarise in the cell, detail in prose.
 
 ## Skeletons
 

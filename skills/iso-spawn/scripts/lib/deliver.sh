@@ -25,7 +25,7 @@ deliver_worker() { # $1=term $2=pane $3=wait $4=wait_ms $5=prompt $6=spawnfile
     elif printf '%s' "$S" | grep -qiE 'Press t to trust|trust all hooks'; then herdr_send_keys "$PANE" t;          sleep 1; continue
     elif printf '%s' "$S" | grep -qiE 'Do you trust the files|trust this folder|project you created or one you trust'; then herdr_send_keys "$PANE" Enter; sleep 1; continue; fi
     [ -n "$PROMPT" ] || break
-    C=$(printf '%s' "$S" | deliver_classify "$PROMPT")
+    C=$(printf '%s' "$S" | deliver_classify "$PROMPT" || echo none)
     if [ "$injected" = 1 ]; then
       case "$(herdr_agent_status "$TERM2")" in working|done|blocked) break;; esac
       [ "$C" = submitted ] && break
@@ -35,7 +35,7 @@ deliver_worker() { # $1=term $2=pane $3=wait $4=wait_ms $5=prompt $6=spawnfile
     elif printf '%s' "$S" | grep -qiE "$READY"; then herdr_pane_run "$PANE" "$PROMPT"; injected=1; sleep 2
     else sleep 1; fi
   done
-  # Record the transcript now that the agent is live (prompt-fingerprint added in a later task).
+  # Record the transcript now that the agent is live.
   if [ -n "$SPAWNFILE" ] && [ -f "$SPAWNFILE" ]; then
     local m_agent m_cwd m_pre a newf
     m_agent=$(grep '^agent=' "$SPAWNFILE" | head -1 | cut -d= -f2- || true)

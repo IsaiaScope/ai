@@ -15,6 +15,10 @@ assert_has() { # name haystack needle
   if printf '%s' "$2" | grep -qF -- "$3"; then echo "ok: $1"
   else echo "FAIL: $1 (missing: [$3])"; echo "  in: [$2]"; fail=1; fi
 }
+assert_not_has() { # name haystack needle
+  if printf '%s' "$2" | grep -qF -- "$3"; then echo "FAIL: $1 (unexpected: [$3])"; echo "  in: [$2]"; fail=1
+  else echo "ok: $1"; fi
+}
 assert_before() { # name haystack first second
   local a b; a=$(printf '%s' "$2" | grep -nF -- "$3" | head -1 | cut -d: -f1)
   b=$(printf '%s' "$2" | grep -nF -- "$4" | head -1 | cut -d: -f1)
@@ -58,6 +62,14 @@ e2e=$("$SPAWN" recover dummyterm --session-file "$FIX/codex.jsonl" --agent codex
 assert_eq "spawn recover output via session-file" "$e2e" "FINAL_ANSWER_42"
 e2ec=$("$SPAWN" recover dummyterm --session-file "$FIX/claude.jsonl" --agent claude --what chat)
 assert_has "spawn recover claude chat" "$e2ec" "hello question"
+
+TMP=$(mktemp -d)
+: > "$TMP/x__term_EMPTY.spawn"
+emptyrecover=$(ISO_SPAWN_LOGDIR="$TMP" "$SPAWN" recover term_EMPTY --session-file "$FIX/empty.jsonl" --agent codex --what output --kill); rc=$?
+assert_eq "recover empty output still exits 1" "$rc" "1"
+assert_has "recover empty output note via spawn" "$emptyrecover" "# (no assistant output found)"
+[ -f "$TMP/x__term_EMPTY.spawn" ]; assert_eq "recover --kill cleans after parser rc 1" "$?" "1"
+rm -rf "$TMP"
 
 # --- Task 6: candidate set + snapshot diff (env-overridable dirs) ---
 TMP=$(mktemp -d)
@@ -105,18 +117,24 @@ assert_eq "recover by TERM uses sidecar session_file" "$got" "FINAL_ANSWER_42"
 rm -rf "$TMP"
 
 # --- Task 5: cleanup (orphaned + named, grace window) ---
-. "$HERE/../scripts/lib/herdr.sh"; . "$HERE/../scripts/lib/cleanup.sh"
+. "$HERE/../scripts/lib/transcript.sh"; . "$HERE/../scripts/lib/herdr.sh"; . "$HERE/../scripts/lib/cleanup.sh"
 TMP=$(mktemp -d)
+mkdir -p "$TMP/work" "$TMP/main" "$TMP/tmpdir" "$TMP/indexed"
 herdr_agent_terms() { echo "term_LIVE"; }              # stub: only term_LIVE is alive
-: > "$TMP/a__term_LIVE.spawn"                            # alive -> keep
-: > "$TMP/b__term_DEAD.spawn"; touch -t 202001010000 "$TMP/b__term_DEAD.spawn"  # dead+old -> reap
-: > "$TMP/c__term_FRESH.spawn"                           # dead but fresh (<grace) -> keep
-ISO_SPAWN_LOGDIR="$TMP" ISO_ORPHAN_GRACE=60 cleanup_orphaned
-[ -f "$TMP/a__term_LIVE.spawn" ];  assert_eq "live sidecar kept"  "$?" "0"
-[ -f "$TMP/b__term_DEAD.spawn" ];  assert_eq "dead+old reaped"    "$?" "1"
-[ -f "$TMP/c__term_FRESH.spawn" ]; assert_eq "dead+fresh kept"    "$?" "0"
-cleanup_rm_sidecar term_FRESH "$TMP"
-[ -f "$TMP/c__term_FRESH.spawn" ]; assert_eq "rm_sidecar removes named" "$?" "1"
+: > "$TMP/main/a__term_LIVE.spawn"                         # alive -> keep
+: > "$TMP/main/b__term_DEAD.spawn"; touch -t 202001010000 "$TMP/main/b__term_DEAD.spawn"  # dead+old -> reap
+: > "$TMP/main/c__term_FRESH.spawn"                        # dead but fresh (<grace) -> keep
+: > "$TMP/tmpdir/d__term_TMP.spawn"; touch -t 202001010000 "$TMP/tmpdir/d__term_TMP.spawn"
+: > "$TMP/indexed/e__term_INDEX.spawn"; touch -t 202001010000 "$TMP/indexed/e__term_INDEX.spawn"
+printf '%s\n' "$TMP/indexed" > "$TMP/index"
+( cd "$TMP/work" && ISO_SPAWN_LOGDIR="$TMP/main" ISO_SPAWN_INDEX="$TMP/index" TMPDIR="$TMP/tmpdir" ISO_ORPHAN_GRACE=60 cleanup_orphaned )
+[ -f "$TMP/main/a__term_LIVE.spawn" ];  assert_eq "live sidecar kept"  "$?" "0"
+[ -f "$TMP/main/b__term_DEAD.spawn" ];  assert_eq "dead+old reaped"    "$?" "1"
+[ -f "$TMP/main/c__term_FRESH.spawn" ]; assert_eq "dead+fresh kept"    "$?" "0"
+[ -f "$TMP/tmpdir/d__term_TMP.spawn" ]; assert_eq "TMPDIR sidecar reaped" "$?" "1"
+[ -f "$TMP/indexed/e__term_INDEX.spawn" ]; assert_eq "indexed cwd sidecar reaped" "$?" "1"
+cleanup_rm_sidecar term_FRESH "$TMP/main"
+[ -f "$TMP/main/c__term_FRESH.spawn" ]; assert_eq "rm_sidecar removes named" "$?" "1"
 unset -f herdr_agent_terms
 rm -rf "$TMP"
 
@@ -140,6 +158,81 @@ assert_eq "fingerprint beats newest-by-mtime" "$(basename "$got")" "rollout-NEW-
 # no prompt -> falls back to newest (the later-touched 'mine')
 gotn=$(ISO_CODEX_SESS="$TMP/codex" transcript_resolve_new codex /tmp/fixture "$PRE" "")
 assert_eq "no prompt -> newest-by-mtime" "$(basename "$gotn")" "rollout-NEW-mine.jsonl"
+rm -rf "$TMP"
+
+# --- Regression: delivery classifier failures do not kill worker under set -e ---
+(
+  set -euo pipefail
+  . "$HERE/../scripts/lib/transcript.sh"
+  . "$HERE/../scripts/lib/deliver.sh"
+  deliver_classify() { return 7; }
+  herdr_pane_read() { echo "OpenAI Codex"; }
+  herdr_pane_run() { :; }
+  herdr_agent_status() { echo working; }
+  herdr_send_keys() { :; }
+  deliver_worker term_CLASSIFY pane_CLASSIFY 0 1 "PROMPT_CLASSIFY" ""
+)
+assert_eq "deliver classify failure falls back to none" "$?" "0"
+
+# --- Regression: --wait --recover accepts omitted value and propagates recovery rc ---
+TMP=$(mktemp -d)
+mkdir -p "$TMP/bin" "$TMP/cwd" "$TMP/codex/2026/05/27" "$TMP/logs"
+cat > "$TMP/bin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "pane get") printf '{"result":{"pane":{"workspace_id":"ws_TEST","cwd":"%s"}}}\n' "$ISO_STUB_CWD" ;;
+  "agent list") printf '{"result":{"agents":[]}}\n' ;;
+  "tab create") printf '{"result":{"tab":{"tab_id":"tab_TEST"},"root_pane":{"pane_id":"pane_ROOT"}}}\n' ;;
+  "agent start")
+    cp "$ISO_STUB_EMPTY_JSONL" "$ISO_STUB_CODEX_SESS/2026/05/27/rollout-empty.jsonl"
+    printf '{"result":{"agent":{"terminal_id":"term_WAIT","pane_id":"pane_AGENT","tab_id":"tab_TEST","agent_status":"idle"}}}\n'
+    ;;
+  "pane close") exit 0 ;;
+  "pane read") printf '{"result":{"read":{"text":""}}}\n' ;;
+  "agent get") printf '{"result":{"agent":{"terminal_id":"term_WAIT","pane_id":"pane_AGENT","tab_id":"tab_TEST","agent_status":"idle"}}}\n' ;;
+  "agent wait") exit 0 ;;
+  "tab close") exit 0 ;;
+  *) printf '{"result":{}}\n' ;;
+esac
+SH
+chmod +x "$TMP/bin/herdr"
+waitout=$(HERDR_PANE_ID=pane_CALL ISO_STUB_CWD="$TMP/cwd" ISO_STUB_EMPTY_JSONL="$FIX/empty.jsonl" \
+  ISO_STUB_CODEX_SESS="$TMP/codex" ISO_CODEX_SESS="$TMP/codex" TMPDIR="$TMP/logs" PATH="$TMP/bin:$PATH" \
+  "$SPAWN" codex --cwd "$TMP/cwd" --name waitrecover --safe --wait --recover --kill 2>&1); rc=$?
+assert_eq "spawn --wait --recover without value exits with recover rc" "$rc" "1"
+assert_has "spawn --wait --recover defaults to output" "$waitout" "--- recovered (output) ---"
+assert_has "spawn --wait --recover prints parser output" "$waitout" "# (no assistant output found)"
+assert_not_has "spawn --wait --recover failure does not print done" "$waitout" "done"
+sidecars=$(find "$TMP/logs" -name '*__term_WAIT.spawn' -print)
+assert_eq "spawn --wait --recover --kill cleans after recover rc 1" "$sidecars" ""
+rm -rf "$TMP"
+
+# --- Regression: spawned children inherit the caller's terminal type, not agent TERM ---
+TMP=$(mktemp -d)
+mkdir -p "$TMP/bin" "$TMP/cwd" "$TMP/codex"
+cat > "$TMP/bin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "pane get") printf '{"result":{"pane":{"workspace_id":"ws_TEST","cwd":"%s"}}}\n' "$ISO_STUB_CWD" ;;
+  "agent list") printf '{"result":{"agents":[]}}\n' ;;
+  "tab create") printf '{"result":{"tab":{"tab_id":"tab_TEST"},"root_pane":{"pane_id":"pane_ROOT"}}}\n' ;;
+  "agent start") printf '{"result":{"agent":{"terminal_id":"term_ENV","pane_id":"pane_AGENT"}}}\n' ;;
+  "pane close") exit 0 ;;
+  "agent get") printf '{"result":{"agent":{"terminal_id":"term_ENV","pane_id":"pane_AGENT","tab_id":"tab_TEST","agent_status":"idle"}}}\n' ;;
+  *) printf '{"result":{}}\n' ;;
+esac
+SH
+cat > "$TMP/bin/nohup" <<'SH'
+#!/usr/bin/env bash
+printf '%s' "${TERM:-}" > "$ISO_STUB_NOHUP_TERM"
+exit 0
+SH
+chmod +x "$TMP/bin/herdr" "$TMP/bin/nohup"
+TERM=xterm-256color HERDR_PANE_ID=pane_CALL ISO_STUB_CWD="$TMP/cwd" ISO_STUB_NOHUP_TERM="$TMP/nohup_term" \
+  ISO_CODEX_SESS="$TMP/codex" TMPDIR="$TMP/tmp" PATH="$TMP/bin:$PATH" \
+  "$SPAWN" codex --cwd "$TMP/cwd" --name envtest --safe >/dev/null
+for _ in $(seq 1 20); do [ -s "$TMP/nohup_term" ] && break; sleep 0.1; done
+assert_eq "spawn preserves exported TERM for child processes" "$(cat "$TMP/nohup_term")" "xterm-256color"
 rm -rf "$TMP"
 
 exit $fail

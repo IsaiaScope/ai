@@ -6,6 +6,31 @@
 # Slug a cwd the way claude names its project dir: '/' and '.' -> '-'.
 transcript_slug() { printf '%s' "$1" | sed 's#[/.]#-#g'; }
 
+# Global registry for log directories. This lets `cleanup --orphaned` find sidecars written
+# from other cwd roots, and also covers the TMPDIR fallback path.
+transcript_logdir_index() {
+  printf '%s' "${ISO_SPAWN_INDEX:-${TMPDIR:-/tmp}/iso-spawn-logdirs-${USER:-unknown}.txt}"
+}
+
+transcript_record_logdir() { # $1=logdir
+  local dir="$1" idx
+  [ -n "$dir" ] || return 0
+  idx=$(transcript_logdir_index)
+  mkdir -p "$(dirname "$idx")" 2>/dev/null || return 0
+  grep -Fx -- "$dir" "$idx" >/dev/null 2>&1 || printf '%s\n' "$dir" >> "$idx" 2>/dev/null || true
+}
+
+transcript_known_logdirs() {
+  local idx
+  idx=$(transcript_logdir_index)
+  {
+    [ -n "${ISO_SPAWN_LOGDIR:-}" ] && printf '%s\n' "$ISO_SPAWN_LOGDIR"
+    printf '%s\n' "./.iso/logs/spawn"
+    printf '%s\n' "${TMPDIR:-/tmp}"
+    [ -f "$idx" ] && cat "$idx"
+  } | awk 'NF && !seen[$0]++'
+}
+
 # Print the current candidate transcript files for an agent+cwd, one per line, sorted.
 transcript_candidate_set() { # $1=codex|claude  $2=cwd
   case "$1" in
@@ -34,7 +59,9 @@ transcript_write_meta() { # $1=spawnfile $2=term $3=agent $4=cwd $5=pre(newline-
     echo "agent=$3"
     echo "cwd=$4"
     [ "$3" = claude ] && echo "slug=$(transcript_slug "$4")"
-    printf '%s\n' "$5" | grep -v '^$' | while IFS= read -r p; do echo "pre=$p"; done
+    if [ -n "$5" ]; then
+      while IFS= read -r p; do [ -n "$p" ] && echo "pre=$p"; done <<< "$5"
+    fi
   } > "$1"
 }
 
@@ -58,12 +85,12 @@ transcript_resolve_new() { # $1=agent $2=cwd $3=pre(newline-joined) $4=prompt(op
   done | sort -rn | head -1 | cut -f2-
 }
 
-# Find the .spawn sidecar path for a TERM (searches ISO_SPAWN_LOGDIR, ./.iso, $TMPDIR). Empty if none.
+# Find the .spawn sidecar path for a TERM. Empty if none.
 transcript_sidecar_for() { # $1=term
   local base cand
-  for base in "${ISO_SPAWN_LOGDIR:-}" "./.iso/logs/spawn" "${TMPDIR:-/tmp}"; do
+  while IFS= read -r base; do
     [ -n "$base" ] || continue
     cand=$(find "$base" -maxdepth 1 -name "*__$1.spawn" 2>/dev/null | head -1)
     [ -n "$cand" ] && { printf '%s' "$cand"; return; }
-  done
+  done < <(transcript_known_logdirs)
 }
