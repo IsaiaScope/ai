@@ -2,6 +2,7 @@
 
 const { execSync } = require("child_process");
 const { copyFileSync, mkdirSync, readdirSync, lstatSync, unlinkSync, symlinkSync, rmSync } = require("fs");
+const { localSkillCatalog, syncManifest } = require("./skills-manifest");
 const { join } = require("path");
 const { homedir } = require("os");
 
@@ -41,15 +42,9 @@ for (const [pack, agents] of packs) {
 console.log("\n→ Updating upstream global skills");
 execSync("npx skills@latest update -g -y --agent claude-code --agent codex", { stdio: "inherit" });
 
-// Local skills are installed for every supported agent; each gets a direct symlink.
-const localSkills = [
-  { dir: "iso-ai-init",   agents: ["claude-code", "codex"] },
-  { dir: "iso-init-repo", agents: ["claude-code", "codex"] },
-  { dir: "iso-plan",      agents: ["claude-code", "codex"] },
-  { dir: "iso-write",     agents: ["claude-code", "codex"] },
-  { dir: "iso-spawn",     agents: ["claude-code", "codex"] },
-  { dir: "iso-readme",    agents: ["claude-code", "codex"] },
-];
+// Single source of truth: the filesystem. Every skills/<name>/ with a SKILL.md is a skill,
+// installed for every supported agent. No hand-maintained list to drift.
+const localSkills = localSkillCatalog(join(repoRoot, "skills"));
 
 const agentSkillsDir = {
   "claude-code": join(home, ".claude", "skills"),
@@ -86,6 +81,13 @@ for (const { dir, agents } of localSkills) {
     console.log(`  ✓ ${dir.padEnd(28)} → ${target}`);
   }
 }
+
+// Regenerate the marketplace manifest from the same scan (filesystem = source of truth).
+const pluginPath = join(repoRoot, ".claude-plugin", "plugin.json");
+const { changed } = syncManifest(pluginPath, localSkills.map((s) => s.dir));
+console.log(changed
+  ? `  ✓ plugin.json skills regenerated (${localSkills.length})`
+  : `  ✓ plugin.json skills already in sync (${localSkills.length})`);
 
 // Also clean up any old IsaiaScope/ai symlinks from ~/.agents/skills/ (the universal storage skills.sh used)
 const universalDir = join(home, ".agents", "skills");

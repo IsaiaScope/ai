@@ -111,6 +111,10 @@ Uncommitted work in the main checkout is **not** carried — the worktree is iso
 
 ## Step 3: Execute the plan with TDD (no commits)
 
+Before the first task, ensure the run-artifact dir exists and clear any stale marker for *this* plan, so a leftover from an earlier run cannot be mistaken for this run's halt (`<plan-basename>` is `<plan_path>`'s filename minus `.md`):
+
+    mkdir -p .iso/logs/write && rm -f ".iso/logs/write/<plan-basename>.blocked.md"
+
 Invoke the **superpowers `executing-plans` skill** to drive execution, and the **`test-driven-development` skill** for each task's red-green-refactor loop.
 
 Hard constraints that override any commit guidance inside those skills:
@@ -130,7 +134,7 @@ Halt immediately if:
 - A referenced dependency is missing and not listed as something to install.
 - A plan instruction is ambiguous or self-contradictory.
 
-On halt: write `BLOCKED.md` at the repo root with the failed task number/title, the exact error or ambiguity, what you tried, and the suggested next action. Then print `Halted at task <N>. See BLOCKED.md.` and wait for user input. Do not commit, do not exit.
+On halt: write the blocked marker `.iso/logs/write/<plan-basename>.blocked.md` (create `.iso/logs/write/` if needed; `<plan-basename>` is `<plan_path>`'s filename minus `.md`) with the failed task number/title, the exact error or ambiguity, what you tried, and the suggested next action. Then print `Halted at task <N>. See .iso/logs/write/<plan-basename>.blocked.md.` and wait for user input. Do not commit, do not exit.
 
 ## Step 5: Finalize (still no commit)
 

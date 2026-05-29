@@ -28,6 +28,35 @@ herdr_pane_run()     { herdr pane run "$1" "$2" >/dev/null 2>&1 || true; }
 herdr_send_keys()    { local p="$1"; shift; herdr pane send-keys "$p" "$@" >/dev/null 2>&1 || true; }
 herdr_tab_close()    { herdr tab close "$1" >/dev/null 2>&1 || true; }
 
+herdr_pane_active() { # $1=term — rc 0 active, rc 1 inactive
+  local term="$1" pane text sum safe cache dir
+  pane=$(herdr_pane_for "$term")
+  [ -n "$pane" ] || return 1
+  text=$(herdr_pane_read "$pane" 40)
+  printf '%s' "$text" | grep -qiE 'esc to interrupt' && {
+    sum=$(printf '%s' "$text" | cksum)
+    safe=$(printf '%s' "$term" | tr -c 'A-Za-z0-9_.-' '_')
+    dir="${TMPDIR:-/tmp}/iso-spawn-pane-active"
+    mkdir -p "$dir" 2>/dev/null || true
+    printf '%s' "$sum" > "$dir/$safe.cksum" 2>/dev/null || true
+    return 0
+  }
+  sum=$(printf '%s' "$text" | cksum)
+  safe=$(printf '%s' "$term" | tr -c 'A-Za-z0-9_.-' '_')
+  dir="${TMPDIR:-/tmp}/iso-spawn-pane-active"
+  mkdir -p "$dir" 2>/dev/null || true
+  cache="$dir/$safe.cksum"
+  if [ ! -f "$cache" ]; then
+    printf '%s' "$sum" > "$cache" 2>/dev/null || true
+    return 0
+  fi
+  if [ "$sum" != "$(cat "$cache" 2>/dev/null)" ]; then
+    printf '%s' "$sum" > "$cache" 2>/dev/null || true
+    return 0
+  fi
+  return 1
+}
+
 # All live agent terminal_ids, one per line.
 herdr_agent_terms() {
   herdr agent list 2>/dev/null | python3 -c 'import json,sys

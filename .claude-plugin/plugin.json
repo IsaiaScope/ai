@@ -4,8 +4,10 @@
     "./skills/iso-ai-init",
     "./skills/iso-init-repo",
     "./skills/iso-plan",
-    "./skills/iso-write",
+    "./skills/iso-readme",
+    "./skills/iso-review",
     "./skills/iso-spawn",
-    "./skills/iso-readme"
+    "./skills/iso-todo",
+    "./skills/iso-write"
   ]
 }

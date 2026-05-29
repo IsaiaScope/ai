@@ -1,0 +1,20 @@
+[
+  {
+    "id": "caveman",
+    "scope": "global",
+    "enabled": true,
+    "command": ["bash", "templates/caveman-init.sh"]
+  },
+  {
+    "id": "mcp-shrink",
+    "scope": "global",
+    "enabled": true,
+    "command": ["node", "templates/shrink-known-mcps.js"]
+  },
+  {
+    "id": "graphify",
+    "scope": "repo",
+    "enabled": true,
+    "command": ["bash", "templates/graphify-init.sh"]
+  }
+]

@@ -58,6 +58,27 @@ shell/tool-call ending and to ride out claude's boot.
 finishes (`agent wait --status idle` — which also matches the terminal `done` state, confirmed by
 timing: it returned in ~10s, far under the 600s timeout, on a `done` codex), then prints final status.
 
+### Output contract (stdout = value, stderr = human)
+
+The spawn/deliver flow splits its streams so an orchestrator can capture a clean handle without
+parsing a banner:
+
+- **stdout** carries the one machine-usable value:
+  - async `spawn` and plain `--wait` → the bare **`TERM`** (`term=$(spawn.sh codex --prompt …)`).
+  - `deliver` and `--wait --recover` → the **recovered result** (`result=$(spawn.sh deliver …)`).
+- **stderr** carries everything a human reads: the `spawned: …` banner, `spawn-file:`,
+  `status:`, the `--- recovered ---` header, the full-perms note, and the background-delivery hint.
+
+Rationale: the orchestrator story (track N async agents, fan-out, parent-skill composition) hinges
+on a clean `TERM` handle. Mixing the banner into stdout forced every caller into a fragile
+`sed 's/.*term=\([^ ]*\).*/\1/'` parse. The Unix split makes both capture idioms exact while humans
+still see the banner on the terminal (stderr is unredirected by default).
+
+This is a load-bearing interface decision: parent skills depend on bare-`TERM` capture, so the
+stream assignment is **not** safe to change casually. The contract is covered by a regression test
+(`tests/run.sh`: "stdout carries the machine value, stderr carries the human banner"). The `recover`,
+`status`, `send`, and `cleanup` verbs were already clean and are unchanged.
+
 ### The `.spawn` sidecar (one file per spawn)
 
 `<cwd>/.iso/logs/spawn/<date>__<agent>__<name>__<TERM>.spawn` holds two regions:

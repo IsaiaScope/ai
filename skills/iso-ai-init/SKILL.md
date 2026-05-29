@@ -5,7 +5,7 @@ description: Initialize AI defaults. Global steps run anywhere — install/verif
 
 # iso-ai-init
 
-Set up IsaiaScope AI defaults. Some steps are **global** (run anywhere, even outside a git repo); others are **repo-scoped** (run only inside a git working tree). A gate script decides which apply — being outside a repo is not an error, it just skips the repo-scoped steps.
+Set up IsaiaScope AI defaults. Some steps are **global** (run anywhere, even outside a git repo); others are **repo-scoped** (run only inside a git working tree). The manifest-driven runner decides which apply — being outside a repo is not an error, it just skips the repo-scoped steps.
 
 | Scope | Step | Runs |
 |-------|------|------|
@@ -13,19 +13,31 @@ Set up IsaiaScope AI defaults. Some steps are **global** (run anywhere, even out
 | global | MCP shrink (allowlist) | always |
 | repo   | Graphify CLI install + `/graphify` wiring | only inside a git repo |
 
-All config templates live in `templates/` next to this file — Read each one, then Write/execute it. Resolve paths against the skill base directory (where this SKILL.md lives), referred to below as `<skill-base-dir>`.
+Deterministic orchestration lives in `scripts/init-runner.js`, driven by `steps.json`. Each enabled Init step points at an independently owned script in `templates/`. Resolve paths against the skill base directory (where this SKILL.md lives), referred to below as `<skill-base-dir>`.
 
-## Step 0 — Gate
+## Step 0 — Deterministic Init run
 
-Run the gate first. It does a hard **node** check (node is required by caveman install, the MCP-shrink script, and the statusline merge — fail fast here, not mid-step), then prints `IN_GIT_REPO=true|false` on its first line plus a human-readable plan. Capture that value; it decides whether the repo-scoped step (Step 3) runs.
+Run the manifest-driven runner first:
+
+```bash
+node <skill-base-dir>/scripts/init-runner.js
+```
+
+The runner evaluates whether the current directory is a git repo, filters repo-scoped Init steps outside git repos, executes enabled steps in `steps.json` order, and prints the summary. Add or remove deterministic Init steps by editing `steps.json` plus the step script, not by rewriting this skill.
+
+After the runner completes, continue to **Step 3b** only if the runner ran inside a git repo.
+
+## Implementation detail — Gate
+
+The old gate remains as human-readable implementation detail and dependency documentation. It does a hard **node** check (node is required by caveman install, the MCP-shrink script, and the statusline merge — fail fast here, not mid-step), then prints `IN_GIT_REPO=true|false` on its first line plus a human-readable plan. Do not use it as the primary ordering interface; `scripts/init-runner.js` and `steps.json` own deterministic ordering and scope filtering.
 
 ```bash
 bash <skill-base-dir>/templates/preflight-gate.sh
 ```
 
-The gate is the single source of truth for what is repo- vs globally-scoped, and the one upfront dependency check. When you add future repo-scoped steps, add them to the gate's plan too. (`uv` is checked/auto-installed inside `graphify-init.sh`, since it's only needed for the repo-scoped graphify step.)
+When you add future repo-scoped Init steps, add them to `steps.json` first. Update the gate's plan only if the human-readable plan would otherwise become misleading. (`uv` is checked/auto-installed inside `graphify-init.sh`, since it's only needed for the repo-scoped graphify step.)
 
-## Step 1 — Caveman (global)
+## Human detail — Caveman (global)
 
 All caveman setup lives in `templates/caveman-init.sh` + `templates/caveman-config.json`.
 
@@ -45,7 +57,7 @@ Statusline shows: `…/repo/dir   branch   ctx:75%   $5.82   ULTRA`
 - ctx% red at ≥ 90% usage, magenta below
 - `ULTRA` → caveman mode; switches to token savings after `/caveman-stats`
 
-## Step 2 — MCP shrink (global)
+## Human detail — MCP shrink (global)
 
 Wrap allowlisted, token-heavy MCP servers with `caveman-shrink`. Runs everywhere — MCP config is global, not per-repo.
 
@@ -67,7 +79,7 @@ How it works (idempotent; backs up `~/.claude.json` + `~/.claude/settings.json` 
 
 The allowlist is the only thing to maintain. Transport and launch command are discovered, never assumed — so the skill stays agnostic to any one machine's MCP setup.
 
-## Step 3 — Graphify (repo-scoped — skip if `IN_GIT_REPO=false`)
+## Human detail — Graphify wiring (repo-scoped — skip if not in git)
 
 **Only run this step if the gate reported `IN_GIT_REPO=true`.** Outside a git repo, skip it entirely.
 

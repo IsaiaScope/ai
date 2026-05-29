@@ -8,8 +8,10 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 SELFDIR="$(cd "$(dirname "$0")" && pwd)"
 
 LIBDIR="$SELFDIR/lib"
+. "$LIBDIR/agentkind.sh"
 . "$LIBDIR/transcript.sh"
 . "$LIBDIR/herdr.sh"
+. "$LIBDIR/wait.sh"
 . "$LIBDIR/deliver.sh"
 . "$LIBDIR/cleanup.sh"
 
@@ -51,14 +53,38 @@ spawn / deliver options:
   --recover [output|chat]  (spawn --wait) print recovered output after idle
   --what output|chat       (deliver) what to recover (default output)
   --kill          (deliver) close the tab after capture
+  --json          machine-readable stdout; suppress normal human banners
 
 recover options:
   --session-file F    bypass mapping (tests / power users)
   --agent codex|claude
   --what output|chat
   --format text|json
+  --settle           re-read until recovered output stops growing
   --kill              close the tab after recovery
 EOF
+}
+
+spawn_json_result() { # env: fields below; optional ISO_JSON_RESULT
+  python3 - <<'PY'
+import json, os
+
+data = {
+    "term": os.environ.get("ISO_JSON_TERM", ""),
+    "pane": os.environ.get("ISO_JSON_PANE", ""),
+    "tab": os.environ.get("ISO_JSON_TAB", ""),
+    "agent": os.environ.get("ISO_JSON_AGENT", ""),
+    "name": os.environ.get("ISO_JSON_NAME", ""),
+    "cwd": os.environ.get("ISO_JSON_CWD", ""),
+    "spawn_file": os.environ.get("ISO_JSON_SPAWN_FILE", ""),
+}
+status = os.environ.get("ISO_JSON_STATUS", "")
+if status:
+    data["status"] = status
+if "ISO_JSON_RESULT" in os.environ:
+    data["result"] = os.environ["ISO_JSON_RESULT"]
+print(json.dumps(data, separators=(",", ":")))
+PY
 }
 
 # ---- dispatcher --------------------------------------------------------------
@@ -104,13 +130,14 @@ esac
 
 if [ "$VERB" = recover ]; then
   RTERM="${1:-}"; [ $# -ge 1 ] && shift || true
-  RSESS=""; RAGENT=""; RWHAT="output"; RFMT="text"; RKILL=0
+  RSESS=""; RAGENT=""; RWHAT="output"; RFMT="text"; RKILL=0; RSETTLE=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --session-file) RSESS="$2"; shift 2;;
       --agent) RAGENT="$2"; shift 2;;
       --what) RWHAT="$2"; shift 2;;
       --format) RFMT="$2"; shift 2;;
+      --settle) RSETTLE=1; shift;;
       --kill) RKILL=1; shift;;
       *) echo "error: unknown recover option $1" >&2; exit 1;;
     esac
@@ -123,11 +150,11 @@ if [ "$VERB" = recover ]; then
     [ "$RST" = working ] && echo "warning: agent $RTERM is still working; output may be partial" >&2
     SF=$(transcript_sidecar_for "$RTERM")
     if [ -n "$SF" ]; then
-      RAGENT=$(grep '^agent=' "$SF" | head -1 | cut -d= -f2-)
-      case "$RAGENT" in claude*) RAGENT=claude;; *) RAGENT=codex;; esac
-      RSESS=$(grep '^session_file=' "$SF" | head -1 | cut -d= -f2- || true)
-      M_CWD=$(grep '^cwd=' "$SF" | head -1 | cut -d= -f2- || true)
-      M_PRE=$(grep '^pre=' "$SF" | cut -d= -f2- || true)
+      RAGENT=$(transcript_meta_get "$SF" agent)
+      RAGENT=$(agentkind_normalize "$RAGENT")
+      RSESS=$(transcript_meta_get "$SF" session_file)
+      M_CWD=$(transcript_meta_get "$SF" cwd)
+      M_PRE=$(transcript_meta_get_all "$SF" pre)
       if [ -z "$RSESS" ] || [ ! -f "$RSESS" ]; then RSESS=$(transcript_diff_new "$RAGENT" "$M_CWD" "$M_PRE"); fi
       if [ -z "$RSESS" ] || [ ! -f "$RSESS" ]; then
         RSESS=$(transcript_candidate_set "$RAGENT" "$M_CWD" | while IFS= read -r f; do printf '%s\t%s\n' "$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f")" "$f"; done | sort -rn | head -1 | cut -f2-)
@@ -141,6 +168,12 @@ if [ "$VERB" = recover ]; then
     fi
   fi
   [ -n "$RAGENT" ] || { echo "error: --agent required (could not infer)" >&2; exit 1; }
+  if [ "$RSETTLE" = 1 ]; then
+    WAIT_RECOVER_SESSION_FILE="$RSESS" WAIT_RECOVER_AGENT="$RAGENT" WAIT_RECOVER_FORMAT="$RFMT" \
+      wait_recover_settled "${RTERM:-term_SETTLE}" --what "$RWHAT"
+    [ "$RKILL" = 1 ] && [ -n "$RTERM" ] && cleanup_kill_agent "$RTERM"
+    exit 0
+  fi
   rc=0
   python3 "$SELFDIR/recover.py" "$RAGENT" "$RWHAT" "$RSESS" "$RFMT" || rc=$?
   [ "$RKILL" = 1 ] && cleanup_kill_agent "$RTERM"
@@ -153,7 +186,7 @@ fi
 TYPE="$1"; shift
 case "$TYPE" in codex|claude) ;; *) echo "error: type must be codex or claude" >&2; exit 1;; esac
 
-CWD=""; LABEL=""; NAMEBASE=""; PROMPT=""; FULL=1; SPLIT=""; FOCUS="--no-focus"
+CWD=""; LABEL=""; NAMEBASE=""; PROMPT=""; FULL=1; SPLIT=""; FOCUS="--no-focus"; JSON=0
 WAIT=0; WAIT_MS=600000; RECOVER_WHAT=""; KILL=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -168,6 +201,7 @@ while [ $# -gt 0 ]; do
     --recover) case "${2:-}" in output|chat) RECOVER_WHAT="$2"; shift 2;; *) RECOVER_WHAT=output; shift;; esac;;
     --what) RECOVER_WHAT="${2:-output}"; shift 2;;
     --kill) KILL=1; shift;;
+    --json) JSON=1; shift;;
     *) echo "error: unknown option $1" >&2; usage; exit 1;;
   esac
 done
@@ -183,8 +217,8 @@ WS=${CTX%%$'\t'*}; CALLER_CWD=${CTX#*$'\t'}
 export WS
 
 # 2. Full-permissions preflight (non-fatal).
-if [ "$FULL" = 1 ]; then
-  echo "note: full permissions on — if blocked by the auto-mode classifier, turn auto-mode OFF (allowlisting alone won't pass it), or use --safe"
+if [ "$FULL" = 1 ] && [ "$JSON" = 0 ]; then
+  echo "note: full permissions on — if blocked by the auto-mode classifier, turn auto-mode OFF (allowlisting alone won't pass it), or use --safe" >&2
 fi
 
 # 3. Pick a free, deterministic agent name (server-global): base, base-2, base-3, ...
@@ -194,10 +228,7 @@ while printf '%s\n' "$TAKEN" | grep -qx "$NAME"; do NAME="${NAMEBASE}-$n"; n=$((
 
 # 4. Agent argv (full permissions ON unless --safe).
 ARGV=("$TYPE")
-if [ "$FULL" = 1 ]; then
-  [ "$TYPE" = codex ]  && ARGV+=(--dangerously-bypass-approvals-and-sandbox)
-  [ "$TYPE" = claude ] && ARGV+=(--dangerously-skip-permissions)
-fi
+[ "$FULL" = 1 ] && ARGV+=("$(agentkind_perm_argv "$TYPE")")
 
 # 5. Place the agent.
 ROOT=""; TAB=""
@@ -229,36 +260,57 @@ print(ps[0] if ps else "")' "$TAB" 2>/dev/null || true)
 fi
 [ -n "$PANE" ] || PANE="$PANE0"
 
-echo "spawned: $NAME  type=$TYPE  ws=$WS  cwd=$CWD  tab=${TAB:-split:$SPLIT}  term=$ATERM  pane=$PANE  full=$FULL"
+[ "$JSON" = 1 ] || echo "spawned: $NAME  type=$TYPE  ws=$WS  cwd=$CWD  tab=${TAB:-split:$SPLIT}  term=$ATERM  pane=$PANE  full=$FULL" >&2
 
 # 7. Sidecar: write meta.
 LOGDIR="${TMPDIR:-/tmp}"
 if [ -n "$CWD" ] && mkdir -p "$CWD/.iso/logs/spawn" 2>/dev/null; then LOGDIR="$CWD/.iso/logs/spawn"; fi
-[ "$TYPE" = claude ] && AGENTLABEL=claude-code || AGENTLABEL=codex
+AGENTLABEL=$(agentkind_label "$TYPE")
 SPAWNFILE="$LOGDIR/$(date +%Y%m%d-%H%M%S)__${AGENTLABEL}__${NAME}__${ATERM}.spawn"
 transcript_record_logdir "$LOGDIR"
 transcript_write_meta "$SPAWNFILE" "$ATERM" "$TYPE" "$CWD" "$PRE_SNAPSHOT"
-echo "spawn-file: $SPAWNFILE"
+[ "$JSON" = 1 ] || echo "spawn-file: $SPAWNFILE" >&2
 
 # 8. Delivery.
 if [ "$WAIT" = 1 ]; then
   "$SELF" __deliver "$ATERM" "$PANE" 1 "$WAIT_MS" "$PROMPT" "$SPAWNFILE"
   st=$(herdr_agent_status "$ATERM")
-  echo "status: $st"
+  [ "$JSON" = 1 ] || echo "status: $st" >&2
   if [ "$VERB" = deliver ] || [ -n "$RECOVER_WHAT" ]; then
-    echo "--- recovered (${RECOVER_WHAT:-output}) ---"
+    [ "$JSON" = 1 ] || echo "--- recovered (${RECOVER_WHAT:-output}) ---" >&2
     RECOVER_STATUS=0
     RESULT=$("$SELF" recover "$ATERM" --what "${RECOVER_WHAT:-output}") || RECOVER_STATUS=$?
-    printf '%s\n' "$RESULT"
-    if [ "$VERB" = deliver ] && [ -z "$(printf '%s' "$RESULT" | tr -d '[:space:]')" ]; then
+    if [ "$JSON" = 1 ]; then
+      ISO_JSON_TERM="$ATERM" ISO_JSON_PANE="$PANE" ISO_JSON_TAB="${TAB:-}" ISO_JSON_AGENT="$TYPE" \
+        ISO_JSON_NAME="$NAME" ISO_JSON_CWD="$CWD" ISO_JSON_SPAWN_FILE="$SPAWNFILE" \
+        ISO_JSON_STATUS="$st" ISO_JSON_RESULT="$RESULT" spawn_json_result
+    else
+      printf '%s\n' "$RESULT"
+    fi
+    if [ "$JSON" = 0 ] && [ "$VERB" = deliver ] && [ -z "$(printf '%s' "$RESULT" | tr -d '[:space:]')" ]; then
       echo "warning: deliver got an empty result from $ATERM" >&2
     fi
     [ "$KILL" = 1 ] && cleanup_kill_agent "$ATERM"
     [ "$RECOVER_STATUS" = 0 ] || exit "$RECOVER_STATUS"
+  else
+    if [ "$JSON" = 1 ]; then
+      ISO_JSON_TERM="$ATERM" ISO_JSON_PANE="$PANE" ISO_JSON_TAB="${TAB:-}" ISO_JSON_AGENT="$TYPE" \
+        ISO_JSON_NAME="$NAME" ISO_JSON_CWD="$CWD" ISO_JSON_SPAWN_FILE="$SPAWNFILE" \
+        ISO_JSON_STATUS="$st" spawn_json_result
+    else
+      printf '%s\n' "$ATERM"
+    fi
   fi
 else
   ISO_TRACE=1 nohup "$SELF" __deliver "$ATERM" "$PANE" 0 "$WAIT_MS" "$PROMPT" "$SPAWNFILE" >>"$SPAWNFILE" 2>&1 &
   disown 2>/dev/null || true
-  [ -n "$PROMPT" ] && echo "delivering prompt in background — monitor: herdr agent get $ATERM  |  sidecar: $SPAWNFILE"
+  if [ "$JSON" = 1 ]; then
+    ISO_JSON_TERM="$ATERM" ISO_JSON_PANE="$PANE" ISO_JSON_TAB="${TAB:-}" ISO_JSON_AGENT="$TYPE" \
+      ISO_JSON_NAME="$NAME" ISO_JSON_CWD="$CWD" ISO_JSON_SPAWN_FILE="$SPAWNFILE" \
+      ISO_JSON_STATUS="launched" spawn_json_result
+  else
+    [ -n "$PROMPT" ] && echo "delivering prompt in background — monitor: herdr agent get $ATERM  |  sidecar: $SPAWNFILE" >&2
+    printf '%s\n' "$ATERM"
+  fi
 fi
-echo "done"
+[ "$JSON" = 1 ] || echo "done" >&2

@@ -32,14 +32,19 @@ transcript_known_logdirs() {
 }
 
 # Print the current candidate transcript files for an agent+cwd, one per line, sorted.
+# Layout differs by Agent kind: claude keys a flat per-cwd slug dir (maxdepth 1); codex
+# searches its date-nested sessions root recursively.
 transcript_candidate_set() { # $1=codex|claude  $2=cwd
-  case "$1" in
-    codex)
-      find "${ISO_CODEX_SESS:-$HOME/.codex/sessions}" -name 'rollout-*.jsonl' 2>/dev/null | sort ;;
-    claude*)
-      local d="${ISO_CLAUDE_PROJ:-$HOME/.claude/projects}/$(transcript_slug "$2")"
-      find "$d" -maxdepth 1 -name '*.jsonl' 2>/dev/null | sort ;;
-  esac
+  local kind root glob d
+  kind=$(agentkind_normalize "$1")
+  root=$(agentkind_root "$kind")
+  glob=$(agentkind_glob "$kind")
+  if [ -n "$(agentkind_slug_needed "$kind")" ]; then
+    d="$root/$(transcript_slug "$2")"
+    find "$d" -maxdepth 1 -name "$glob" 2>/dev/null | sort
+  else
+    find "$root" -name "$glob" 2>/dev/null | sort
+  fi
 }
 
 # Newest file present now but not in the pre-snapshot. Empty if none.
@@ -58,11 +63,24 @@ transcript_write_meta() { # $1=spawnfile $2=term $3=agent $4=cwd $5=pre(newline-
     echo "term=$2"
     echo "agent=$3"
     echo "cwd=$4"
-    [ "$3" = claude ] && echo "slug=$(transcript_slug "$4")"
+    [ -n "$(agentkind_slug_needed "$3")" ] && echo "slug=$(transcript_slug "$4")"
     if [ -n "$5" ]; then
       while IFS= read -r p; do [ -n "$p" ] && echo "pre=$p"; done <<< "$5"
     fi
   } > "$1"
+}
+
+# Read the FIRST value for KEY from a .spawn meta block. Empty + rc 0 when the key or
+# file is absent (never aborts a `set -e` caller — matches the guarded herdr.sh style).
+transcript_meta_get() { # $1=spawnfile $2=key
+  [ -f "$1" ] || return 0
+  grep "^$2=" "$1" 2>/dev/null | head -1 | cut -d= -f2- || true
+}
+
+# Read EVERY value for KEY, newline-joined. For multi-value keys like `pre`.
+transcript_meta_get_all() { # $1=spawnfile $2=key
+  [ -f "$1" ] || return 0
+  grep "^$2=" "$1" 2>/dev/null | cut -d= -f2- || true
 }
 
 # Resolve THIS spawn's transcript among files that appeared after the pre-snapshot.

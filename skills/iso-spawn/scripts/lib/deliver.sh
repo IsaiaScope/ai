@@ -38,12 +38,14 @@ deliver_worker() { # $1=term $2=pane $3=wait $4=wait_ms $5=prompt $6=spawnfile
   # Record the transcript now that the agent is live.
   if [ -n "$SPAWNFILE" ] && [ -f "$SPAWNFILE" ]; then
     local m_agent m_cwd m_pre a newf
-    m_agent=$(grep '^agent=' "$SPAWNFILE" | head -1 | cut -d= -f2- || true)
-    m_cwd=$(grep '^cwd=' "$SPAWNFILE" | head -1 | cut -d= -f2- || true)
-    m_pre=$(grep '^pre=' "$SPAWNFILE" | cut -d= -f2- || true)
-    case "$m_agent" in claude*) a=claude;; *) a=codex;; esac
+    m_agent=$(transcript_meta_get "$SPAWNFILE" agent)
+    m_cwd=$(transcript_meta_get "$SPAWNFILE" cwd)
+    m_pre=$(transcript_meta_get_all "$SPAWNFILE" pre)
+    a=$(agentkind_normalize "$m_agent")
     newf=$(transcript_resolve_new "$a" "$m_cwd" "$m_pre" "$PROMPT")
     [ -n "$newf" ] && echo "session_file=$newf" >> "$SPAWNFILE"
   fi
-  [ "$WAIT" = 1 ] && herdr agent wait "$TERM2" --status idle --timeout "$WAIT_MS" >/dev/null 2>&1 || true
+  # WAIT_MS is milliseconds; wait_done --timeout is seconds. Convert at this boundary
+  # (round up so a sub-second wait never collapses to 0).
+  [ "$WAIT" = 1 ] && wait_done "$TERM2" --timeout "$(( (WAIT_MS + 999) / 1000 ))" >/dev/null 2>&1 || true
 }

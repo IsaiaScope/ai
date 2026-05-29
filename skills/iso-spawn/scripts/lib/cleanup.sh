@@ -28,7 +28,7 @@ cleanup_orphaned() {
     [ -d "$dir" ] || continue
     for f in "$dir"/*__*.spawn; do
       [ -f "$f" ] || continue
-      term=$(grep '^term=' "$f" | head -1 | cut -d= -f2- || true)
+      term=$(transcript_meta_get "$f" term)
       [ -n "$term" ] || term="${f##*__}"; term="${term%.spawn}"
       printf '%s\n' "$live" | grep -qx "$term" && continue          # still alive -> keep
       mtime=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo "$now")

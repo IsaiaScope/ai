@@ -22,6 +22,7 @@ skills/
   iso-plan/SKILL.md                — planning pipeline orchestrator
   iso-write/SKILL.md               — TDD plan executor on a feature branch, no commits
   iso-spawn/SKILL.md               — spawn a codex/claude agent in a herdr tab
+  iso-todo/SKILL.md                — full dev cycle: iso-plan → iso-write → iso-review (no commit)
   iso-readme/SKILL.md              — write/refine READMEs in house style, commit + push
 scripts/
   install.js                        — deploys config files + installs skill packs globally
@@ -35,14 +36,14 @@ scripts/
 - `forrestchang/andrej-karpathy-skills` — LLM coding guidelines
 - `mattpocock/skills` — planning/debugging/TDD workflows
 
-The local `IsaiaScope/ai` skills are NOT installed via the marketplace pack. They are listed inline in `scripts/install.js` and symlinked into both supported agents. Update that list when adding a new skill.
+The local `IsaiaScope/ai` skills are NOT installed via the marketplace pack. `scripts/install.js` scans `skills/*/SKILL.md` (via `scripts/skills-manifest.js`) and symlinks each into both supported agents — adding a new skill needs no edit here.
 
 ## Adding a Skill
 
 1. Create `skills/<name>/SKILL.md`
-2. Register in `.claude-plugin/plugin.json` under `"skills"` (for marketplace discovery)
-3. Add an entry to the `localSkills` array in `scripts/install.js`
-4. Re-run `node scripts/install.js`
+2. Re-run `node scripts/install.js`
+
+The skill set is derived from the filesystem: `scripts/install.js` scans `skills/*/SKILL.md`, symlinks each into both agents, and regenerates `.claude-plugin/plugin.json`. There is no list to maintain — a directory with a `SKILL.md` is a skill. Commit the regenerated `plugin.json` diff.
 
 ## Editing Global Agent Instructions
 
