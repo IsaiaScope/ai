@@ -67,42 +67,42 @@ Re-run anytime to update.
     <tr>
       <td nowrap>⚡ <a href="skills/iso-ai-init/">iso‑ai‑init</a></td>
       <td>Wire a repo with AI defaults — caveman, graphify, statusline</td>
-      <td nowrap><code>/iso-ai-init</code></td>
+      <td nowrap><code>/iso‑ai‑init</code></td>
     </tr>
     <tr>
       <td nowrap>🏛️ <a href="skills/iso-init-repo/">iso‑init‑repo</a></td>
       <td>GitHub governance — branches, protection, CI, deploy cascade</td>
-      <td nowrap><code>/iso-init-repo</code></td>
+      <td nowrap><code>/iso‑init‑repo</code></td>
     </tr>
     <tr>
       <td nowrap>🧭 <a href="skills/iso-plan/">iso‑plan</a></td>
       <td>Raw idea → written implementation plan (no code)</td>
-      <td nowrap><code>/iso-plan</code></td>
+      <td nowrap><code>/iso‑plan</code></td>
     </tr>
     <tr>
       <td nowrap>✍️ <a href="skills/iso-write/">iso‑write</a></td>
       <td>Build a plan with TDD (branch/in-place/worktree), no commits</td>
-      <td nowrap><code>/iso-write</code></td>
+      <td nowrap><code>/iso‑write</code></td>
     </tr>
     <tr>
       <td nowrap>🚀 <a href="skills/iso-spawn/">iso‑spawn</a></td>
       <td>Spawn a codex/claude agent in a herdr tab beside you</td>
-      <td nowrap><code>/iso-spawn</code></td>
+      <td nowrap><code>/iso‑spawn</code></td>
     </tr>
     <tr>
       <td nowrap>🧵 <a href="skills/iso-todo/">iso‑todo</a></td>
       <td>Plan → write → review in one hands-off development cycle</td>
-      <td nowrap><code>/iso-todo</code></td>
+      <td nowrap><code>/iso‑todo</code></td>
     </tr>
     <tr>
       <td nowrap>🔍 <a href="skills/iso-review/">iso‑review</a></td>
       <td>Dual-agent review of your uncommitted diff — codex + claude, fixes applied</td>
-      <td nowrap><code>/iso-review</code></td>
+      <td nowrap><code>/iso‑review</code></td>
     </tr>
     <tr>
       <td nowrap>📝 <a href="skills/iso-readme/">iso‑readme</a></td>
       <td>Write/refine any README in the house style, commit + push</td>
-      <td nowrap><code>/iso-readme</code></td>
+      <td nowrap><code>/iso‑readme</code></td>
     </tr>
   </tbody>
 </table>
