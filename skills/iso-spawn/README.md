@@ -12,6 +12,29 @@ You stay unblocked: the prompt is delivered by a detached worker. Add `--wait` i
 
 ---
 
+## 🔄 Lifecycle
+
+You are the orchestrator. A spawned agent runs on its own and never calls you back — you drive it through five phases, each with one verb, all keyed off the `TERM` printed at launch:
+
+```mermaid
+flowchart LR
+    L["1 · Launch<br/>spawn / deliver"] -->|prints TERM| M{"2 · Monitor<br/>status"}
+    M -->|working| M
+    M -->|blocked| I["3 · Interact<br/>send"]
+    I --> M
+    M -->|idle| R["4 · Recover<br/>recover"]
+    R --> T["5 · Tear down<br/>cleanup --kill"]
+```
+
+stdout is capturable (the bare `TERM`, or the recovered result for `deliver`); the human banner goes to stderr:
+
+```bash
+term=$(scripts/spawn.sh codex --prompt "Add a health-check endpoint")   # async → TERM handle
+result=$(scripts/spawn.sh deliver codex --prompt "Summarise the repo")  # serial → answer
+```
+
+---
+
 ## ▶️ Trigger
 
 ```

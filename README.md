@@ -53,11 +53,12 @@ Re-run anytime to update.
 | 🧭 [iso‑plan](skills/iso-plan/) | Raw idea → written implementation plan (no code) | `/iso-plan` |
 | ✍️ [iso‑write](skills/iso-write/) | Build a plan with TDD (branch/in-place/worktree), no commits | `/iso-write` |
 | 🚀 [iso‑spawn](skills/iso-spawn/) | Spawn a codex/claude agent in a herdr tab beside you | `/iso-spawn` |
+| 🔍 [iso‑review](skills/iso-review/) | Dual-agent review of your uncommitted diff — codex + claude, fixes applied | `/iso-review` |
 | 📝 [iso‑readme](skills/iso-readme/) | Write/refine any README in the house style, commit + push | `/iso-readme` |
 
 **Upstream packs** — installed globally by `install.js`: [caveman](#-caveman) · [graphify](#-graphify) · [karpathy-guidelines](#-karpathy-guidelines) · [mattpocock/skills](https://github.com/mattpocock/skills).
 
-A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → you review and commit → **`iso-init-repo`** governs how it ships.
+A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → **`iso-review`** double-checks the diff with two agents → you commit → **`iso-init-repo`** governs how it ships.
 
 ---
 
@@ -164,6 +165,25 @@ Spawn a `codex` or `claude` agent in its own [herdr](https://herdr.dev) tab — 
 → [Full documentation](skills/iso-spawn/README.md)
 
 **Dependencies:** [`herdr`](https://herdr.dev) · `codex` / `claude` CLIs
+
+---
+
+### 🔍 iso-review *(original)*
+
+Review your uncommitted working tree with two agents at once — codex `/review` and claude `/code-review` — then apply every fix worth keeping and verify, all without committing.
+
+- 👥 **Two reviewers in parallel** — codex + claude on the same diff, in visible herdr tabs
+- 🔀 **Merged, de-duplicated, filtered** — keeps everything except net-negative fixes
+- 🧪 **Applies + self-verifies** — a codex fix tab runs the repo's tests + type-check and reports
+- 🛑 **Never commits** — leaves the working tree for your final read
+
+```
+/iso-review [--max]
+```
+
+→ [Full documentation](skills/iso-review/README.md)
+
+**Dependencies:** [`iso-spawn`](skills/iso-spawn/) (spawn/drive engine) · [`herdr`](https://herdr.dev) · `codex` / `claude` CLIs · `git`
 
 ---
 
