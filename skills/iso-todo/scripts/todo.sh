@@ -18,7 +18,7 @@ ISO_SPAWN_LIB="${ISO_SPAWN_LIB:-$ROOT/skills/iso-spawn/scripts/lib}"
 . "$ISO_SPAWN_LIB/wait.sh"
 
 usage() {
-  echo "usage: todo.sh run-plan <plan_path>" >&2
+  echo "usage: todo.sh run-plan <plan_path> [--codex-only]" >&2
 }
 
 json_get() { # $1=json $2=key
@@ -27,6 +27,14 @@ json_get() { # $1=json $2=key
 
 run_plan() {
   local plan="${1:-}"
+  shift || true
+  local review_args=("--kill-review-tabs")
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --codex-only) review_args+=("--codex-only"); shift;;
+      *) echo "iso-todo: unknown option: $1" >&2; return 2;;
+    esac
+  done
   [ -n "$plan" ] && [ -f "$plan" ] || { echo "iso-todo: plan not found: $plan" >&2; return 1; }
 
   local launch term recovered outcome
@@ -58,7 +66,7 @@ run_plan() {
       ;;
   esac
 
-  "$REVIEW" run --kill-review-tabs --fix-term "$term"
+  "$REVIEW" run "${review_args[@]}" --fix-term "$term"
 
   echo "iso-todo: complete"
   echo "plan: $plan"

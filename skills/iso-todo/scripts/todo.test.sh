@@ -48,6 +48,37 @@ assert "todo runs full iso-review with implementation tab reuse" "grep -q -- 'ru
 rm -rf "$tmp"
 
 tmp=$(mktemp -d)
+mkdir -p "$tmp/bin" "$tmp/plan-dir" "$tmp/review" "$tmp/cwd"
+plan="$tmp/plan-dir/2026-01-01-feat-demo.md"
+printf '# plan\n' > "$plan"
+cat > "$tmp/spawn.sh" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  spawn) printf '{"term":"term_IMPL","pane":"pane_IMPL"}\n' ;;
+  send) : ;;
+  recover) printf '✓ Implementation complete — nothing committed.\n' ;;
+esac
+SH
+cat > "$tmp/review.sh" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  run) echo run "$@" >> "$ISO_STUB_REVIEW_LOG" ;;
+esac
+SH
+cat > "$tmp/bin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "agent get") printf '{"result":{"agent":{"agent_status":"idle","pane_id":"pane_IMPL"}}}\n' ;;
+esac
+SH
+chmod +x "$tmp/spawn.sh" "$tmp/review.sh" "$tmp/bin/herdr"
+( cd "$tmp/cwd" && ISO_STUB_REVIEW_LOG="$tmp/review.log" RV_OUTDIR="$tmp/review" \
+  SPAWN="$tmp/spawn.sh" REVIEW="$tmp/review.sh" PATH="$tmp/bin:$PATH" \
+  WAIT_DONE_POLL=0 WAIT_DONE_STEP=1 WAIT_DONE_FAST_IDLE_POLLS=1 "$TODO" run-plan "$plan" --codex-only >/dev/null )
+assert "todo passes codex-only to iso-review" "grep -q -- 'run run --kill-review-tabs --codex-only --fix-term term_IMPL' '$tmp/review.log'"
+rm -rf "$tmp"
+
+tmp=$(mktemp -d)
 mkdir -p "$tmp/bin" "$tmp/cwd"
 plan="$tmp/2026-01-01-feat-blocked.md"
 printf '# plan\n' > "$plan"

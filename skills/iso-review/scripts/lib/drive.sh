@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # iso-review mechanics: preflight, test detection, TUI driving. Sourced by review.sh.
 
+rv_exclude_runtime_logs() {
+  local exclude
+  exclude=$(git rev-parse --git-path info/exclude 2>/dev/null) || return 0
+  mkdir -p "$(dirname "$exclude")"
+  grep -qxF '.iso/logs/' "$exclude" 2>/dev/null || printf '\n.iso/logs/\n' >> "$exclude"
+}
+
 rv_preflight() {
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "✗ not a git repo" >&2; return 1; }
   [ -n "${HERDR_PANE_ID:-}" ] || { echo "✗ herdr not reachable (HERDR_PANE_ID unset)" >&2; return 1; }
+  rv_exclude_runtime_logs
   [ -n "$(git status --porcelain)" ] || { echo "✗ working tree clean — nothing to review" >&2; return 1; }
   return 0
 }
@@ -77,10 +85,11 @@ rv_demote_scrollback() {  # $1 = recovered file
   return 0
 }
 
-rv_reviews() {  # [--claude-review-effort high|max | high|max] [--kill-review-tabs|--kill-tabs]. Wipes $RV_OUTDIR, writes fresh review-{codex,claude}.txt; prints paths.
-  local level="high" kill_tabs=0 outdir="$RV_OUTDIR"
+rv_reviews() {  # [--codex-only] [--claude-review-effort high|max | high|max] [--kill-review-tabs|--kill-tabs]. Wipes $RV_OUTDIR, writes fresh review-{codex,claude}.txt; prints paths.
+  local level="high" kill_tabs=0 codex_only=0 outdir="$RV_OUTDIR"
   while [ $# -gt 0 ]; do
     case "$1" in
+      --codex-only) codex_only=1; shift;;
       --kill-review-tabs|--kill-tabs) kill_tabs=1; shift;;
       --claude-review-effort=*) level="${1#*=}"; shift;;
       --claude-review-effort) shift; level="${1:-high}"; [ $# -gt 0 ] && shift;;
@@ -99,20 +108,23 @@ rv_reviews() {  # [--claude-review-effort high|max | high|max] [--kill-review-ta
   local cTERM cPANE lTERM lPANE sp
   sp=$(rv_spawn codex  iso-review-codex  irvcodex)  || return 1; read -r cTERM cPANE <<<"$sp"
   printf '%s\n' "$cTERM" > "$outdir/.spawned-terms"   # record now so a failed claude spawn still leaves codex reapable
-  sp=$(rv_spawn claude iso-review-claude irvclaude) || return 1; read -r lTERM lPANE <<<"$sp"
+  if [ "$codex_only" = 0 ]; then
+    sp=$(rv_spawn claude iso-review-claude irvclaude) || return 1; read -r lTERM lPANE <<<"$sp"
+  fi
   # drive both (quick keystrokes; the long review work then overlaps)
   local cFAIL=0 lFAIL=0
   if ! { rv_wait_ready "$cPANE" && reviewer_codex_dispatch  "$cPANE" "$level"; }; then
     echo "codex review dispatch failed" >&2; cFAIL=1
   fi
-  if ! { rv_wait_ready "$lPANE" && reviewer_claude_dispatch "$lPANE" "$level"; }; then
+  if [ "$codex_only" = 0 ] && ! { rv_wait_ready "$lPANE" && reviewer_claude_dispatch "$lPANE" "$level"; }; then
     echo "claude review dispatch failed" >&2; lFAIL=1
   fi
   # Confirm BOTH launched now, while it's unambiguous — both were just dispatched and should turn `working`
   # within seconds. Doing this here, not after a serial finish-wait, distinguishes a dropped keystroke
   # from an already-finished fast review.
-  local reviewer term window="${RV_START_WINDOW:-120}" st started
-  for reviewer in codex claude; do
+  local reviewer reviewers="codex" term window="${RV_START_WINDOW:-120}" st started
+  [ "$codex_only" = 0 ] && reviewers="codex claude"
+  for reviewer in $reviewers; do
     case "$reviewer" in
       codex) term="$cTERM"; [ "$cFAIL" = 0 ] || continue;;
       claude) term="$lTERM"; [ "$lFAIL" = 0 ] || continue;;
@@ -134,21 +146,23 @@ rv_reviews() {  # [--claude-review-effort high|max | high|max] [--kill-review-ta
   # Then wait both to truly finish (idle/done, or a quiescent transcript behind a stuck `working` status).
   local review_timeout="${RV_REVIEW_TIMEOUT:-3600}"
   [ "$cFAIL" = 0 ] && { wait_done "$cTERM" --timeout "$review_timeout" --done-grep "$RV_FINDINGS_GREP" || { echo "codex review did not finish in time"  >&2; cFAIL=1; }; }
-  [ "$lFAIL" = 0 ] && { wait_done "$lTERM" --timeout "$review_timeout" --done-grep "$RV_FINDINGS_GREP" || { echo "claude review did not finish in time" >&2; lFAIL=1; }; }
+  [ "$codex_only" = 0 ] && [ "$lFAIL" = 0 ] && { wait_done "$lTERM" --timeout "$review_timeout" --done-grep "$RV_FINDINGS_GREP" || { echo "claude review did not finish in time" >&2; lFAIL=1; }; }
   # recover — on dispatch failure write a sentinel so 'failed' != 'no findings'; otherwise settle-recover
   # to ride out the jsonl flush-lag (status/pane lead the disk write) so we don't grab a pre-final turn.
   if [ "$cFAIL" = 1 ]; then echo "__DISPATCH_FAILED__" > "$outdir/review-codex.txt"
   else wait_recover_settled "$cTERM" > "$outdir/review-codex.txt"; rv_demote_scrollback "$outdir/review-codex.txt"; fi
-  if [ "$lFAIL" = 1 ]; then echo "__DISPATCH_FAILED__" > "$outdir/review-claude.txt"
+  if [ "$codex_only" = 1 ]; then : > "$outdir/review-claude.txt"
+  elif [ "$lFAIL" = 1 ]; then echo "__DISPATCH_FAILED__" > "$outdir/review-claude.txt"
   else wait_recover_settled "$lTERM" > "$outdir/review-claude.txt"; rv_demote_scrollback "$outdir/review-claude.txt"; fi
   reviewer_codex_normalize "$outdir/review-codex.txt" "$outdir/findings-codex.json"
   reviewer_claude_normalize "$outdir/review-claude.txt" "$outdir/findings-claude.json"
-  printf '%s\n%s\n' "$cTERM" "$lTERM" > "$outdir/.spawned-terms"   # for later cleanup
+  if [ "$codex_only" = 1 ]; then printf '%s\n' "$cTERM" > "$outdir/.spawned-terms"
+  else printf '%s\n%s\n' "$cTERM" "$lTERM" > "$outdir/.spawned-terms"; fi   # for later cleanup
   echo "$outdir/review-codex.txt"; echo "$outdir/review-claude.txt"
   # Systematic teardown (opt-in): both review files are on disk now, so killing the tabs reclaims the
   # processes without losing findings. Default leaves them alive for live inspection.
-  if [ "$kill_tabs" = 1 ]; then rv_kill_term "$cTERM"; rv_kill_term "$lTERM"; fi
-  if [ "$cFAIL" = 1 ] && [ "$lFAIL" = 1 ]; then
+  if [ "$kill_tabs" = 1 ]; then rv_kill_term "$cTERM"; [ "$codex_only" = 0 ] && rv_kill_term "$lTERM"; fi
+  if [ "$cFAIL" = 1 ] && { [ "$codex_only" = 1 ] || [ "$lFAIL" = 1 ]; }; then
     echo "✗ both reviewers failed to dispatch — no review produced" >&2
     return 1
   fi
@@ -186,7 +200,7 @@ rv_apply() {  # <accepted-fixes.md> [--fix-agent codex|claude] [--fix-term TERM]
   tcmd=$(rv_detect_test_cmd)
   test_line="run the project's tests and type-checks (whatever this repo uses) and report PASS/FAIL"
   [ -n "$tcmd" ] && test_line="run \`$tcmd\` and the project's type-check, and report PASS/FAIL"
-  prompt="Implement the following fixes in the working tree. They were selected from a combined codex + claude code review.
+  prompt="Implement the following fixes in the working tree. They were selected from a code review.
 
 $(cat "$f")
 
@@ -287,9 +301,10 @@ PY
 }
 
 rv_run() {  # full iso-review path: preflight → reviews → accepted fixes → apply
-  local level="high" kill_review=0 kill_fix=0 fix_agent="codex" fix_term=""
+  local level="high" kill_review=0 kill_fix=0 codex_only=0 fix_agent="codex" fix_term=""
   while [ $# -gt 0 ]; do
     case "$1" in
+      --codex-only) codex_only=1; shift;;
       --kill-tabs) kill_review=1; kill_fix=1; shift;;
       --kill-review-tabs) kill_review=1; shift;;
       --kill-fix-tab) kill_fix=1; shift;;
@@ -307,6 +322,7 @@ rv_run() {  # full iso-review path: preflight → reviews → accepted fixes →
 
   rv_preflight || return $?
   local review_args=("--claude-review-effort" "$level")
+  [ "$codex_only" = 1 ] && review_args+=("--codex-only")
   [ "$kill_review" = 1 ] && review_args+=("--kill-review-tabs")
   rv_reviews "${review_args[@]}" || return $?
 

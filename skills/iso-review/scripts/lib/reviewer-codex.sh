@@ -2,14 +2,19 @@
 # Codex Reviewer adapter: owns Codex review dispatch and raw output normalization.
 
 reviewer_codex_dispatch() {  # $1=pane $2=level(ignored)
-  local p="$1"
+  local p="$1" poll_count="${CODEX_REVIEW_PRESET_POLLS:-15}"
   herdr pane send-text "$p" "/review"; sleep 1; herdr pane send-keys "$p" Enter
-  for _ in $(seq 1 15); do
+  for _ in $(seq 1 "$poll_count"); do
     herdr_pane_read "$p" 30 | grep -q "Select a review preset" && break
     sleep 1
   done
-  herdr_pane_read "$p" 30 | grep -q "Select a review preset" \
-    || { echo "✗ codex review preset menu never appeared" >&2; return 1; }
+  if ! herdr_pane_read "$p" 30 | grep -q "Select a review preset"; then
+    herdr_pane_run "$p" 'Review the uncommitted working-tree diff. Focus on bugs, behavioral regressions, missing tests, and risks. Respond only with JSON in this exact shape:
+{"findings":[{"title":"...","body":"...","priority":"P1|P2|P3","code_location":{"absolute_file_path":"...","line_range":{"start":1,"end":1}}}]}
+Use an empty findings array if there are no issues.'
+    sleep 2
+    return 0
+  fi
   herdr pane send-keys "$p" Down; sleep 1; herdr pane send-keys "$p" Enter
   sleep 2
   if herdr_pane_read "$p" 30 | grep -q "Select a base branch"; then

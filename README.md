@@ -96,7 +96,7 @@ Re-run anytime to update.
     </tr>
     <tr>
       <td nowrap>🔍 <a href="skills/iso-review/">iso‑review</a></td>
-      <td>Dual-agent review of your uncommitted diff — codex + claude, fixes applied</td>
+      <td>Review your uncommitted diff — Codex-only or codex + claude, fixes applied</td>
       <td nowrap><code>/iso‑review</code></td>
     </tr>
     <tr>
@@ -109,7 +109,7 @@ Re-run anytime to update.
 
 **Upstream packs** — installed globally by `install.js`: [caveman](#-caveman) · [graphify](#-graphify) · [karpathy-guidelines](#-karpathy-guidelines) · [mattpocock/skills](https://github.com/mattpocock/skills).
 
-A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → **`iso-review`** double-checks the diff with two agents → you commit → **`iso-init-repo`** governs how it ships. **`iso-todo`** runs the plan/write/review sequence as one orchestrated cycle and still commits nothing.
+A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → **`iso-review`** double-checks the diff with Codex-only or dual-agent review → you commit → **`iso-init-repo`** governs how it ships. **`iso-todo`** runs the plan/write/review sequence as one orchestrated cycle and still commits nothing.
 
 ---
 
@@ -221,7 +221,7 @@ Spawn a `codex` or `claude` agent in its own [herdr](https://herdr.dev) tab — 
 
 ### 🧵 iso-todo *(original)*
 
-Run a full development cycle — plan, implement in a spawned codex tab, review with dual agents, and apply accepted fixes back in the implementation tab. **Never commits.**
+Run a full development cycle — plan, implement in a spawned codex tab, review with Codex-only or dual-agent review, and apply accepted fixes back in the implementation tab. **Never commits.**
 
 - 🧭 **Plan first** — delegates to `iso-plan` and stops if no new plan appears
 - ✍️ **Write in a live tab** — runs `iso-write` on a fresh `feat/<slug>` branch
@@ -239,15 +239,15 @@ Run a full development cycle — plan, implement in a spawned codex tab, review 
 
 ### 🔍 iso-review *(original)*
 
-Review your uncommitted working tree with two agents at once — codex `/review` and claude `/code-review` — then apply every fix worth keeping and verify, all without committing.
+Review your uncommitted working tree with Codex only or with codex `/review` + claude `/code-review` — then apply every fix worth keeping and verify, all without committing.
 
-- 👥 **Two reviewers in parallel** — codex + claude on the same diff, in visible herdr tabs
+- 👥 **Reviewer tabs** — codex on the diff, with optional claude pairing unless `--codex-only`
 - 🔀 **Merged, de-duplicated, filtered** — keeps everything except net-negative fixes
 - 🧪 **Applies + self-verifies** — a codex fix tab runs the repo's tests + type-check and reports
 - 🛑 **Never commits** — leaves the working tree for your final read
 
 ```
-/iso-review [--max]
+/iso-review [--codex-only] [--max]
 ```
 
 → [Full documentation](skills/iso-review/README.md)

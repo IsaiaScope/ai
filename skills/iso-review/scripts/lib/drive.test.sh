@@ -11,6 +11,9 @@ tmp=$(mktemp -d); ( cd "$tmp" && HERDR_PANE_ID=p_1 rv_preflight >/dev/null 2>&1 
 # preflight fails on clean tree
 tmp=$(mktemp -d); ( cd "$tmp" && git init -q && git commit -q --allow-empty -m init && HERDR_PANE_ID=p_1 rv_preflight >/dev/null 2>&1 ); assert "clean-tree rejected" "[ $? -ne 0 ]"
 
+# preflight ignores its own generated runtime logs
+tmp=$(mktemp -d); ( cd "$tmp" && git init -q && git commit -q --allow-empty -m init && mkdir -p .iso/logs/review && echo x > .iso/logs/review/generated.txt && HERDR_PANE_ID=p_1 rv_preflight >/dev/null 2>&1 ); assert "runtime logs do not make tree reviewable" "[ $? -ne 0 ]"
+
 # preflight fails without HERDR_PANE_ID
 tmp=$(mktemp -d); ( cd "$tmp" && git init -q && echo x > f && unset HERDR_PANE_ID && rv_preflight >/dev/null 2>&1 ); assert "no-herdr rejected" "[ $? -ne 0 ]"
 
@@ -46,6 +49,19 @@ tmp=$(mktemp -d)
 rm -rf "$tmp"
 
 # --- normalized Findings -------------------------------------------------------
+
+tmp=$(mktemp -d)
+(
+  sleep() { :; }
+  herdr() { printf '%s\n' "$*" >> "$tmp/herdr.calls"; }
+  herdr_pane_read() { printf 'OpenAI Codex ready'; }
+  herdr_pane_run() { printf '%s' "$2" > "$tmp/direct-prompt"; }
+  CODEX_REVIEW_PRESET_POLLS=1 reviewer_codex_dispatch pane_CODEX >/dev/null 2>&1
+  grep -q 'pane send-text pane_CODEX /review' "$tmp/herdr.calls" &&
+    grep -q 'Respond only with JSON' "$tmp/direct-prompt" &&
+    grep -q '"findings"' "$tmp/direct-prompt"
+); assert "codex dispatch falls back to direct JSON review prompt" "[ $? -eq 0 ]"
+rm -rf "$tmp"
 
 tmp=$(mktemp -d)
 cat > "$tmp/codex.txt" <<'JSON'
@@ -176,6 +192,32 @@ tmp=$(mktemp -d)
 ); assert "reviews default keeps tabs (no kill)" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
+# --codex-only skips the claude reviewer entirely but still writes the expected files
+tmp=$(mktemp -d)
+(
+  RV_OUTDIR="$tmp/out"
+  rv_spawn() {
+    case "$1" in
+      codex) echo "term_CODEX pane_CODEX";;
+      claude) touch "$tmp/claude-spawned"; return 1;;
+    esac
+  }
+  rv_wait_ready() { return 0; }
+  reviewer_codex_dispatch() { return 0; }
+  reviewer_claude_dispatch() { touch "$tmp/claude-dispatched"; return 1; }
+  herdr_agent_status() { echo working; }
+  wait_done() { return 0; }
+  wait_recover_settled() { printf '{"findings":[]}'; }
+  rv_reviews --codex-only >/dev/null
+  rc=$?
+  [ "$rc" -eq 0 ] &&
+    [ ! -f "$tmp/claude-spawned" ] &&
+    [ ! -f "$tmp/claude-dispatched" ] &&
+    [ "$(cat "$tmp/out/findings-claude.json")" = "[]" ] &&
+    grep -qx term_CODEX "$tmp/out/.spawned-terms"
+); assert "codex-only reviews skip claude reviewer" "[ $? -eq 0 ]"
+rm -rf "$tmp"
+
 # --- claude review effort -------------------------------------------------------
 
 # --claude-review-effort max drives claude at max
@@ -225,6 +267,23 @@ tmp=$(mktemp -d)
     grep -qx term_IMPL "$tmp/apply.args" &&
     grep -q 'Require working' "$RV_OUTDIR/accepted-fixes.md"
 ); assert "run performs full review path and reuses fix term" "[ $? -eq 0 ]"
+rm -rf "$tmp"
+
+# full run: --codex-only is passed through to reviews
+tmp=$(mktemp -d)
+(
+  RV_OUTDIR="$tmp/out"
+  rv_preflight() { return 0; }
+  rv_reviews() {
+    printf '%s\n' "$@" > "$tmp/reviews.args"
+    mkdir -p "$RV_OUTDIR"
+    printf '[]\n' > "$RV_OUTDIR/findings-codex.json"
+    printf '[]\n' > "$RV_OUTDIR/findings-claude.json"
+  }
+  rv_apply() { touch "$tmp/applied"; }
+  rv_run --codex-only >/dev/null
+  grep -q -- '--codex-only' "$tmp/reviews.args" && [ ! -f "$tmp/applied" ]
+); assert "run passes codex-only to reviews" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
 # full run: no accepted findings means no apply call

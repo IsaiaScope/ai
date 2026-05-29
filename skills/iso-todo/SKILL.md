@@ -1,13 +1,13 @@
 ---
 name: iso-todo
-description: Run a full development cycle — plan, then implement, then review — as one hands-off chain. Invoked as /iso-todo [seed]. The parent session plans with iso-plan, spawns a codex implementation tab to run iso-write on a fresh feat/<slug> branch, keeps that tab alive, runs iso-review over the resulting uncommitted diff with reviewer tabs killed after recovery, and reuses the implementation tab for accepted fixes. Commits nothing. Use when the user runs /iso-todo, or asks to take an idea all the way from plan to implemented-and-reviewed without committing.
+description: Run a full development cycle — plan, then implement, then review — as one hands-off chain. Invoked as /iso-todo [--codex-only] [seed]. The parent session plans with iso-plan, spawns a codex implementation tab to run iso-write on a fresh feat/<slug> branch, keeps that tab alive, runs iso-review over the resulting uncommitted diff with reviewer tabs killed after recovery, and reuses the implementation tab for accepted fixes. With --codex-only, review skips Claude. Commits nothing. Use when the user runs /iso-todo, or asks to take an idea all the way from plan to implemented-and-reviewed without committing.
 ---
 
 # iso-todo
 
 The umbrella development-cycle orchestrator: `iso-plan` → `iso-write` → `iso-review`, chained into one run.
 
-Invocation: `/iso-todo [seed]`. With a seed, it brainstorms from that idea; bare, it brainstorms from the conversation so far. It **always** runs all three phases — there is no plan-path entry, no phase-skip, no resume.
+Invocation: `/iso-todo [--codex-only] [seed]`. With a seed, it brainstorms from that idea; bare, it brainstorms from the conversation so far. `--codex-only` is passed to the review phase so no Claude reviewer is spawned. It **always** runs all three phases — there is no plan-path entry, no phase-skip, no resume.
 
 Helpers:
 - `skills/iso-todo/scripts/todo.sh` — executable write/review mechanics after a plan exists.
@@ -36,10 +36,10 @@ If iso-plan produces no new plan (the user abandoned planning), stop here cleanl
 After Phase 1 produces plan path `P`, delegate the executable Development cycle mechanics to:
 
 ```bash
-skills/iso-todo/scripts/todo.sh run-plan "$P"
+skills/iso-todo/scripts/todo.sh run-plan "$P" [--codex-only]
 ```
 
-Run it with its absolute path. It launches the Implementation tab through `iso-spawn --json`, sends `/iso-write "$P"`, waits and classifies the result, then runs `review.sh run --kill-review-tabs --fix-term "$TERM_IMPL"` so the full iso-review path creates accepted fixes before applying them in the Implementation tab.
+Run it with its absolute path. It launches the Implementation tab through `iso-spawn --json`, sends `/iso-write "$P"`, waits and classifies the result, then runs `review.sh run --kill-review-tabs --fix-term "$TERM_IMPL"` plus `--codex-only` when requested, so the full iso-review path creates accepted fixes before applying them in the Implementation tab.
 
 ## Phase 2 — Write (spawned codex implementation tab)
 
@@ -76,9 +76,11 @@ Invoke the **`iso-review`** skill (it reviews the uncommitted working tree — e
 
 ```bash
 /iso-review --kill-review-tabs --fix-term "$TERM_IMPL"
+# Codex-only:
+/iso-review --codex-only --kill-review-tabs --fix-term "$TERM_IMPL"
 ```
 
-Pass `--max` only if the user asked for it. iso-review spawns two ephemeral reviewer tabs, saves their transcripts, then kills those reviewer tabs. If accepted fixes are non-empty, it sends the fix prompt to the original implementation tab via `--fix-term "$TERM_IMPL"` and waits for that tab's test/type report. If nothing is accepted, iso-review spawns nothing and reports "no fixes."
+Pass `--max` only if the user asked for it. By default, iso-review spawns two ephemeral reviewer tabs; with `--codex-only`, it spawns only the Codex reviewer. It saves transcripts/findings, then kills those reviewer tabs. If accepted fixes are non-empty, it sends the fix prompt to the original implementation tab via `--fix-term "$TERM_IMPL"` and waits for that tab's test/type report. If nothing is accepted, iso-review spawns nothing and reports "no fixes."
 
 Do **not** let iso-review spawn a separate fix tab during iso-todo; the implementation tab is the fix tab by design (ADR 0001). Read iso-review's summary (accepted/dropped ledger + the implementation tab's test/type report) for the card.
 

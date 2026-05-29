@@ -1,16 +1,17 @@
 ---
 name: iso-review
-description: Dual-agent review of the uncommitted working tree. Spawns codex /review and claude /code-review in two visible herdr tabs, merges and de-duplicates the findings in the main session, applies every fix except the net-negative ones via a fix tab (codex by default, claude via --fix-agent, or an existing tab via --fix-term) that then runs the project's tests and type-check — leaving all changes uncommitted. Use when invoked as /iso-review [--claude-review-effort high|max] [--fix-agent codex|claude] [--fix-term TERM] [--kill-tabs], or asked to review-and-fix the current uncommitted changes with codex + claude combined.
+description: Review the uncommitted working tree. By default spawns codex /review and claude /code-review in two visible herdr tabs; with --codex-only, spawns only codex. Merges and de-duplicates findings in the main session, applies every fix except the net-negative ones via a fix tab (codex by default, claude via --fix-agent, or an existing tab via --fix-term) that then runs the project's tests and type-check — leaving all changes uncommitted. Use when invoked as /iso-review [--codex-only] [--claude-review-effort high|max] [--fix-agent codex|claude] [--fix-term TERM] [--kill-tabs], or asked to review-and-fix the current uncommitted changes.
 ---
 
 # iso-review
 
-Review the **uncommitted working-tree diff** with two agents at once, keep the fixes that help, apply them, verify, and stop — uncommitted — for your final read.
+Review the **uncommitted working-tree diff**, keep the fixes that help, apply them, verify, and stop — uncommitted — for your final read.
 
-Invocation: `/iso-review [--claude-review-effort high|max] [--fix-agent codex|claude] [--fix-term TERM] [--kill-review-tabs] [--kill-fix-tab] [--kill-tabs]`.
+Invocation: `/iso-review [--codex-only] [--claude-review-effort high|max] [--fix-agent codex|claude] [--fix-term TERM] [--kill-review-tabs] [--kill-fix-tab] [--kill-tabs]`.
 
 | flag | effect |
 |------|--------|
+| `--codex-only` | run only the Codex reviewer; no Claude tab is spawned and no Claude tokens are consumed |
 | `--claude-review-effort high\|max` | effort level for the claude `/code-review` reviewer; default `high`. `--max` is shorthand for `--claude-review-effort max` |
 | `--fix-agent codex\|claude` | which agent drives a newly spawned fix tab (Step 7); default `codex`. Ignored when `--fix-term` is provided |
 | `--fix-term TERM` | reuse an existing live agent tab to apply accepted fixes instead of spawning a fresh fix tab |
@@ -18,14 +19,14 @@ Invocation: `/iso-review [--claude-review-effort high|max] [--fix-agent codex|cl
 | `--kill-fix-tab` | tear down the fix tab once its test/type report is captured (Step 7) |
 | `--kill-tabs` | shorthand for both `--kill-review-tabs` and `--kill-fix-tab` |
 
-The two **reviewers** are always codex `/review` + claude `/code-review` — only the claude reviewer's effort and the **fixer** are selectable (codex `/review` is pinned to the uncommitted preset, no effort knob). Teardown is **opt-in**: by default every tab is left alive for live inspection. The kill flags make cleanup systematic — each tab is killed only *after* its output has been persisted, so a kill reclaims the process without losing anything you read. Map the invocation flags onto the orchestrator calls: pass `--claude-review-effort <level>` / `--kill-review-tabs` (or `--kill-tabs`) to `reviews`, and `--fix-agent <agent>` or `--fix-term <TERM>` / `--kill-fix-tab` (or `--kill-tabs`) to `apply`.
+By default, the two **reviewers** are codex `/review` + claude `/code-review`. Use `--codex-only` when Claude tokens are unavailable or you want a Codex-only lifecycle test. Only the claude reviewer's effort and the **fixer** are selectable (codex `/review` is pinned to the uncommitted preset, no effort knob). Teardown is **opt-in**: by default every tab is left alive for live inspection. The kill flags make cleanup systematic — each tab is killed only *after* its output has been persisted, so a kill reclaims the process without losing anything you read. Map the invocation flags onto the orchestrator calls: pass `--codex-only` / `--claude-review-effort <level>` / `--kill-review-tabs` (or `--kill-tabs`) to `reviews`, and `--fix-agent <agent>` or `--fix-term <TERM>` / `--kill-fix-tab` (or `--kill-tabs`) to `apply`.
 
 Orchestrator: `skills/iso-review/scripts/review.sh`. Run it with its absolute path. Reviewer-specific behavior lives behind `Reviewer adapter` files: `scripts/lib/reviewer-codex.sh` owns Codex `/review` dispatch and Codex output normalization; `scripts/lib/reviewer-claude.sh` owns Claude `/code-review` dispatch and Claude output normalization. Use `review.sh run ...` for the full scripted path, or the lower-level subcommands below when the main session needs to inspect and decide each phase manually.
 
 ## Flow (the main session drives this)
 
 1. **Pre-flight** — `review.sh preflight`. If it exits non-zero, print its message and stop.
-2. **Reviews** — `review.sh reviews [--claude-review-effort high|max] [--kill-review-tabs]`. Wipes `.iso/logs/review` clean first (so no prior run's `accepted-fixes.md`/transcripts/`.spawned-terms` can leak in), then spawns the codex + claude review tabs, drives them, waits for both to truly finish, and writes `.iso/logs/review/review-codex.txt` and `.iso/logs/review/review-claude.txt`. Read both files. With `--kill-review-tabs`, both tabs are torn down right after those files are written (their findings are already on disk). (One review at a time per working tree; for parallel reviews use separate git worktrees — each gets its own cwd-local `.iso/logs/review`.)
+2. **Reviews** — `review.sh reviews [--codex-only] [--claude-review-effort high|max] [--kill-review-tabs]`. Wipes `.iso/logs/review` clean first (so no prior run's `accepted-fixes.md`/transcripts/`.spawned-terms` can leak in), then spawns the reviewer tabs, drives them, waits for them to truly finish, and writes `.iso/logs/review/review-codex.txt` and `.iso/logs/review/review-claude.txt`. With `--codex-only`, the Claude files are empty/`[]` placeholders so downstream merge logic stays stable. Read both files. With `--kill-review-tabs`, reviewer tabs are torn down right after those files are written (their findings are already on disk). (One review at a time per working tree; for parallel reviews use separate git worktrees — each gets its own cwd-local `.iso/logs/review`.)
 3. **Extract** — pull every finding into `{ file, line, problem, fix, source }`. Both reviewers emit JSON, so prefer parsing it; fall back to reading prose if a file isn't JSON.
    - codex: `{ "findings": [ { "title", "body", "priority", "code_location": { "absolute_file_path", "line_range" } } ] }`
    - claude: `[ { "file", "line", "summary", "failure_scenario" } ]`
@@ -40,6 +41,8 @@ Scripted helper:
 
 ```bash
 skills/iso-review/scripts/review.sh run --kill-review-tabs --fix-term "$TERM_IMPL"
+# Codex-only:
+skills/iso-review/scripts/review.sh run --codex-only --kill-review-tabs --fix-term "$TERM_IMPL"
 ```
 
 This runs preflight, reviewer dispatch, normalized finding collection, accepted-fix file creation, and apply. The main-session `/iso-review` flow may still use the lower-level subcommands above when human judgment is needed for the merge/filter ledger.
