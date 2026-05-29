@@ -42,7 +42,7 @@ Or ask: *"set up repo governance"*, *"create branch structure"*, *"add prod prot
 
 ---
 
-## 🌿 Branch Flow
+### Branch Flow
 
 ```
 any branch  (feature work, fixes, etc.)
@@ -90,7 +90,7 @@ git remote -v    # check if a remote already exists
 
 ---
 
-## 📁 Templates
+### Templates
 
 All generated files come from `templates/` next to this file:
 
@@ -106,7 +106,7 @@ All generated files come from `templates/` next to this file:
 
 ---
 
-## 📌 Notes
+### Notes
 
 - Branch protection requires repo admin access (set via `gh api`)
 - `ci-prod-gate.yml` checks `base.ref` and `head.ref`; adjust branch names in the workflow if your naming differs
@@ -119,6 +119,6 @@ All generated files come from `templates/` next to this file:
 
 ## 🔗 Related
 
-- [`iso-ai-init`](../iso-ai-init/) — AI *tooling* setup (caveman, graphify, statusline); pairs with this skill's repo *governance*.
-- [`iso-write`](../iso-write/) — builds reviewed work on the feature branches this governance protects.
+- [`iso‑ai‑init`](../iso-ai-init/) — AI *tooling* setup (caveman, graphify, statusline); pairs with this skill's repo *governance*.
+- [`iso‑write`](../iso-write/) — builds reviewed work on the feature branches this governance protects.
 - [`graphify`](https://github.com/safishamsi/graphify) — knowledge-graph skill (manual invocation via `/graphify`).

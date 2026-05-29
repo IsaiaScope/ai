@@ -42,6 +42,15 @@ Re-run anytime to update.
 
 ---
 
+## ✨ Features
+
+- **Original workflow skills** for planning, implementation, review, README polish, repo setup, and AI-tooling setup.
+- **One-command installer** that keeps Claude Code and Codex global instructions plus shared skills in sync.
+- **Graph-aware defaults** so codebase questions prefer the local knowledge graph before broad source search.
+- **Composable cycle** from `/iso-plan` to `/iso-write` to `/iso-review`, with `/iso-todo` as the umbrella path.
+
+---
+
 ## 🛠️ Skills
 
 **Original skills** — built here, symlinked into Claude Code *and* Codex on install:
@@ -53,12 +62,13 @@ Re-run anytime to update.
 | 🧭 [iso‑plan](skills/iso-plan/) | Raw idea → written implementation plan (no code) | `/iso-plan` |
 | ✍️ [iso‑write](skills/iso-write/) | Build a plan with TDD (branch/in-place/worktree), no commits | `/iso-write` |
 | 🚀 [iso‑spawn](skills/iso-spawn/) | Spawn a codex/claude agent in a herdr tab beside you | `/iso-spawn` |
+| 🧵 [iso‑todo](skills/iso-todo/) | Plan → write → review in one hands-off development cycle | `/iso-todo` |
 | 🔍 [iso‑review](skills/iso-review/) | Dual-agent review of your uncommitted diff — codex + claude, fixes applied | `/iso-review` |
 | 📝 [iso‑readme](skills/iso-readme/) | Write/refine any README in the house style, commit + push | `/iso-readme` |
 
 **Upstream packs** — installed globally by `install.js`: [caveman](#-caveman) · [graphify](#-graphify) · [karpathy-guidelines](#-karpathy-guidelines) · [mattpocock/skills](https://github.com/mattpocock/skills).
 
-A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → **`iso-review`** double-checks the diff with two agents → you commit → **`iso-init-repo`** governs how it ships.
+A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → **`iso-review`** double-checks the diff with two agents → you commit → **`iso-init-repo`** governs how it ships. **`iso-todo`** runs the plan/write/review sequence as one orchestrated cycle and still commits nothing.
 
 ---
 
@@ -168,6 +178,24 @@ Spawn a `codex` or `claude` agent in its own [herdr](https://herdr.dev) tab — 
 
 ---
 
+### 🧵 iso-todo *(original)*
+
+Run a full development cycle — plan, implement in a spawned codex tab, review with dual agents, and apply accepted fixes back in the implementation tab. **Never commits.**
+
+- 🧭 **Plan first** — delegates to `iso-plan` and stops if no new plan appears
+- ✍️ **Write in a live tab** — runs `iso-write` on a fresh `feat/<slug>` branch
+- 🔍 **Review after write** — runs `iso-review` with reviewer-tab cleanup and implementation-tab reuse
+
+```
+/iso-todo
+```
+
+→ [Full documentation](skills/iso-todo/README.md)
+
+**Dependencies:** [`iso‑plan`](skills/iso-plan/) · [`iso‑write`](skills/iso-write/) · [`iso‑review`](skills/iso-review/) · [`iso‑spawn`](skills/iso-spawn/) · `git`
+
+---
+
 ### 🔍 iso-review *(original)*
 
 Review your uncommitted working tree with two agents at once — codex `/review` and claude `/code-review` — then apply every fix worth keeping and verify, all without committing.
@@ -183,7 +211,7 @@ Review your uncommitted working tree with two agents at once — codex `/review`
 
 → [Full documentation](skills/iso-review/README.md)
 
-**Dependencies:** [`iso-spawn`](skills/iso-spawn/) (spawn/drive engine) · [`herdr`](https://herdr.dev) · `codex` / `claude` CLIs · `git`
+**Dependencies:** [`iso‑spawn`](skills/iso-spawn/) (spawn/drive engine) · [`herdr`](https://herdr.dev) · `codex` / `claude` CLIs · `git`
 
 ---
 

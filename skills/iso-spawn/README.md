@@ -12,7 +12,7 @@ You stay unblocked: the prompt is delivered by a detached worker. Add `--wait` i
 
 ---
 
-## 🔄 Lifecycle
+### Lifecycle
 
 You are the orchestrator. A spawned agent runs on its own and never calls you back — you drive it through five phases, each with one verb, all keyed off the `TERM` printed at launch:
 
@@ -62,7 +62,7 @@ scripts/spawn.sh codex --safe --split right --focus
 
 ---
 
-## ⚙️ Defaults (the opinionated part)
+### Defaults
 
 | Default | Why | Opt out |
 |---------|-----|---------|
@@ -73,7 +73,7 @@ scripts/spawn.sh codex --safe --split right --focus
 
 ---
 
-## 🎛️ Verbs & Options
+### Verbs & Options
 
 **Verbs:** `spawn` (default bare alias), `deliver`, `send`, `recover`, `status`, `cleanup`
 
@@ -102,7 +102,9 @@ scripts/spawn.sh cleanup --orphaned                      # reap all stale sideca
 
 ---
 
-## 📤 Recover Output
+## ✅ Output
+
+### Recover Output
 
 After an agent finishes, pull its work back from its **native transcript** (codex/claude JSONL) — the clean final answer, or the full chat for debugging:
 
@@ -117,7 +119,7 @@ Keyed off the `term` printed at spawn. A `.spawn` sidecar written at spawn maps 
 
 ---
 
-## 🔍 Verify / Monitor
+### Verify / Monitor
 
 ```bash
 herdr agent list                                    # all agents + status
@@ -140,12 +142,12 @@ Each spawn writes a `.spawn` sidecar to `<cwd>/.iso/logs/spawn/<date>__<agent>__
 
 ---
 
-## 📚 More
+### More
 
 - [SKILL.md](SKILL.md) — the agent-facing contract and the *why it's built this way* notes.
 - [REFERENCE.md](REFERENCE.md) — herdr object model, status semantics, failure modes.
 
 ## 🔗 Related
 
-- [`iso-write`](../iso-write/) — give a spawned agent a plan to implement.
-- [`iso-plan`](../iso-plan/) — produce that plan first.
+- [`iso‑write`](../iso-write/) — give a spawned agent a plan to implement.
+- [`iso‑plan`](../iso-plan/) — produce that plan first.

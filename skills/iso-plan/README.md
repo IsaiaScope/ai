@@ -71,5 +71,5 @@ The card is only rendered if a **new** plan file actually appeared — a stale f
 
 ## 🔗 Related
 
-- [`iso-write`](../iso-write/) — the next step: build the plan this skill produced, on a feature branch, with TDD.
-- [`iso-init-repo`](../iso-init-repo/) — repo governance for the branches your plan lands on.
+- [`iso‑write`](../iso-write/) — the next step: build the plan this skill produced, on a feature branch, with TDD.
+- [`iso‑init‑repo`](../iso-init-repo/) — repo governance for the branches your plan lands on.

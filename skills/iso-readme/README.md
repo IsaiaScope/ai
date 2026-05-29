@@ -17,6 +17,14 @@ Detects what kind of README it's looking at and what stack the project uses, the
 | 5 | Curate 3–6 identity badges + write per layout |
 | 6 | Stage README-only → `docs(readme):` commit → push |
 
+### The Look
+
+- **Badges:** shieldcn (shadcn-styled, crisp `.svg`) + verified logo + brand hex, curated to 3–6 identity badges (primary languages · defining frameworks/targets). No badge spam.
+- **Layout by context:** centered + badges for repo root/app; `# emoji + tagline` for skills; version/install/API for libs.
+- **Scannable:** tables for decision logic, chunked prose, quickstart first.
+
+→ Full canon: [STYLE.md](STYLE.md)
+
 ## ▶️ Trigger
 
 ```
@@ -26,13 +34,16 @@ Detects what kind of README it's looking at and what stack the project uses, the
 
 Or ask: *"beautify this README"*, *"write a README in my style"*
 
-## 🎨 The Look
+## ✅ Output
 
-- **Badges:** shieldcn (shadcn-styled, crisp `.svg`) + verified logo + brand hex, curated to 3–6 identity badges (primary languages · defining frameworks/targets). No badge spam.
-- **Layout by context:** centered + badges for repo root/app; `# emoji + tagline` for skills; version/install/API for libs.
-- **Scannable:** tables for decision logic, chunked prose, quickstart first.
+```
+✓ README written/refined against STYLE.md
+✓ CHECKLIST.md gates passed
+✓ README-only commit created
+✓ git push attempted
+```
 
-→ Full canon: [STYLE.md](STYLE.md)
+If the target is not inside a git repo, the README is written and commit/push are skipped. If push fails, the local README-only commit is left in place.
 
 ## 🔧 Dependencies
 
@@ -44,5 +55,5 @@ Or ask: *"beautify this README"*, *"write a README in my style"*
 
 ## 🔗 Related
 
-- [`iso-ai-init`](../iso-ai-init/) — broader AI-tooling setup for a repo.
-- [`iso-init-repo`](../iso-init-repo/) — repo governance (branches, CI).
+- [`iso‑ai‑init`](../iso-ai-init/) — broader AI-tooling setup for a repo.
+- [`iso‑init‑repo`](../iso-init-repo/) — repo governance (branches, CI).

@@ -6,7 +6,7 @@
 
 ## 🧩 What It Does
 
-Takes the plan [`iso-plan`](../iso-plan/) wrote and implements it, task by task, red-green-refactor. The hard rule that overrides everything else: **it never commits.** Every change is left in the working tree for you to review.
+Takes the plan [`iso‑plan`](../iso-plan/) wrote and implements it, task by task, red-green-refactor. The hard rule that overrides everything else: **it never commits.** Every change is left in the working tree for you to review.
 
 ```
 1. Read the whole plan end-to-end
@@ -35,7 +35,7 @@ The path is required. Missing file → it halts immediately. Passing more than o
 
 ---
 
-## 🗂️ Workspace Modes
+### Workspace Modes
 
 | Flag | Where it implements | Dirty tree |
 |------|---------------------|------------|
@@ -46,7 +46,7 @@ The path is required. Missing file → it halts immediately. Passing more than o
 
 ---
 
-## 🌿 Branch Naming
+### Branch Naming
 
 Parsed from the plan filename `YYYY-MM-DD-<type>-<slug>.md`:
 
@@ -74,7 +74,7 @@ Known types: `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `perf`. Used by
 Review the full diff, then commit yourself when satisfied.
 ```
 
-If a task gets stuck (test fails >3×, missing file, ambiguous instruction), it writes `BLOCKED.md` at the repo root with what failed and what it tried, then waits for you — still no commit.
+If a task gets stuck (test fails >3×, missing file, ambiguous instruction), it writes `.iso/logs/write/<plan-basename>.blocked.md` (git-ignored, keyed per plan) with what failed and what it tried, then waits for you — still no commit.
 
 ---
 
@@ -91,5 +91,5 @@ If a task gets stuck (test fails >3×, missing file, ambiguous instruction), it 
 
 ## 🔗 Related
 
-- [`iso-plan`](../iso-plan/) — produces the plan file this skill consumes.
-- [`iso-init-repo`](../iso-init-repo/) — set up the branch protection your reviewed work merges through.
+- [`iso‑plan`](../iso-plan/) — produces the plan file this skill consumes.
+- [`iso‑init‑repo`](../iso-init-repo/) — set up the branch protection your reviewed work merges through.

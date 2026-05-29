@@ -6,7 +6,7 @@
 
 ## 🧩 What It Does
 
-A **gate** (`templates/preflight-gate.sh`) runs first and decides scope:
+The Init run is driven by `scripts/init-runner.js` and `steps.json`. The runner decides scope:
 
 - **Global steps** run anywhere — even outside a repo.
 - **Repo-scoped steps** run only inside a git repo. Being outside one isn't an error; those steps just skip.
@@ -92,13 +92,13 @@ uv tool install --upgrade graphifyy
 
 ---
 
-## 📁 Templates
+### Templates
 
-All config is generated from `templates/` next to this file:
+Deterministic orchestration lives in `scripts/init-runner.js` plus `steps.json`. Human-readable setup details and generated config live in `templates/` next to this file:
 
 | Template | Scope | Purpose |
 |----------|-------|---------|
-| `preflight-gate.sh` | — | detects git repo; decides global vs repo-scoped steps |
+| `preflight-gate.sh` | — | legacy human-readable scope plan; runner/manifest is authoritative |
 | `caveman-init.sh` | global | installs caveman + sets ultra + registers MCP |
 | `caveman-config.json` | global | sets ultra mode (`~/.config/caveman/config.json`) |
 | `statusline.sh` | global | live token/cost/mode badge (`~/.claude/statusline-command.sh`) |
@@ -112,7 +112,7 @@ All config is generated from `templates/` next to this file:
 
 ## 🔗 Related
 
-- [`iso-init-repo`](../iso-init-repo/) — repo *governance* (branches, CI, hooks); pairs with this skill's AI *tooling* setup.
+- [`iso‑init‑repo`](../iso-init-repo/) — repo *governance* (branches, CI, hooks); pairs with this skill's AI *tooling* setup.
 - `setup-matt-pocock-skills` — per-repo config (issue tracker, triage labels, domain docs) for the engineering skills (`to-issues`, `triage`, `tdd`, …). Interactive; iso-ai-init only *points* to it when `docs/agents/` is absent — never runs it.
 - [`graphify`](https://github.com/safishamsi/graphify) — the knowledge-graph skill this wires up (manual invocation via `/graphify`).
 - [`caveman`](https://github.com/juliusbrussee/caveman) — the caveman-mode skill this activates (toggle via `/caveman`).
