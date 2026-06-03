@@ -36,7 +36,8 @@ node scripts/install.js
 4. 🕸️ Install [graphify](https://github.com/safishamsi/graphify) — codebase knowledge graph
 5. 🎯 Install [karpathy-guidelines](https://github.com/forrestchang/andrej-karpathy-skills) — LLM coding guidelines
 6. 📦 Install [mattpocock/skills](https://github.com/mattpocock/skills) — planning, debugging, TDD workflows
-7. 🔄 Update all global skills to latest versions
+7. 🎯 Install [intent-layer](https://github.com/crafter-station/skills/tree/main/context-engineering/intent-layer) — hierarchical AGENTS.md context engineering
+8. 🔄 Update all global skills to latest versions
 
 Re-run anytime to update.
 
@@ -107,7 +108,7 @@ Re-run anytime to update.
   </tbody>
 </table>
 
-**Upstream packs** — installed globally by `install.js`: [caveman](#-caveman) · [graphify](#-graphify) · [karpathy-guidelines](#-karpathy-guidelines) · [mattpocock/skills](https://github.com/mattpocock/skills).
+**Upstream packs** — installed globally by `install.js`: [caveman](#-caveman) · [graphify](#-graphify) · [karpathy-guidelines](#-karpathy-guidelines) · [mattpocock/skills](https://github.com/mattpocock/skills) · [intent-layer](#-intent-layer).
 
 A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → **`iso-review`** double-checks the diff with Codex-only or dual-agent review → you commit → **`iso-init-repo`** governs how it ships. **`iso-todo`** runs the plan/write/review sequence as one orchestrated cycle and still commits nothing.
 
@@ -303,6 +304,14 @@ Source: [forrestchang/andrej-karpathy-skills](https://github.com/forrestchang/an
 
 ---
 
+### 🎯 intent-layer
+
+Sets up hierarchical `AGENTS.md` infrastructure — a root context file plus child `AGENTS.md` in complex subdirectories — so agents navigate a codebase like a senior engineer. Installed as a single skill from a multi-skill pack (`--skill intent-layer`).
+
+Source: [crafter-station/skills · context-engineering/intent-layer](https://github.com/crafter-station/skills/tree/main/context-engineering/intent-layer)
+
+---
+
 ## ⚙️ Config Files
 
 Global agent instructions live in `config/` and are deployed by `install.js`:
@@ -321,3 +330,4 @@ Global agent instructions live in `config/` and are deployed by `install.js`:
 - [juliusbrussee](https://github.com/juliusbrussee) — caveman skill
 - [safishamsi](https://github.com/safishamsi) — graphify skill
 - [forrestchang](https://github.com/forrestchang) — andrej-karpathy-skills
+- [crafter-station](https://github.com/crafter-station) — intent-layer skill

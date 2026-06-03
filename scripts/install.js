@@ -23,19 +23,25 @@ mkdirSync(codexDir, { recursive: true });
 copyFileSync(join(repoRoot, "config", "AGENTS.md"), join(codexDir, "AGENTS.md"));
 console.log(`✓ config/AGENTS.md → ${join(codexDir, "AGENTS.md")}`);
 
-// Install upstream skill packs: [pack, agents[]]
+// Install upstream skill packs: [pack, agents[], skill?]
+// A 3rd element selects ONE skill from a multi-skill pack; omit it to install the whole pack.
+// Selecting a single skill also passes --full-depth so nested skills (e.g. a pack that
+// groups skills under category dirs) are found — without it the CLI only scans the repo root.
 // IsaiaScope/ai is NOT here — its skills are deployed locally below for both supported agents.
 const packs = [
   ["juliusbrussee/caveman",                   ["claude-code", "codex"]],
   ["safishamsi/graphify",                      ["claude-code", "codex"]],
   ["forrestchang/andrej-karpathy-skills",      ["claude-code", "codex"]],
   ["mattpocock/skills",                        ["claude-code", "codex"]],
+  ["crafter-station/skills",                   ["claude-code", "codex"], "intent-layer"],
 ];
 
-for (const [pack, agents] of packs) {
+for (const [pack, agents, skill] of packs) {
   const agentFlags = agents.map(a => `--agent ${a}`).join(" ");
-  console.log(`\n→ Installing ${pack} (${agents.join(", ")})`);
-  execSync(`npx skills@latest add ${pack} -g -y ${agentFlags}`, { stdio: "inherit" });
+  const skillFlag = skill ? ` --skill ${skill} --full-depth` : "";
+  const label = skill ? `${pack} --skill ${skill}` : pack;
+  console.log(`\n→ Installing ${label} (${agents.join(", ")})`);
+  execSync(`npx skills@latest add ${pack} -g -y ${agentFlags}${skillFlag}`, { stdio: "inherit" });
 }
 
 // Update upstream global skills to latest versions

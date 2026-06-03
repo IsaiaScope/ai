@@ -35,6 +35,7 @@ scripts/
 - `safishamsi/graphify` — codebase → knowledge graph
 - `forrestchang/andrej-karpathy-skills` — LLM coding guidelines
 - `mattpocock/skills` — planning/debugging/TDD workflows
+- `crafter-station/skills` (`--skill intent-layer`) — hierarchical AGENTS.md context engineering
 
 The local `IsaiaScope/ai` skills are NOT installed via the marketplace pack. `scripts/install.js` scans `skills/*/SKILL.md` (via `scripts/skills-manifest.js`) and symlinks each into both supported agents — adding a new skill needs no edit here.
 
