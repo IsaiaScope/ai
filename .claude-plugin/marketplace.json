@@ -1,0 +1,15 @@
+{
+  "name": "marketonfire",
+  "owner": {
+    "name": "IsaiaScope",
+    "url": "https://github.com/IsaiaScope/ai"
+  },
+  "plugins": [
+    {
+      "name": "isaiascope-ai",
+      "source": "./",
+      "description": "IsaiaScope AI skills — plan, TDD execution, review, repo/AI init, and house-style READMEs.",
+      "category": "Engineering"
+    }
+  ]
+}

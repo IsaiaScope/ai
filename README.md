@@ -41,6 +41,22 @@ node scripts/install.js
 
 Re-run anytime to update.
 
+### Or install as a plugin marketplace
+
+This repo is also a native **plugin marketplace** for both agents — install just the IsaiaScope skills, no global config changes:
+
+```bash
+# Claude Code
+/plugin marketplace add IsaiaScope/ai
+/plugin install isaiascope-ai@marketonfire
+
+# Codex
+codex plugin marketplace add IsaiaScope/ai
+codex plugin add isaiascope-ai@marketonfire
+```
+
+> The marketplace path installs the `isaiascope-ai` skills only. `install.js` is the superset path — it *also* copies `CLAUDE.md`/`AGENTS.md` and installs the upstream packs (caveman, graphify, …).
+
 ---
 
 ## ✨ Features

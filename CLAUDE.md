@@ -27,7 +27,13 @@ skills/
 scripts/
   install.js                        — deploys config files + installs skill packs globally
 .claude-plugin/
-  plugin.json                       — registers this repo as a skills.sh plugin
+  plugin.json                       — Claude plugin manifest (skills array, regenerated on install)
+  marketplace.json                  — Claude marketplace catalog (source "./" → repo-root plugin)
+.agents/plugins/
+  marketplace.json                  — Codex marketplace catalog (source → ./plugins/isaiascope-ai)
+plugins/isaiascope-ai/
+  .codex-plugin/plugin.json         — Codex plugin manifest (skills: "./skills/", whole-dir)
+  skills → ../../skills             — symlink so the Codex plugin sees the shared skills
 ```
 
 `scripts/install.js` installs these upstream skill packs globally for both `claude-code` and `codex`:
@@ -45,6 +51,21 @@ The local `IsaiaScope/ai` skills are NOT installed via the marketplace pack. `sc
 2. Re-run `node scripts/install.js`
 
 The skill set is derived from the filesystem: `scripts/install.js` scans `skills/*/SKILL.md`, symlinks each into both agents, and regenerates `.claude-plugin/plugin.json`. There is no list to maintain — a directory with a `SKILL.md` is a skill. Commit the regenerated `plugin.json` diff.
+
+Marketplace manifests need **no** edit when adding a skill: the Codex plugin declares `skills: "./skills/"` (whole-dir, auto-globbed via the `plugins/isaiascope-ai/skills` symlink), and only the Claude `plugin.json` array is regenerated. `install.js` self-heals the Codex symlink on every run.
+
+## Plugin Marketplace
+
+This repo is a native marketplace for both agents (parallel manifests — the two CLIs diverge):
+
+| | Claude Code | Codex |
+| --- | --- | --- |
+| marketplace manifest | `.claude-plugin/marketplace.json` | `.agents/plugins/marketplace.json` |
+| plugin location | repo root (`source: "./"`) | subdir (`source: {source:"local",path:"./plugins/isaiascope-ai"}`) — root is rejected |
+| plugin manifest | `.claude-plugin/plugin.json` (`skills` array) | `plugins/isaiascope-ai/.codex-plugin/plugin.json` (`skills` string dir) |
+| install | `/plugin marketplace add IsaiaScope/ai` then `/plugin install isaiascope-ai@marketonfire` | `codex plugin marketplace add IsaiaScope/ai` then `codex plugin add isaiascope-ai@marketonfire` |
+
+When both manifests are present, each CLI reads only its own path — no conflict.
 
 ## Editing Global Agent Instructions
 

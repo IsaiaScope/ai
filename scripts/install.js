@@ -88,12 +88,34 @@ for (const { dir, agents } of localSkills) {
   }
 }
 
-// Regenerate the marketplace manifest from the same scan (filesystem = source of truth).
+// Regenerate the Claude plugin manifest from the same scan (filesystem = source of truth).
 const pluginPath = join(repoRoot, ".claude-plugin", "plugin.json");
 const { changed } = syncManifest(pluginPath, localSkills.map((s) => s.dir));
 console.log(changed
   ? `  ✓ plugin.json skills regenerated (${localSkills.length})`
   : `  ✓ plugin.json skills already in sync (${localSkills.length})`);
+
+// Self-heal the Codex plugin's skills symlink. The Codex plugin manifest declares
+// skills: "./skills/" (a whole dir, auto-globbed), so it needs no per-skill list —
+// it just points at the repo's skills/ via this relative symlink. New skills appear
+// automatically; we only ensure the link exists (fresh checkout / wrong target).
+const codexSkillsLink = join(repoRoot, "plugins", "isaiascope-ai", "skills");
+const wantTarget = join("..", "..", "skills");
+try {
+  const current = lstatSync(codexSkillsLink).isSymbolicLink()
+    ? require("fs").readlinkSync(codexSkillsLink)
+    : null;
+  if (current !== wantTarget) {
+    try { unlinkSync(codexSkillsLink); } catch {}
+    symlinkSync(wantTarget, codexSkillsLink);
+    console.log(`  ✓ codex plugin skills symlink → ${wantTarget}`);
+  } else {
+    console.log(`  ✓ codex plugin skills symlink already correct`);
+  }
+} catch {
+  symlinkSync(wantTarget, codexSkillsLink);
+  console.log(`  ✓ codex plugin skills symlink → ${wantTarget}`);
+}
 
 // Also clean up any old IsaiaScope/ai symlinks from ~/.agents/skills/ (the universal storage skills.sh used)
 const universalDir = join(home, ".agents", "skills");

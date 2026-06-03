@@ -1,0 +1,19 @@
+{
+  "name": "marketonfire",
+  "interface": {
+    "displayName": "IsaiaScope AI"
+  },
+  "plugins": [
+    {
+      "name": "isaiascope-ai",
+      "source": {
+        "source": "local",
+        "path": "./plugins/isaiascope-ai"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Engineering"
+    }
+  ]
+}
