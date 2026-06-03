@@ -11,6 +11,7 @@ Set up IsaiaScope AI defaults. Some steps are **global** (run anywhere, even out
 |-------|------|------|
 | global | Caveman (ultra + shrink + statusline) | always |
 | global | MCP shrink (allowlist) | always |
+| global | rtk (Rust Token Killer) install + Claude/Codex wiring | always |
 | repo   | Graphify CLI install + `/graphify` wiring | only inside a git repo |
 
 Deterministic orchestration lives in `scripts/init-runner.js`, driven by `steps.json`. Each enabled Init step points at an independently owned script in `templates/`. Resolve paths against the skill base directory (where this SKILL.md lives), referred to below as `<skill-base-dir>`.
@@ -79,6 +80,21 @@ How it works (idempotent; backs up `~/.claude.json` + `~/.claude/settings.json` 
 
 The allowlist is the only thing to maintain. Transport and launch command are discovered, never assumed — so the skill stays agnostic to any one machine's MCP setup.
 
+## Human detail — rtk (global)
+
+rtk (**Rust Token Killer**) is a CLI proxy that filters/compresses the output of common dev commands (`git status`, `ls`, `grep`, `cat`, …) **before it reaches the model** — 60-90% fewer tokens on those commands. It is a single static Rust binary (no runtime deps). Different layer from caveman, which compresses *prose*: rtk compresses *command output*, so they stack rather than overlap. All logic lives in `templates/rtk-init.sh`.
+
+```bash
+bash <skill-base-dir>/templates/rtk-init.sh
+```
+
+The script handles three sub-steps (idempotent):
+- **install** the **correct** `rtk` binary globally. There is a **name collision**: a different tool, Rust *Type* Kit (`reachingforthejack/rtk`), also ships a binary called `rtk`, and both answer `command -v rtk` / `rtk --version`. So presence is gated on the official correctness probe **`rtk gain`** (Token Killer has it; Type Kit does not) — a machine with the wrong rtk pre-installed still gets the right one. Install order: official `install.sh` (prebuilt, pins dest `~/.local/bin`, unambiguous repo) → `cargo install --git <repo>` (guaranteed-correct source; never `cargo install rtk`, which may resolve to Type Kit on crates.io) → `brew install rtk` (best-effort). A **post-install gate** re-runs `rtk gain` and fails hard if the result is the wrong binary or off `PATH`. `~/.local/bin` is forced onto `PATH` so the freshly installed binary wins and the `init` calls below resolve it before any shell restart.
+- **Claude Code wiring** — `rtk init -g` registers a **PreToolUse rewrite hook** that transparently rewrites `git status` → `rtk git status`, plus a `settings.json` entry. Gated on a `~/.claude/settings.json` `rtk` marker so re-runs stay quiet. Run from `$HOME` → zero repo writes.
+- **Codex wiring** — `rtk init -g --codex` injects RTK instructions into the global `~/.codex/AGENTS.md` and writes `~/.codex/RTK.md` (Codex has no command-interception, so it gets instructions, not a hook). Gated on `~/.codex/RTK.md` / an `rtk` marker in `~/.codex/AGENTS.md`.
+
+Both wirings are global (`-g`) and re-runnable; the markers only suppress repeat output. A Claude Code / Codex restart is needed to activate the rewrite hook.
+
 ## Human detail — Graphify wiring (repo-scoped — skip if not in git)
 
 **Only run this step if the gate reported `IN_GIT_REPO=true`.** Outside a git repo, skip it entirely.
@@ -115,6 +131,7 @@ Report only the steps that actually ran (omit graphify if it was gated out):
 ```
 ✓ [global] Caveman ultra + shrink + statusline (--all)
 ✓ [global] MCP shrink — allowlisted servers wrapped if present + stdio (remote/HTTP skipped)
+✓ [global] rtk installed + Claude Code (PreToolUse hook) + Codex (AGENTS.md/RTK.md) wired
 ✓ [repo  ] Graphify CLI installed/updated + native always-on wiring (CLAUDE.md/AGENTS.md + query-nudge hook)
   · auto-update git hook installed (post-commit/post-checkout, AST rebuild)
   · graphify-out/ gitignored
@@ -125,4 +142,4 @@ Then surface the natural follow-up (a pointer only — do **not** run it; it is 
 
 - **Only if `IN_GIT_REPO=true` AND `docs/agents/` does not already exist:** the engineering workflow skills (`to-issues`, `to-prd`, `triage`, `diagnose`, `tdd`, `improve-codebase-architecture`) need per-repo config (issue tracker, triage labels, domain docs). Suggest: run `/setup-matt-pocock-skills`. Omit this line if `docs/agents/` is already present (already configured) or outside a git repo.
 
-Remind user: restart Claude Code to activate the statusline, shrink wrappers, and skill wiring.
+Remind user: restart Claude Code to activate the statusline, shrink wrappers, rtk rewrite hook, and skill wiring.

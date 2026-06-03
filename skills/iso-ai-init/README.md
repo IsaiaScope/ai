@@ -1,6 +1,6 @@
 # ⚡ iso-ai-init
 
-> Wire any repo with IsaiaScope AI defaults — token-compressed responses (primary) plus an installed, auto-updated graphify CLI and a deep semantic knowledge graph built on init.
+> Wire any repo with IsaiaScope AI defaults — token-compressed responses and command-output compression (primary) plus an installed, auto-updated graphify CLI and a deep semantic knowledge graph built on init.
 
 ---
 
@@ -29,9 +29,20 @@ The Init run is driven by `scripts/init-runner.js` and `steps.json`. The runner 
 
 It never installs an MCP you don't already have.
 
+**3. 🔪 rtk** — installs **rtk** (*Rust Token Killer*), a CLI proxy that filters/compresses the output of verbose dev commands (`git status`, `ls`, `grep`, `cargo test`, `vitest`, …) **before it reaches the model** — 60–90% fewer tokens on those commands. Single static Rust binary, no runtime deps. Wires both agents:
+
+| Agent | Integration | Written |
+|-------|-------------|---------|
+| Claude Code | PreToolUse rewrite hook (`git status` → `rtk git status`) | `~/.claude/settings.json` + `~/.claude/RTK.md` |
+| Codex | instruction injection (no command interception) | `~/.codex/AGENTS.md` + `~/.codex/RTK.md` |
+
+> ⚠️ **Name collision** — a different tool, Rust *Type* Kit, also ships a binary called `rtk`, and both answer `rtk --version`. So install is gated on the official correctness probe **`rtk gain`** (only the Token Killer has it), with a post-install gate that fails hard on the wrong binary. Install order: `install.sh` → `cargo install --git` (never `cargo install rtk` — crates.io may be Type Kit) → `brew`.
+
+> Different layer from caveman: caveman compresses **prose**, rtk compresses **command output** — they stack, not overlap.
+
 ### Repo-scoped steps (git repo only)
 
-**3. 🕸️ Graphify** — runs in two parts:
+**4. 🕸️ Graphify** — runs in two parts:
 
 **(3a) Wiring** — `templates/graphify-init.sh`, deterministic (no LLM):
 
@@ -60,14 +71,15 @@ Or ask: *"set up AI tooling"*, *"init AI defaults"*, *"add graphify and caveman"
 ## ✅ Output
 
 ```
-✓ Caveman ultra + shrink MCP + statusline   [primary]
+✓ Caveman ultra + shrink MCP + statusline      [primary]
+✓ rtk installed + Claude (PreToolUse hook) + Codex (AGENTS.md/RTK.md) wired   [primary]
 ✓ Graphify CLI installed / updated to latest
 ✓ /graphify skill wired + AST auto-update git hooks installed
   · graphify-out/ gitignored
   · deep semantic graph built/refreshed via /graphify --mode deep
 ```
 
-> Restart Claude Code after running to activate the MCP, statusline, and skill wiring.
+> Restart Claude Code after running to activate the MCP, statusline, rtk rewrite hook, and skill wiring.
 
 ---
 
@@ -77,6 +89,7 @@ Or ask: *"set up AI tooling"*, *"init AI defaults"*, *"add graphify and caveman"
 |------|---------|--------|
 | `caveman` | Token-compressed Claude responses | [GitHub](https://github.com/juliusbrussee/caveman) |
 | `caveman-shrink` | Claude Code MCP for browser token savings | Bundled with `caveman --all` |
+| `rtk` | Compresses dev-command output (60–90% fewer tokens) | [GitHub](https://github.com/rtk-ai/rtk) |
 | `graphify` | Codebase → knowledge graph (installed + auto-updated) | [PyPI: graphifyy](https://pypi.org/project/graphifyy/) · [GitHub](https://github.com/safishamsi/graphify) |
 
 ### Install (reference)
@@ -84,6 +97,11 @@ Or ask: *"set up AI tooling"*, *"init AI defaults"*, *"add graphify and caveman"
 ```bash
 # caveman — global, once per machine
 npm install -g caveman --all
+
+# rtk — global; then wire each agent (auto-patch = non-interactive)
+curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
+rtk init -g --auto-patch    # Claude Code
+rtk init -g --codex         # Codex
 
 # graphify — global, prefer uv; --upgrade keeps it current
 uv tool install --upgrade graphifyy
@@ -103,6 +121,8 @@ Deterministic orchestration lives in `scripts/init-runner.js` plus `steps.json`.
 | `caveman-config.json` | global | sets ultra mode (`~/.config/caveman/config.json`) |
 | `statusline.sh` | global | live token/cost/mode badge (`~/.claude/statusline-command.sh`) |
 | `shrink-known-mcps.js` | global | wrap allowlisted, present, stdio MCPs with caveman-shrink |
+| `rtk-init.sh` | global | install correct rtk (gain-gated) + wire Claude hook + Codex AGENTS.md/RTK.md |
+| `rtk-init.test.js` | global | integration test: correct setup + idempotency (skips if offline) |
 | `graphify-init.sh` | repo | install/update graphify CLI + native always-on wiring + auto-update git hook |
 
 > Edit any template to change default behavior — no SKILL.md change needed.
@@ -116,3 +136,4 @@ Deterministic orchestration lives in `scripts/init-runner.js` plus `steps.json`.
 - `setup-matt-pocock-skills` — per-repo config (issue tracker, triage labels, domain docs) for the engineering skills (`to-issues`, `triage`, `tdd`, …). Interactive; iso-ai-init only *points* to it when `docs/agents/` is absent — never runs it.
 - [`graphify`](https://github.com/safishamsi/graphify) — the knowledge-graph skill this wires up (manual invocation via `/graphify`).
 - [`caveman`](https://github.com/juliusbrussee/caveman) — the caveman-mode skill this activates (toggle via `/caveman`).
+- [`rtk`](https://github.com/rtk-ai/rtk) — the command-output compressor this installs and wires into both agents.

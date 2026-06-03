@@ -12,6 +12,12 @@
     "command": ["node", "templates/shrink-known-mcps.js"]
   },
   {
+    "id": "rtk",
+    "scope": "global",
+    "enabled": true,
+    "command": ["bash", "templates/rtk-init.sh"]
+  },
+  {
     "id": "graphify",
     "scope": "repo",
     "enabled": true,
