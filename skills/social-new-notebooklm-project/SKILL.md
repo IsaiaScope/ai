@@ -1,6 +1,6 @@
 ---
 name: social-new-notebooklm-project
-description: Research-first prep for your next YouTube video. Run a TOKEN-BOUNDED deep research on a topic, pick an Italian title from 6 research-grounded options, then create a NotebookLM notebook (titled with your pick) and load it with the research report, its cited sources, and any extra video/PDF/doc sources you supply. Use when invoked as /social-new-notebooklm-project <topic> [--deep] [extra-source ...], or asked to spin up a NotebookLM research notebook for a new video. Agent-independent (Claude Code or Codex). Title and generated content are Italian; sources may be Italian or English. Does not generate NotebookLM artifacts.
+description: Research-first prep for your next YouTube video. Accepts EITHER a text topic OR a seed YouTube URL (topic auto-derived from the video). Runs a TOKEN-BOUNDED deep research, picks an Italian title from 6 research-grounded options, then creates a NotebookLM notebook (titled with your pick) and loads it with the research report, its cited sources, the seed video (when given), and any extra video/PDF/doc sources you supply. Use when invoked as /social-new-notebooklm-project <topic-or-youtube-url> [--deep] [extra-source ...], or asked to spin up a NotebookLM research notebook for a new video. Agent-independent (Claude Code or Codex). Title and generated content are Italian; sources may be Italian or English. Does not generate NotebookLM artifacts.
 ---
 
 # social-new-notebooklm-project
@@ -13,13 +13,15 @@ Prepare the research backing for your next YouTube video. The skill researches a
 
 ## Input
 
-Invoked as `/social-new-notebooklm-project <topic> [--deep] [extra-source ...]`.
+Invoked as `/social-new-notebooklm-project <topic-or-youtube-url> [--deep] [extra-source ...]`.
 
-- `<topic>` — **required**. The subject to research, in any language. Halt if missing.
+- `<topic-or-youtube-url>` — **required**. EITHER:
+  - a **text topic** (any language) → *topic mode*; or
+  - a **YouTube URL** (`youtube.com/watch`, `youtu.be/`, `youtube.com/shorts/`) → *video-seed mode*: the research topic is **auto-derived from the video** (Step 0), and the video itself becomes a starter source in the notebook.
 - `--deep` — **optional flag**. Escalate Step 1 to the expensive multi-agent harness (see Step 1). **Off by default** — the default is a token-bounded research that does NOT spawn a workflow.
 - `[extra-source ...]` — **optional**, zero or more. Each is a file path, web URL, or YouTube URL to add to the notebook. Added immediately after the notebook exists; the Step 6 prompt catches any you didn't pass here.
 
-If `<topic>` is missing, halt: `social-new-notebooklm-project: topic required. Usage: /social-new-notebooklm-project <topic> [--deep] [extra-source ...]`.
+If the first argument is missing, halt: `social-new-notebooklm-project: topic or YouTube URL required. Usage: /social-new-notebooklm-project <topic-or-youtube-url> [--deep] [extra-source ...]`.
 
 ## Pre-flight
 
@@ -32,6 +34,27 @@ notebooklm doctor 2>&1 | grep -q "Auth" && notebooklm doctor 2>&1 | grep -A0 "Au
 ```
 
 If `notebooklm doctor` shows Auth not passing, halt with the login instruction above. Do **not** proceed to research — a failed auth means no notebook can be created, so fail fast before spending research time.
+
+## Step 0: Resolve input → research topic
+
+Inspect the first argument.
+
+**Topic mode** — it is free text: the research topic **is** that text. Skip to Step 1. No seed video.
+
+**Video-seed mode** — it is a YouTube URL: derive the topic from the video, and remember the URL as the **seed video** (added as a source in Step 6).
+
+1. Normalize `youtube.com/shorts/<id>` → `https://www.youtube.com/watch?v=<id>`.
+2. Pull metadata + transcript (cheap, no Whisper) with `yt-dlp`:
+   ```bash
+   yt-dlp --skip-download --print "%(title)s\n%(uploader)s\n%(description)s" "<url>"          # title + channel + description
+   yt-dlp --skip-download --write-auto-subs --write-subs --sub-lang "en.*,it.*" \
+          --sub-format vtt -o "$tmpdir/seed.%(ext)s" "<url>" 2>/dev/null || true              # captions if any
+   ```
+   (`$tmpdir` = realpath temp dir, see Step 5a.)
+3. **Derive the topic**: from the title + description (+ captions if present), write a one-sentence research topic/angle that captures what the video is about. If the video has no captions, title+description is sufficient — do **not** transcribe audio here.
+4. **Confirm before spending budget** (cheap, prevents researching a misread): show the derived topic and ask the user to confirm or edit it. Use the chosen string as the research topic. If the user edits it, use their version.
+
+If `yt-dlp` is missing or the video is unavailable (private/deleted), halt: `social-new-notebooklm-project: cannot read seed video — pass a text topic instead.`
 
 ## Step 1: Deep research — TOKEN-BOUNDED by default
 
@@ -112,10 +135,11 @@ notebooklm source add "<url>" --json   # one call per UNIQUE cited URL; collect 
 - Normalize `https://www.youtube.com/shorts/<id>` → `https://www.youtube.com/watch?v=<id>` before adding, and pass `--type youtube`.
 - **NotebookLM rejects caption-less videos and most Shorts** (`RPCError rpc_code=9`). Regular `watch?v=` videos with captions ingest fine. If it fails, do **not** retry; record it. (Optional, only if the user opts in: pull captions via `yt-dlp --write-auto-subs` and add the transcript as a `--type text` source. Do not auto-transcribe audio — that is scope creep.)
 
-## Step 6: Add extra sources (args + interactive)
+## Step 6: Add the seed video + extra sources (args + interactive)
 
-1. **From args:** add every `[extra-source ...]` passed at invocation now, each via `notebooklm source add "<arg>" --json` (type auto-detected). A missing/unreadable **file** is tolerated but **warned loudly** in the summary — it's the user's own file. Apply the 5c YouTube normalization to video URLs.
-2. **Interactive catch-all:** prompt the user to paste more sources, one per line (file path / URL / YouTube), or `skip` to finish. Add each as above.
+1. **Seed video (video-seed mode only):** add the seed YouTube URL as a source — the video that started this notebook. Use the watch-normalized URL + `--type youtube` (5c). If NotebookLM rejects it (caption-less/Shorts, `rpc_code=9`), fall back to adding the **captions** pulled in Step 0 as a `--type text` source titled `<title> — trascrizione`; if there were no captions either, record it as a failed source in the summary (do not auto-transcribe audio). The seed video should never be silently dropped.
+2. **From args:** add every `[extra-source ...]` passed at invocation now, each via `notebooklm source add "<arg>" --json` (type auto-detected). A missing/unreadable **file** is tolerated but **warned loudly** in the summary — it's the user's own file. Apply the 5c YouTube normalization to video URLs.
+3. **Interactive catch-all:** prompt the user to paste more sources, one per line (file path / URL / YouTube), or `skip` to finish. Add each as above.
 
 Symlinked files are rejected by default (safety). Only pass `--follow-symlinks` if the user explicitly opts in for a given file.
 
@@ -147,11 +171,13 @@ Track the source ids you add (from each `--json` result) so the cleanup is preci
 
 ```
 ✓ NotebookLM pronto — nessun artifact generato.
+  Input:           <topic mode | video-seed: "<derived topic>">
   Modalità ricerca: <bounded | --deep>
   Titolo video:  <chosen title>
   Notebook:      <id / URL>
   Fonti aggiunte (<N>):
     - report ricerca (it)
+    - video seed              (solo video-seed mode)
     - <n> URL citati
     - <m> fonti extra
   Fonti fallite:   <list with reason, or "nessuna">
@@ -173,3 +199,5 @@ Then halt. The skill's contract ends at a populated notebook. **Do not** generat
 | Notebook fills with `Just a moment...` rows | Cloudflare-walled URL still created a stub | cleanup pass (6.5) deletes dead stubs |
 | Duplicate source rows | blind-retrying a "failed" add that actually registered | add once, never blind-retry; dedupe URL list |
 | `source delete` does nothing | missing confirmation | pass `-y` |
+| seed video can't be ingested | caption-less / Shorts | add Step 0 captions as `--type text`; else record as failed (never silently drop) |
+| researched the wrong thing from a video | misread derived topic | Step 0 confirms the derived topic with the user before spending budget |
