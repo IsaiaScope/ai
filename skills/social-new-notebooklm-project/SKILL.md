@@ -1,6 +1,6 @@
 ---
 name: social-new-notebooklm-project
-description: Research-first prep for your next YouTube video. Accepts EITHER a text topic OR a seed YouTube URL (topic auto-derived from the video). Runs a TOKEN-BOUNDED deep research, picks an Italian title from 6 research-grounded options, then creates a NotebookLM notebook (titled with your pick) and loads it with the research report, its cited sources, the seed video (when given), and any extra video/PDF/doc sources you supply. Use when invoked as /social-new-notebooklm-project <topic-or-youtube-url> [--deep] [extra-source ...], or asked to spin up a NotebookLM research notebook for a new video. Agent-independent (Claude Code or Codex). Title and generated content are Italian; sources may be Italian or English. Does not generate NotebookLM artifacts.
+description: Research-first prep for your next YouTube video. Accepts EITHER a text topic OR one-or-more seed YouTube URLs (topics auto-derived and clustered from the videos — same topic → one research, different topics → one research per cluster, all in one notebook). Runs TOKEN-BOUNDED deep research, picks an Italian title from 6 research-grounded options, then creates a NotebookLM notebook (titled with your pick) and loads it with the research report(s), cited sources, the seed videos, and any extra video/PDF/doc sources you supply. Use when invoked as /social-new-notebooklm-project <topic | youtube-url...> [--deep] [extra-source ...], or asked to spin up a NotebookLM research notebook for a new video. Agent-independent (Claude Code or Codex). Title and generated content are Italian; sources may be Italian or English. Does not generate NotebookLM artifacts.
 ---
 
 # social-new-notebooklm-project
@@ -35,49 +35,51 @@ notebooklm doctor 2>&1 | grep -q "Auth" && notebooklm doctor 2>&1 | grep -A0 "Au
 
 If `notebooklm doctor` shows Auth not passing, halt with the login instruction above. Do **not** proceed to research — a failed auth means no notebook can be created, so fail fast before spending research time.
 
-## Step 0: Resolve input → research topic
+## Step 0: Resolve input → research topic(s)
 
-Inspect the first argument.
+Parse the arguments into three buckets: a **text topic** (the non-flag, non-URL tokens joined), **YouTube URLs** (one or more), and **other sources** (file paths / non-YouTube URLs).
 
-**Topic mode** — it is free text: the research topic **is** that text. Skip to Step 1. No seed video.
+**Topic mode** — a text topic is present: the research topic **is** that text (one research). Any YouTube URLs and other sources are just sources (Step 6), not topic drivers. Skip to Step 1.
 
-**Video-seed mode** — it is a YouTube URL: derive the topic from the video, and remember the URL as the **seed video** (added as a source in Step 6).
+**Video-seed mode** — no text topic, but ≥1 YouTube URL: derive the research topic(s) from the videos. **All** these URLs are seed videos (drivers *and* sources).
 
-1. Normalize `youtube.com/shorts/<id>` → `https://www.youtube.com/watch?v=<id>`.
-2. Pull metadata + transcript (cheap, no Whisper) with `yt-dlp`:
+1. For **each** seed URL: normalize `youtube.com/shorts/<id>` → `https://www.youtube.com/watch?v=<id>`, then pull metadata + transcript (cheap, no Whisper):
    ```bash
-   yt-dlp --skip-download --print "%(title)s\n%(uploader)s\n%(description)s" "<url>"          # title + channel + description
+   yt-dlp --skip-download --print "%(title)s\n%(uploader)s\n%(description)s" "<url>"
    yt-dlp --skip-download --write-auto-subs --write-subs --sub-lang "en.*,it.*" \
-          --sub-format vtt -o "$tmpdir/seed.%(ext)s" "<url>" 2>/dev/null || true              # captions if any
+          --sub-format vtt -o "$tmpdir/seed-<i>.%(ext)s" "<url>" 2>/dev/null || true
    ```
-   (`$tmpdir` = realpath temp dir, see Step 5a.)
-3. **Derive the topic**: from the title + description (+ captions if present), write a one-sentence research topic/angle that captures what the video is about. If the video has no captions, title+description is sufficient — do **not** transcribe audio here.
-4. **Confirm before spending budget** (cheap, prevents researching a misread): show the derived topic and ask the user to confirm or edit it. Use the chosen string as the research topic. If the user edits it, use their version.
+   (`$tmpdir` = realpath temp dir, see Step 5a.) A single unavailable video (private/deleted) is skipped with a warning; if **every** seed fails, halt: `social-new-notebooklm-project: no readable seed video — pass a text topic instead.` If `yt-dlp` is missing, halt likewise.
+2. **Derive a one-sentence topic per video** from title + description (+ captions if present). No audio transcription here.
+3. **Auto-cluster the per-video topics** by semantic similarity — **no confirmation, proceed straight to research**:
+   - All videos share one main topic → **one cluster** → one research, one report.
+   - Videos split into distinct topics → **K clusters** → K researches, K reports — but **one notebook** (this is prep for a single video project). Print the detected grouping (transparency, non-blocking).
+   - Keep K sane: if you detect more than ~4 clusters, **merge the smallest into the nearest** and note it — too many parallel researches thin the budget (Step 1).
 
-If `yt-dlp` is missing or the video is unavailable (private/deleted), halt: `social-new-notebooklm-project: cannot read seed video — pass a text topic instead.`
+The output of Step 0 is a list of **1..K research topics** plus the list of seed videos.
 
 ## Step 1: Deep research — TOKEN-BOUNDED by default
 
-Produce **one cited markdown report, written in Italian** (prose, headings, executive summary, conclusions in Italian; quoted source material stays in its original language). Keep in working memory: (a) the full Italian report text, (b) the list of **cited source URLs**.
+Run **one research per topic** from Step 0 (1 in topic mode / single-cluster; K when videos clustered into K topics). Each produces **one cited markdown report, written in Italian** (prose, headings, executive summary, conclusions in Italian; quoted source material stays in its original language). Keep per report: (a) the full Italian text, (b) its list of **cited source URLs**.
 
 > **COST RULE (do not skip).** "Deep research" here means *thorough but bounded*, NOT *maximum-depth multi-agent*. **Do NOT launch the `deep-research` Workflow harness unless the user passed `--deep`.** The harness fans out dozens of subagents and can burn hundreds of thousands of tokens — that is the failure this skill exists to avoid.
 
-**Default mode (no `--deep`) — bounded inline fan-out.** Same on Claude Code and Codex:
+**Default mode (no `--deep`) — bounded inline fan-out.** Per topic, same on Claude Code and Codex:
 
-1. Decompose `<topic>` into **6–8 search angles** (definitions, architecture, the named products, the benchmarks/evidence, risks, future/adoption — adapt to topic).
+1. Decompose the topic into **6–8 search angles** (definitions, key entities/products, evidence/benchmarks, risks, future/adoption — adapt to topic).
 2. Run those as **parallel web searches in a single batch** (Claude Code: parallel `WebSearch` calls; Codex: built-in `web_search`, `web_search="live"` for fresh results). One pass — do not re-run angles that already returned enough.
-3. **Fetch full text only for the 3–6 highest-value sources** (primary docs, papers, vendor docs, independent evaluations) where the search snippet is not enough — `WebFetch` (Claude) / fetch (Codex). Skip fetching pages whose snippet already gives the claim.
-4. Synthesize the Italian report directly from snippets + the few fetched pages. Cite every major claim.
+3. **Fetch full text only for the 3–6 highest-value sources** (primary docs, papers, vendor docs, independent evaluations) where the snippet is not enough — `WebFetch` (Claude) / fetch (Codex). Skip pages whose snippet already gives the claim.
+4. Synthesize the Italian report from snippets + the few fetched pages. Cite every major claim.
 
-Soft budget target: keep Step 1 **at or under ~500k output tokens** (the ceiling for bounded mode). Within that budget you may run multiple search+fetch batches to deepen coverage; once findings are solid or the budget is approached, stop and proceed — do not loop past ~500k. Only escalate to the multi-agent harness if the user explicitly passes `--deep`.
+Soft budget target: **~500k output tokens TOTAL across all researches** (the bounded-mode ceiling), **divided across the K topics** — not 500k each. More clusters → each research is shallower; that is why Step 0 caps K at ~4. Once findings are solid or the total budget is approached, stop and proceed — do not loop past ~500k.
 
-**`--deep` mode — explicit opt-in only.** The user accepted the cost. Invoke the built-in **`/deep-research`** skill (Claude Code) / the installed `Deep-Research-skills` (Codex, if present) with `<topic>`, instructing an Italian synthesis. Use this only when `--deep` is present.
+**`--deep` mode — explicit opt-in only.** The user accepted the cost. Invoke the built-in **`/deep-research`** skill (Claude Code) / the installed `Deep-Research-skills` (Codex, if present) **once per topic**, instructing an Italian synthesis. Use this only when `--deep` is present.
 
-**Hard stop on research failure.** If research fails outright or returns too thin to ground a video (no usable findings, no citable sources), halt: `social-new-notebooklm-project: research failed or too thin — no notebook created.` Create nothing. This is the only point where the whole run aborts.
+**Hard stop on research failure.** If **all** researches fail or come back too thin to ground a video (no usable findings, no citable sources), halt: `social-new-notebooklm-project: research failed or too thin — no notebook created.` Create nothing. (If only *some* clusters fail, keep the ones that succeeded and note the rest.) This is the only point where the whole run aborts.
 
 ## Step 2: Generate 6 Italian title options (research-grounded)
 
-From the **actual findings** (surprising stats, tensions, angles the research surfaced), generate **6 video title options in Italian**, **YouTube-biased** but spanning distinct angles — one per angle, not synonyms:
+From the **actual findings across all reports** (surprising stats, tensions, angles the research surfaced — when there are K reports, draw on the union, leaning on the dominant cluster), generate **6 video title options in Italian**, **YouTube-biased** but spanning distinct angles — one per angle, not synonyms:
 
 1. **Curiosity-gap** — opens a loop the viewer needs closed.
 2. **Myth-bust / contrarian** — challenges a common belief.
@@ -104,22 +106,25 @@ notebooklm create "<chosen title>" --use --json
 
 Parse the JSON to capture the notebook **id** (and URL if present). `--use` makes it the active context so later `source add` calls target it without `-n`. If create fails, halt: `social-new-notebooklm-project: notebook create failed — <stderr>.` (Research already succeeded; surface the error so the user can retry create without re-researching.)
 
-## Step 5: Add the research report + cited sources
+## Step 5: Add the research report(s) + cited sources
 
-### 5a. Write the report to a NON-symlink path
+### 5a. Write each report to a NON-symlink path
 
-macOS `/tmp` is a symlink to `/private/tmp`, and the CLI **refuses symlinked paths** (anti-exfiltration guard). Write to the resolved real temp dir, not `/tmp`:
+macOS `/tmp` is a symlink to `/private/tmp`, and the CLI **refuses symlinked paths** (anti-exfiltration guard). Write to the resolved real temp dir, not `/tmp`. Write **one file per research report** (1 in topic mode; K when clustered) and add each as its own source, titled with that report's topic:
 
 ```bash
 tmpdir="$(python3 -c 'import tempfile,os;print(os.path.realpath(tempfile.gettempdir()))')"   # -> /private/tmp on macOS
-report_file="$tmpdir/social-new-notebooklm-project-report.md"
+# for each report i (slugged topic):
+report_file="$tmpdir/social-new-notebooklm-project-report-<i>.md"
 # write the Italian report markdown into "$report_file"
-notebooklm source add "$report_file" --type file --title "<topic> — ricerca (it)" --json
+notebooklm source add "$report_file" --type file --title "<topic-i> — ricerca (it)" --json
 ```
 
 (If a path is genuinely a symlink you intend to follow, `--follow-symlinks` exists — but never use it to dodge this; just write to a real path.)
 
 ### 5b. Add cited URLs — dedupe, add ONCE, never blind-retry
+
+Pool the cited URLs **across all reports** before adding (so the cap and dedup are global, not per-report).
 
 ```bash
 notebooklm source add "<url>" --json   # one call per UNIQUE cited URL; collect failures, do NOT retry
@@ -137,7 +142,7 @@ notebooklm source add "<url>" --json   # one call per UNIQUE cited URL; collect 
 
 ## Step 6: Add the seed video + extra sources (args + interactive)
 
-1. **Seed video (video-seed mode only):** add the seed YouTube URL as a source — the video that started this notebook. Use the watch-normalized URL + `--type youtube` (5c). If NotebookLM rejects it (caption-less/Shorts, `rpc_code=9`), fall back to adding the **captions** pulled in Step 0 as a `--type text` source titled `<title> — trascrizione`; if there were no captions either, record it as a failed source in the summary (do not auto-transcribe audio). The seed video should never be silently dropped.
+1. **Seed videos (video-seed mode only):** add **every** seed YouTube URL as a source — the videos that started this notebook. For each: watch-normalized URL + `--type youtube` (5c). If NotebookLM rejects one (caption-less/Shorts, `rpc_code=9`), fall back to adding **that video's captions** pulled in Step 0 as a `--type text` source titled `<title> — trascrizione`; if it had no captions either, record it as a failed source in the summary (do not auto-transcribe audio). No seed video is ever silently dropped.
 2. **From args:** add every `[extra-source ...]` passed at invocation now, each via `notebooklm source add "<arg>" --json` (type auto-detected). A missing/unreadable **file** is tolerated but **warned loudly** in the summary — it's the user's own file. Apply the 5c YouTube normalization to video URLs.
 3. **Interactive catch-all:** prompt the user to paste more sources, one per line (file path / URL / YouTube), or `skip` to finish. Add each as above.
 
@@ -171,13 +176,14 @@ Track the source ids you add (from each `--json` result) so the cleanup is preci
 
 ```
 ✓ NotebookLM pronto — nessun artifact generato.
-  Input:           <topic mode | video-seed: "<derived topic>">
+  Input:           <topic mode | video-seed: N video → K topic>
+  Topic ricercati: <topic 1; topic 2; …>   (K researches)
   Modalità ricerca: <bounded | --deep>
   Titolo video:  <chosen title>
   Notebook:      <id / URL>
   Fonti aggiunte (<N>):
-    - report ricerca (it)
-    - video seed              (solo video-seed mode)
+    - <K> report ricerca (it)
+    - <V> video seed          (solo video-seed mode)
     - <n> URL citati
     - <m> fonti extra
   Fonti fallite:   <list with reason, or "nessuna">
@@ -200,4 +206,5 @@ Then halt. The skill's contract ends at a populated notebook. **Do not** generat
 | Duplicate source rows | blind-retrying a "failed" add that actually registered | add once, never blind-retry; dedupe URL list |
 | `source delete` does nothing | missing confirmation | pass `-y` |
 | seed video can't be ingested | caption-less / Shorts | add Step 0 captions as `--type text`; else record as failed (never silently drop) |
-| researched the wrong thing from a video | misread derived topic | Step 0 confirms the derived topic with the user before spending budget |
+| too many parallel researches drain budget | seed videos clustered into many topics | Step 0 caps K at ~4 (merge smallest); ~500k budget is shared across clusters, not per-cluster |
+| one seed video is private/deleted | unavailable URL | skip it with a warning; halt only if *every* seed fails |
