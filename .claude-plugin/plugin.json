@@ -8,6 +8,7 @@
     "./skills/iso-review",
     "./skills/iso-spawn",
     "./skills/iso-todo",
-    "./skills/iso-write"
+    "./skills/iso-write",
+    "./skills/social-new-notebooklm-project"
   ]
 }
