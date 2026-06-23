@@ -1,0 +1,15 @@
+{
+  "name": "isaiascope-social",
+  "version": "0.1.0",
+  "description": "IsaiaScope social skills — research-first NotebookLM prep for your next video.",
+  "author": {
+    "name": "IsaiaScope"
+  },
+  "repository": "https://github.com/IsaiaScope/ai",
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "IsaiaScope Social",
+    "category": "Social"
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "name": "isaiascope-ai",
+  "name": "isaiascope-eng",
   "skills": [
     "./skills/iso-ai-init",
     "./skills/iso-init-repo",
@@ -8,7 +8,6 @@
     "./skills/iso-review",
     "./skills/iso-spawn",
     "./skills/iso-todo",
-    "./skills/iso-write",
-    "./skills/social-new-notebooklm-project"
+    "./skills/iso-write"
   ]
 }

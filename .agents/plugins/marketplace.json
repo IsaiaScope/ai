@@ -5,15 +5,26 @@
   },
   "plugins": [
     {
-      "name": "isaiascope-ai",
+      "name": "isaiascope-eng",
       "source": {
         "source": "local",
-        "path": "./plugins/isaiascope-ai"
+        "path": "./plugins/isaiascope-eng"
       },
       "policy": {
         "installation": "AVAILABLE"
       },
       "category": "Engineering"
+    },
+    {
+      "name": "isaiascope-social",
+      "source": {
+        "source": "local",
+        "path": "./plugins/isaiascope-social"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Social"
     }
   ]
 }

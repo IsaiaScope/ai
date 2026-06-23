@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 const { execSync } = require("child_process");
-const { copyFileSync, mkdirSync, readdirSync, lstatSync, unlinkSync, symlinkSync, rmSync } = require("fs");
-const { localSkillCatalog, syncManifest } = require("./skills-manifest");
+const { copyFileSync, mkdirSync, readdirSync, lstatSync, unlinkSync, symlinkSync, rmSync, readlinkSync } = require("fs");
+const { localSkillCatalog, routeSkills, syncManifest } = require("./skills-manifest");
 const { join } = require("path");
 const { homedir } = require("os");
 
@@ -88,33 +88,46 @@ for (const { dir, agents } of localSkills) {
   }
 }
 
-// Regenerate the Claude plugin manifest from the same scan (filesystem = source of truth).
-const pluginPath = join(repoRoot, ".claude-plugin", "plugin.json");
-const { changed } = syncManifest(pluginPath, localSkills.map((s) => s.dir));
-console.log(changed
-  ? `  ✓ plugin.json skills regenerated (${localSkills.length})`
-  : `  ✓ plugin.json skills already in sync (${localSkills.length})`);
+// Route every skill to a marketplace plugin by prefix (see skills-manifest PLUGINS),
+// then materialize each plugin: a private skills/ dir of per-skill symlinks plus a
+// regenerated Claude manifest. The Codex manifest stays static (skills: "./skills/",
+// a whole-dir glob over that same private dir), so it needs no per-skill list.
+console.log("\n→ Syncing marketplace plugins");
+const { routes, unrouted } = routeSkills(localSkills.map((s) => s.dir));
+if (unrouted.length) {
+  console.log(`  ⚠ unrouted (no plugin prefix matched, NOT packaged): ${unrouted.join(", ")}`);
+}
 
-// Self-heal the Codex plugin's skills symlink. The Codex plugin manifest declares
-// skills: "./skills/" (a whole dir, auto-globbed), so it needs no per-skill list —
-// it just points at the repo's skills/ via this relative symlink. New skills appear
-// automatically; we only ensure the link exists (fresh checkout / wrong target).
-const codexSkillsLink = join(repoRoot, "plugins", "isaiascope-ai", "skills");
-const wantTarget = join("..", "..", "skills");
-try {
-  const current = lstatSync(codexSkillsLink).isSymbolicLink()
-    ? require("fs").readlinkSync(codexSkillsLink)
-    : null;
-  if (current !== wantTarget) {
-    try { unlinkSync(codexSkillsLink); } catch {}
-    symlinkSync(wantTarget, codexSkillsLink);
-    console.log(`  ✓ codex plugin skills symlink → ${wantTarget}`);
-  } else {
-    console.log(`  ✓ codex plugin skills symlink already correct`);
+for (const { plugin, skills } of routes) {
+  const pluginDir = join(repoRoot, "plugins", plugin.name);
+  const skillsDir = join(pluginDir, "skills");
+  mkdirSync(skillsDir, { recursive: true });
+
+  // Prune stale entries: anything in the dir no longer routed to this plugin.
+  const wanted = new Set(skills);
+  for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+    if (wanted.has(entry.name)) continue;
+    const stale = join(skillsDir, entry.name);
+    try { unlinkSync(stale); } catch { rmSync(stale, { recursive: true, force: true }); }
+    console.log(`  ✗ ${plugin.name}: pruned stale ${entry.name}`);
   }
-} catch {
-  symlinkSync(wantTarget, codexSkillsLink);
-  console.log(`  ✓ codex plugin skills symlink → ${wantTarget}`);
+
+  // Relative per-skill symlinks: plugins/<name>/skills/<skill> → ../../../skills/<skill>
+  for (const name of skills) {
+    const link = join(skillsDir, name);
+    const target = join("..", "..", "..", "skills", name);
+    let current = null;
+    try { current = lstatSync(link).isSymbolicLink() ? readlinkSync(link) : null; } catch {}
+    if (current !== target) {
+      try { unlinkSync(link); } catch {}
+      symlinkSync(target, link);
+    }
+  }
+
+  // Claude manifest: regenerate the skills array (filesystem = source of truth).
+  const claudeManifest = join(pluginDir, ".claude-plugin", "plugin.json");
+  const { changed } = syncManifest(claudeManifest, skills);
+  console.log(`  ✓ ${plugin.name.padEnd(20)} ${skills.length} skill(s)${changed ? " — manifest updated" : ""}`);
 }
 
 // Also clean up any old IsaiaScope/ai symlinks from ~/.agents/skills/ (the universal storage skills.sh used)

@@ -1,7 +1,7 @@
 {
-  "name": "isaiascope-ai",
+  "name": "isaiascope-eng",
   "version": "0.1.0",
-  "description": "IsaiaScope AI skills — plan, TDD execution, review, repo/AI init, and house-style READMEs.",
+  "description": "IsaiaScope engineering skills — plan, TDD execution, review, repo/AI init, and house-style READMEs.",
   "author": {
     "name": "IsaiaScope"
   },
@@ -9,7 +9,7 @@
   "license": "MIT",
   "skills": "./skills/",
   "interface": {
-    "displayName": "IsaiaScope AI",
+    "displayName": "IsaiaScope Engineering",
     "category": "Engineering"
   }
 }
