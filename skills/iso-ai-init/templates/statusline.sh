@@ -53,6 +53,25 @@ if [ -f "$FLAG" ] && [ ! -L "$FLAG" ]; then
     caveman_suffix="${orange}${LABEL}${reset}"
   fi
 fi
+# Caveman marker: rock emoji before the label
+[ -n "$caveman_suffix" ] && caveman_suffix="🪨 ${caveman_suffix}"
+
+# Ponytail: 🐴 + current ponytail mode (lite/full/ultra). Read the runtime flag
+# the ponytail plugin maintains (.ponytail-active — written by its SessionStart
+# activate hook and updated on every /ponytail switch), NOT config.json's
+# defaultMode. defaultMode is only the seed default; a runtime `/ponytail full`
+# never rewrites it, so reading config.json shows a stale mode. Same flag-file
+# source, and same symlink/sanitize hardening, as the caveman block above. Flag
+# absent or "off" → ponytail not active → no segment (matches the plugin's own).
+ponytail_suffix=""
+PONY_FLAG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.ponytail-active"
+if [ -f "$PONY_FLAG" ] && [ ! -L "$PONY_FLAG" ]; then
+  pony_mode=$(head -c 64 "$PONY_FLAG" 2>/dev/null | tr -d '\n\r' | tr -cd 'a-z0-9-')
+  if [ -n "$pony_mode" ] && [ "$pony_mode" != "off" ]; then
+    PONY_LABEL=$(printf '%s' "$pony_mode" | tr '[:lower:]' '[:upper:]')
+    ponytail_suffix="🐴 ${orange}${PONY_LABEL}${reset}"
+  fi
+fi
 
 # Build
 SEP="   "
@@ -66,5 +85,6 @@ fi
 
 [ -n "$cost" ] && parts="${parts}${SEP}${green}$(awk -v c="$cost" 'BEGIN { printf "$%.2f", c }')${reset}"
 [ -n "$caveman_suffix" ] && parts="${parts}${SEP}${caveman_suffix}"
+[ -n "$ponytail_suffix" ] && parts="${parts}${SEP}${ponytail_suffix}"
 
 printf "%b\n" "$parts"

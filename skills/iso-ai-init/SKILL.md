@@ -11,7 +11,8 @@ Set up IsaiaScope AI defaults. Some steps are **global** (run anywhere, even out
 |-------|------|------|
 | global | Caveman (ultra + shrink + statusline) | always |
 | global | MCP shrink (allowlist) | always |
-| global | rtk (Rust Token Killer) install + Claude/Codex wiring | always |
+| global | headroom (context compression) install + Claude/Codex wiring | always |
+| global | ponytail (code-minimalism) install + Claude/Codex wiring | always |
 | repo   | Graphify CLI install + `/graphify` wiring | only inside a git repo |
 
 Deterministic orchestration lives in `scripts/init-runner.js`, driven by `steps.json`. Each enabled Init step points at an independently owned script in `templates/`. Resolve paths against the skill base directory (where this SKILL.md lives), referred to below as `<skill-base-dir>`.
@@ -54,9 +55,10 @@ The script handles two sub-steps:
 
 Wrapping MCP servers with `caveman-shrink` is **not** done here — it's owned by Step 2, which registers concrete entries from the allowlist.
 
-Statusline shows: `…/repo/dir   branch   ctx:75%   $5.82   ULTRA`
+Statusline shows: `…/repo/dir   branch   ctx:75%   $5.82   🪨 ULTRA   🐴 ULTRA`
 - ctx% red at ≥ 90% usage, magenta below
-- `ULTRA` → caveman mode; switches to token savings after `/caveman-stats`
+- `🪨 ULTRA` → caveman mode; switches to token savings after `/caveman-stats`
+- `🐴 ULTRA` → ponytail mode (read from `~/.config/ponytail/config.json`)
 
 ## Human detail — MCP shrink (global)
 
@@ -80,20 +82,35 @@ How it works (idempotent; backs up `~/.claude.json` + `~/.claude/settings.json` 
 
 The allowlist is the only thing to maintain. Transport and launch command are discovered, never assumed — so the skill stays agnostic to any one machine's MCP setup.
 
-## Human detail — rtk (global)
+## Human detail — headroom (global)
 
-rtk (**Rust Token Killer**) is a CLI proxy that filters/compresses the output of common dev commands (`git status`, `ls`, `grep`, `cat`, …) **before it reaches the model** — 60-90% fewer tokens on those commands. It is a single static Rust binary (no runtime deps). Different layer from caveman, which compresses *prose*: rtk compresses *command output*, so they stack rather than overlap. All logic lives in `templates/rtk-init.sh`.
+headroom (**AI context compression**) compresses everything the agent reads — tool output, logs, files, conversation history — **before it reaches the model** (60-95% fewer tokens). It is a Python CLI wired into both agents via `headroom init` (durable hooks + provider routing through a local proxy on `127.0.0.1:8787`). It replaces rtk: same goal (fewer tokens), broader layer — whole context, not just command output. All logic lives in `templates/headroom-init.sh`.
 
 ```bash
-bash <skill-base-dir>/templates/rtk-init.sh
+bash <skill-base-dir>/templates/headroom-init.sh
 ```
 
 The script handles three sub-steps (idempotent):
-- **install** the **correct** `rtk` binary globally. There is a **name collision**: a different tool, Rust *Type* Kit (`reachingforthejack/rtk`), also ships a binary called `rtk`, and both answer `command -v rtk` / `rtk --version`. So presence is gated on the official correctness probe **`rtk gain`** (Token Killer has it; Type Kit does not) — a machine with the wrong rtk pre-installed still gets the right one. Install order: official `install.sh` (prebuilt, pins dest `~/.local/bin`, unambiguous repo) → `cargo install --git <repo>` (guaranteed-correct source; never `cargo install rtk`, which may resolve to Type Kit on crates.io) → `brew install rtk` (best-effort). A **post-install gate** re-runs `rtk gain` and fails hard if the result is the wrong binary or off `PATH`. `~/.local/bin` is forced onto `PATH` so the freshly installed binary wins and the `init` calls below resolve it before any shell restart.
-- **Claude Code wiring** — `rtk init -g` registers a **PreToolUse rewrite hook** that transparently rewrites `git status` → `rtk git status`, plus a `settings.json` entry. Gated on a `~/.claude/settings.json` `rtk` marker so re-runs stay quiet. Run from `$HOME` → zero repo writes.
-- **Codex wiring** — `rtk init -g --codex` injects RTK instructions into the global `~/.codex/AGENTS.md` and writes `~/.codex/RTK.md` (Codex has no command-interception, so it gets instructions, not a hook). Gated on `~/.codex/RTK.md` / an `rtk` marker in `~/.codex/AGENTS.md`.
+- **install** headroom globally with the token-**savings** extras only — `proxy,code,mcp,ml,relevance,memory`, plus `pytorch-mps` on darwin/arm64 (the MPS torch backend). Install order: `pipx` (isolated, the recommended pip-family installer) → **uv-managed Python 3.13** fallback. The fallback exists because a broken system/brew Python (e.g. the macOS 26 `platform.mac_ver()` bug) lets `pipx install` "succeed" yet produces a `headroom` that can't run; the correctness probe is `headroom --version` *actually executing*, and uv's own Python reports its OS correctly. A **post-install gate** fails hard if headroom still won't run.
+- **Claude Code wiring** — `headroom init --global --memory claude` writes durable proxy-keepalive hooks, sets `ANTHROPIC_BASE_URL` to the local proxy, and enables persistent memory. Gated on the `headroom-init-claude` marker in `~/.claude/settings.json`. Run from `$HOME` → zero repo writes.
+- **Codex wiring** — `headroom init --global --memory codex` does the equivalent durable hooks + provider routing for Codex. Gated on a `headroom` reference in `~/.codex/config.toml` / `~/.codex/AGENTS.md`.
 
-Both wirings are global (`-g`) and re-runnable; the markers only suppress repeat output. A Claude Code / Codex restart is needed to activate the rewrite hook.
+Both wirings are global and re-runnable; the markers only suppress repeat output. A Claude Code / Codex restart is needed to activate proxy routing — **the proxy must be up or the agent can't reach the API** (headroom's keepalive hooks start it).
+
+## Human detail — ponytail (global)
+
+ponytail (**code-minimalism**) steers the agent to write the minimum necessary code ("lazy senior dev": does it need to exist? is it stdlib? can it be one line?). It is a plugin for Claude Code + Codex; intensity (`lite`/`full`/`ultra`/`off`) lives in `~/.config/ponytail/config.json`. We pin `ultra` to match caveman. All logic lives in `templates/ponytail-init.sh`.
+
+```bash
+bash <skill-base-dir>/templates/ponytail-init.sh
+```
+
+The script handles three sub-steps (idempotent):
+- **config** — write `~/.config/ponytail/config.json` with `defaultMode: ultra`. Gated on the file already being `ultra`. This is also what the statusline's 🐴 segment reads.
+- **Claude Code plugin** — `claude plugin marketplace add DietrichGebert/ponytail` + `claude plugin install ponytail@ponytail --scope user`. Gated on a `ponytail` marker in `~/.claude/settings.json`. Run from `$HOME`.
+- **Codex plugin** — `codex plugin marketplace add DietrichGebert/ponytail` + `codex plugin add ponytail@ponytail` (official Codex CLI). Gated on ponytail appearing in `codex plugin list`.
+
+A Claude Code / Codex restart is needed to activate the plugin.
 
 ## Human detail — Graphify wiring (repo-scoped — skip if not in git)
 
@@ -131,7 +148,8 @@ Report only the steps that actually ran (omit graphify if it was gated out):
 ```
 ✓ [global] Caveman ultra + shrink + statusline (--all)
 ✓ [global] MCP shrink — allowlisted servers wrapped if present + stdio (remote/HTTP skipped)
-✓ [global] rtk installed + Claude Code (PreToolUse hook) + Codex (AGENTS.md/RTK.md) wired
+✓ [global] headroom installed (savings extras) + Claude Code + Codex wired (durable hooks + proxy routing)
+✓ [global] ponytail installed (ultra) + Claude Code + Codex wired
 ✓ [repo  ] Graphify CLI installed/updated + native always-on wiring (CLAUDE.md/AGENTS.md + query-nudge hook)
   · auto-update git hook installed (post-commit/post-checkout, AST rebuild)
   · graphify-out/ gitignored
@@ -142,4 +160,4 @@ Then surface the natural follow-up (a pointer only — do **not** run it; it is 
 
 - **Only if `IN_GIT_REPO=true` AND `docs/agents/` does not already exist:** the engineering workflow skills (`to-issues`, `to-prd`, `triage`, `diagnose`, `tdd`, `improve-codebase-architecture`) need per-repo config (issue tracker, triage labels, domain docs). Suggest: run `/setup-matt-pocock-skills`. Omit this line if `docs/agents/` is already present (already configured) or outside a git repo.
 
-Remind user: restart Claude Code to activate the statusline, shrink wrappers, rtk rewrite hook, and skill wiring.
+Remind user: restart Claude Code to activate the statusline, shrink wrappers, headroom proxy routing, ponytail plugin, and skill wiring.

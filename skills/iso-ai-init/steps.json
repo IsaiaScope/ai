@@ -12,10 +12,16 @@
     "command": ["node", "templates/shrink-known-mcps.js"]
   },
   {
-    "id": "rtk",
+    "id": "headroom",
     "scope": "global",
     "enabled": true,
-    "command": ["bash", "templates/rtk-init.sh"]
+    "command": ["bash", "templates/headroom-init.sh"]
+  },
+  {
+    "id": "ponytail",
+    "scope": "global",
+    "enabled": true,
+    "command": ["bash", "templates/ponytail-init.sh"]
   },
   {
     "id": "graphify",

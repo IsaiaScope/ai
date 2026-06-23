@@ -1,6 +1,6 @@
 # ⚡ iso-ai-init
 
-> Wire any repo with IsaiaScope AI defaults — token-compressed responses and command-output compression (primary) plus an installed, auto-updated graphify CLI and a deep semantic knowledge graph built on init.
+> Wire any repo with IsaiaScope AI defaults — token-compressed responses, context compression, and code-minimalism (primary) plus an installed, auto-updated graphify CLI and a deep semantic knowledge graph built on init.
 
 ---
 
@@ -29,20 +29,27 @@ The Init run is driven by `scripts/init-runner.js` and `steps.json`. The runner 
 
 It never installs an MCP you don't already have.
 
-**3. 🔪 rtk** — installs **rtk** (*Rust Token Killer*), a CLI proxy that filters/compresses the output of verbose dev commands (`git status`, `ls`, `grep`, `cargo test`, `vitest`, …) **before it reaches the model** — 60–90% fewer tokens on those commands. Single static Rust binary, no runtime deps. Wires both agents:
+**3. 🧠 headroom** — installs **headroom**, a context compressor that crushes everything the agent reads — tool output, logs, files, conversation history — **before it reaches the model** — 60–95% fewer tokens. Python CLI, wired into both agents via `headroom init` (durable hooks + provider routing through a local proxy on `127.0.0.1:8787`):
 
 | Agent | Integration | Written |
 |-------|-------------|---------|
-| Claude Code | PreToolUse rewrite hook (`git status` → `rtk git status`) | `~/.claude/settings.json` + `~/.claude/RTK.md` |
-| Codex | instruction injection (no command interception) | `~/.codex/AGENTS.md` + `~/.codex/RTK.md` |
+| Claude Code | durable hooks + `ANTHROPIC_BASE_URL` proxy routing | `~/.claude/settings.json` |
+| Codex | durable hooks + provider routing | `~/.codex/` config |
 
-> ⚠️ **Name collision** — a different tool, Rust *Type* Kit, also ships a binary called `rtk`, and both answer `rtk --version`. So install is gated on the official correctness probe **`rtk gain`** (only the Token Killer has it), with a post-install gate that fails hard on the wrong binary. Install order: `install.sh` → `cargo install --git` (never `cargo install rtk` — crates.io may be Type Kit) → `brew`.
+> Install order: `pipx install "headroom-ai[…]"` → **uv-managed Python 3.13** fallback. The fallback exists because a broken system/brew Python (macOS 26 `platform.mac_ver()` bug) lets `pipx install` "succeed" yet produces a `headroom` that can't run. Extras are the savings set only — `proxy,code,mcp,ml,relevance,memory` (+ `pytorch-mps` on Apple Silicon).
 
-> Different layer from caveman: caveman compresses **prose**, rtk compresses **command output** — they stack, not overlap.
+> Different layer from caveman: caveman compresses **your prose**, headroom compresses **everything the agent reads** — they stack, not overlap. Replaces rtk.
+
+**4. 🐴 ponytail** — installs **ponytail**, a code-minimalism plugin that steers the agent to write the minimum necessary code ("does it need to exist? is it stdlib? can it be one line?"). Plugin for both agents; intensity in `~/.config/ponytail/config.json`, pinned to **ultra** to match caveman.
+
+| Agent | Integration | Written |
+|-------|-------------|---------|
+| Claude Code | plugin (`marketplace add` + `install`) | `~/.claude/settings.json` |
+| Codex | plugin install | `~/.codex/` |
 
 ### Repo-scoped steps (git repo only)
 
-**4. 🕸️ Graphify** — runs in two parts:
+**5. 🕸️ Graphify** — runs in two parts:
 
 **(3a) Wiring** — `templates/graphify-init.sh`, deterministic (no LLM):
 
@@ -72,14 +79,15 @@ Or ask: *"set up AI tooling"*, *"init AI defaults"*, *"add graphify and caveman"
 
 ```
 ✓ Caveman ultra + shrink MCP + statusline      [primary]
-✓ rtk installed + Claude (PreToolUse hook) + Codex (AGENTS.md/RTK.md) wired   [primary]
+✓ headroom installed + Claude + Codex wired (durable hooks + proxy routing)   [primary]
+✓ ponytail installed (ultra) + Claude + Codex wired   [primary]
 ✓ Graphify CLI installed / updated to latest
 ✓ /graphify skill wired + AST auto-update git hooks installed
   · graphify-out/ gitignored
   · deep semantic graph built/refreshed via /graphify --mode deep
 ```
 
-> Restart Claude Code after running to activate the MCP, statusline, rtk rewrite hook, and skill wiring.
+> Restart Claude Code after running to activate the MCP, statusline, headroom proxy routing, ponytail plugin, and skill wiring.
 
 ---
 
@@ -89,7 +97,8 @@ Or ask: *"set up AI tooling"*, *"init AI defaults"*, *"add graphify and caveman"
 |------|---------|--------|
 | `caveman` | Token-compressed Claude responses | [GitHub](https://github.com/juliusbrussee/caveman) |
 | `caveman-shrink` | Claude Code MCP for browser token savings | Bundled with `caveman --all` |
-| `rtk` | Compresses dev-command output (60–90% fewer tokens) | [GitHub](https://github.com/rtk-ai/rtk) |
+| `headroom` | Compresses agent context (60–95% fewer tokens) | [GitHub](https://github.com/chopratejas/headroom) |
+| `ponytail` | Steers agents to write minimal code | [GitHub](https://github.com/DietrichGebert/ponytail) |
 | `graphify` | Codebase → knowledge graph (installed + auto-updated) | [PyPI: graphifyy](https://pypi.org/project/graphifyy/) · [GitHub](https://github.com/safishamsi/graphify) |
 
 ### Install (reference)
@@ -98,10 +107,13 @@ Or ask: *"set up AI tooling"*, *"init AI defaults"*, *"add graphify and caveman"
 # caveman — global, once per machine
 npm install -g caveman --all
 
-# rtk — global; then wire each agent (auto-patch = non-interactive)
-curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
-rtk init -g --auto-patch    # Claude Code
-rtk init -g --codex         # Codex
+# headroom — global (pipx; uv-tool fallback on broken Python); then wire each agent
+pipx install "headroom-ai[proxy,code,mcp,ml,relevance,memory]"
+headroom init --global --memory claude    # Claude Code
+headroom init --global --memory codex     # Codex
+
+# ponytail — global plugin per agent + ultra config
+claude plugin marketplace add DietrichGebert/ponytail && claude plugin install ponytail@ponytail --scope user
 
 # graphify — global, prefer uv; --upgrade keeps it current
 uv tool install --upgrade graphifyy
@@ -121,8 +133,10 @@ Deterministic orchestration lives in `scripts/init-runner.js` plus `steps.json`.
 | `caveman-config.json` | global | sets ultra mode (`~/.config/caveman/config.json`) |
 | `statusline.sh` | global | live token/cost/mode badge (`~/.claude/statusline-command.sh`) |
 | `shrink-known-mcps.js` | global | wrap allowlisted, present, stdio MCPs with caveman-shrink |
-| `rtk-init.sh` | global | install correct rtk (gain-gated) + wire Claude hook + Codex AGENTS.md/RTK.md |
-| `rtk-init.test.js` | global | integration test: correct setup + idempotency (skips if offline) |
+| `headroom-init.sh` | global | install headroom (savings extras) + wire Claude + Codex (durable hooks + proxy) |
+| `headroom-init.test.js` | global | integration test: install runs + wiring + idempotency (skips if offline) |
+| `ponytail-init.sh` | global | write ultra config + install ponytail plugin for Claude + Codex |
+| `ponytail-init.test.js` | global | integration test: ultra config + idempotency (skips if offline) |
 | `graphify-init.sh` | repo | install/update graphify CLI + native always-on wiring + auto-update git hook |
 
 > Edit any template to change default behavior — no SKILL.md change needed.
@@ -136,4 +150,5 @@ Deterministic orchestration lives in `scripts/init-runner.js` plus `steps.json`.
 - `setup-matt-pocock-skills` — per-repo config (issue tracker, triage labels, domain docs) for the engineering skills (`to-issues`, `triage`, `tdd`, …). Interactive; iso-ai-init only *points* to it when `docs/agents/` is absent — never runs it.
 - [`graphify`](https://github.com/safishamsi/graphify) — the knowledge-graph skill this wires up (manual invocation via `/graphify`).
 - [`caveman`](https://github.com/juliusbrussee/caveman) — the caveman-mode skill this activates (toggle via `/caveman`).
-- [`rtk`](https://github.com/rtk-ai/rtk) — the command-output compressor this installs and wires into both agents.
+- [`headroom`](https://github.com/chopratejas/headroom) — the context compressor this installs and wires into both agents.
+- [`ponytail`](https://github.com/DietrichGebert/ponytail) — the code-minimalism plugin this installs for both agents.
