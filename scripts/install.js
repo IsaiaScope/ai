@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 const { execSync } = require("child_process");
-const { copyFileSync, mkdirSync, readdirSync, lstatSync, unlinkSync, symlinkSync, rmSync, readlinkSync } = require("fs");
-const { localSkillCatalog, routeSkills, syncManifest } = require("./skills-manifest");
+const { copyFileSync, mkdirSync, readdirSync, lstatSync, unlinkSync, symlinkSync, rmSync } = require("fs");
+const { localSkillCatalog, routeSkills, materializePlugin } = require("./skills-manifest");
 const { join } = require("path");
 const { homedir } = require("os");
 
@@ -100,33 +100,8 @@ if (unrouted.length) {
 
 for (const { plugin, skills } of routes) {
   const pluginDir = join(repoRoot, "plugins", plugin.name);
-  const skillsDir = join(pluginDir, "skills");
-  mkdirSync(skillsDir, { recursive: true });
-
-  // Prune stale entries: anything in the dir no longer routed to this plugin.
-  const wanted = new Set(skills);
-  for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
-    if (wanted.has(entry.name)) continue;
-    const stale = join(skillsDir, entry.name);
-    try { unlinkSync(stale); } catch { rmSync(stale, { recursive: true, force: true }); }
-    console.log(`  ✗ ${plugin.name}: pruned stale ${entry.name}`);
-  }
-
-  // Relative per-skill symlinks: plugins/<name>/skills/<skill> → ../../../skills/<skill>
-  for (const name of skills) {
-    const link = join(skillsDir, name);
-    const target = join("..", "..", "..", "skills", name);
-    let current = null;
-    try { current = lstatSync(link).isSymbolicLink() ? readlinkSync(link) : null; } catch {}
-    if (current !== target) {
-      try { unlinkSync(link); } catch {}
-      symlinkSync(target, link);
-    }
-  }
-
-  // Claude manifest: regenerate the skills array (filesystem = source of truth).
-  const claudeManifest = join(pluginDir, ".claude-plugin", "plugin.json");
-  const { changed } = syncManifest(claudeManifest, skills);
+  const { changed, pruned } = materializePlugin(pluginDir, skills);
+  for (const name of pruned) console.log(`  ✗ ${plugin.name}: pruned stale ${name}`);
   console.log(`  ✓ ${plugin.name.padEnd(20)} ${skills.length} skill(s)${changed ? " — manifest updated" : ""}`);
 }
 

@@ -1,9 +1,24 @@
 const assert = require("node:assert");
 const { test } = require("node:test");
-const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = require("node:fs");
+const {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  symlinkSync,
+  lstatSync,
+  readlinkSync,
+  readdirSync,
+} = require("node:fs");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
-const { SUPPORTED_AGENTS, scanSkills, localSkillCatalog, syncManifest } = require("./skills-manifest");
+const {
+  SUPPORTED_AGENTS,
+  scanSkills,
+  localSkillCatalog,
+  syncManifest,
+  materializePlugin,
+} = require("./skills-manifest");
 
 function fixtureRepo() {
   const root = mkdtempSync(join(tmpdir(), "iso-manifest-"));
@@ -48,4 +63,46 @@ test("syncManifest is idempotent: no change on a synced manifest", () => {
   syncManifest(pluginPath, ["alpha", "beta"]);
   const second = syncManifest(pluginPath, ["alpha", "beta"]);
   assert.strictEqual(second.changed, false);
+});
+
+test("materializePlugin links routed skills, prunes stale, and writes manifest", () => {
+  const root = fixtureRepo();
+  const pluginDir = join(root, "plugins", "isaiascope-eng");
+  mkdirSync(join(pluginDir, "skills"), { recursive: true });
+  mkdirSync(join(pluginDir, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(pluginDir, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: "isaiascope-eng", skills: [] }, null, 2) + "\n",
+  );
+  // a stale entry no longer routed here
+  symlinkSync(join("..", "..", "..", "skills", "iso-gone"), join(pluginDir, "skills", "iso-gone"));
+
+  const res = materializePlugin(pluginDir, ["iso-a", "iso-b"]);
+
+  assert.strictEqual(res.changed, true);
+  assert.deepStrictEqual(res.pruned, ["iso-gone"]);
+  const entries = readdirSync(join(pluginDir, "skills")).sort();
+  assert.deepStrictEqual(entries, ["iso-a", "iso-b"]);
+  for (const name of ["iso-a", "iso-b"]) {
+    const link = join(pluginDir, "skills", name);
+    assert.ok(lstatSync(link).isSymbolicLink());
+    assert.strictEqual(readlinkSync(link), join("..", "..", "..", "skills", name));
+  }
+  const manifest = JSON.parse(readFileSync(join(pluginDir, ".claude-plugin", "plugin.json"), "utf8"));
+  assert.deepStrictEqual(manifest.skills, ["./skills/iso-a", "./skills/iso-b"]);
+});
+
+test("materializePlugin is idempotent: second run changes nothing", () => {
+  const root = fixtureRepo();
+  const pluginDir = join(root, "plugins", "isaiascope-eng");
+  mkdirSync(join(pluginDir, "skills"), { recursive: true });
+  mkdirSync(join(pluginDir, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(pluginDir, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: "isaiascope-eng", skills: [] }, null, 2) + "\n",
+  );
+  materializePlugin(pluginDir, ["iso-a"]);
+  const second = materializePlugin(pluginDir, ["iso-a"]);
+  assert.strictEqual(second.changed, false);
+  assert.deepStrictEqual(second.pruned, []);
 });

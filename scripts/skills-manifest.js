@@ -1,5 +1,16 @@
 "use strict";
-const { readdirSync, existsSync, readFileSync, writeFileSync } = require("fs");
+const {
+  readdirSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  lstatSync,
+  readlinkSync,
+  unlinkSync,
+  symlinkSync,
+  rmSync,
+} = require("fs");
 const { join } = require("path");
 
 const SUPPORTED_AGENTS = ["claude-code", "codex"];
@@ -67,6 +78,49 @@ function syncManifest(pluginPath, skillNames) {
   return { changed, skills: next };
 }
 
+// Materialize one routed plugin: make plugins/<name>/skills/ hold exactly one
+// relative symlink per routed skill (../../../skills/<skill>), prune links no
+// longer routed here, and regenerate the Claude manifest. Idempotent — a second
+// run with the same skills writes nothing. This is the catalog's marketplace
+// projection: the filesystem is the source, the plugin dir is the rendering.
+// Returns { changed, skills, pruned } (pruned = names of removed stale entries).
+function materializePlugin(pluginDir, skills) {
+  const skillsDir = join(pluginDir, "skills");
+  mkdirSync(skillsDir, { recursive: true });
+
+  const wanted = new Set(skills);
+  const pruned = [];
+  for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+    if (wanted.has(entry.name)) continue;
+    const stale = join(skillsDir, entry.name);
+    try {
+      unlinkSync(stale);
+    } catch {
+      rmSync(stale, { recursive: true, force: true });
+    }
+    pruned.push(entry.name);
+  }
+
+  for (const name of skills) {
+    const link = join(skillsDir, name);
+    const target = join("..", "..", "..", "skills", name);
+    let current = null;
+    try {
+      current = lstatSync(link).isSymbolicLink() ? readlinkSync(link) : null;
+    } catch {}
+    if (current !== target) {
+      try {
+        unlinkSync(link);
+      } catch {}
+      symlinkSync(target, link);
+    }
+  }
+
+  const manifestPath = join(pluginDir, ".claude-plugin", "plugin.json");
+  const { changed } = syncManifest(manifestPath, skills);
+  return { changed, skills, pruned };
+}
+
 module.exports = {
   SUPPORTED_AGENTS,
   PLUGINS,
@@ -74,4 +128,5 @@ module.exports = {
   localSkillCatalog,
   routeSkills,
   syncManifest,
+  materializePlugin,
 };

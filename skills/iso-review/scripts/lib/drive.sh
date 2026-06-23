@@ -41,12 +41,9 @@ ISO_SPAWN_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../iso-spawn/scripts/l
 # shellcheck disable=SC1091
 [ -n "$ISO_SPAWN_LIB" ] && [ -f "$ISO_SPAWN_LIB/wait.sh" ] && . "$ISO_SPAWN_LIB/wait.sh"
 
-# shellcheck source=reviewer-codex.sh
+# shellcheck source=reviewer.sh
 # shellcheck disable=SC1091
-. "$(dirname "${BASH_SOURCE[0]}")/reviewer-codex.sh"
-# shellcheck source=reviewer-claude.sh
-# shellcheck disable=SC1091
-. "$(dirname "${BASH_SOURCE[0]}")/reviewer-claude.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/reviewer.sh"
 
 RV_FINDINGS_GREP='```json|"findings"|"summary"|"failure_scenario"'
 
@@ -113,10 +110,10 @@ rv_reviews() {  # [--codex-only] [--claude-review-effort high|max | high|max] [-
   fi
   # drive both (quick keystrokes; the long review work then overlaps)
   local cFAIL=0 lFAIL=0
-  if ! { rv_wait_ready "$cPANE" && reviewer_codex_dispatch  "$cPANE" "$level"; }; then
+  if ! { rv_wait_ready "$cPANE" && reviewer_dispatch codex "$cPANE" "$level"; }; then
     echo "codex review dispatch failed" >&2; cFAIL=1
   fi
-  if [ "$codex_only" = 0 ] && ! { rv_wait_ready "$lPANE" && reviewer_claude_dispatch "$lPANE" "$level"; }; then
+  if [ "$codex_only" = 0 ] && ! { rv_wait_ready "$lPANE" && reviewer_dispatch claude "$lPANE" "$level"; }; then
     echo "claude review dispatch failed" >&2; lFAIL=1
   fi
   # Confirm BOTH launched now, while it's unambiguous — both were just dispatched and should turn `working`
@@ -154,8 +151,8 @@ rv_reviews() {  # [--codex-only] [--claude-review-effort high|max | high|max] [-
   if [ "$codex_only" = 1 ]; then : > "$outdir/review-claude.txt"
   elif [ "$lFAIL" = 1 ]; then echo "__DISPATCH_FAILED__" > "$outdir/review-claude.txt"
   else wait_recover_settled "$lTERM" > "$outdir/review-claude.txt"; rv_demote_scrollback "$outdir/review-claude.txt"; fi
-  reviewer_codex_normalize "$outdir/review-codex.txt" "$outdir/findings-codex.json"
-  reviewer_claude_normalize "$outdir/review-claude.txt" "$outdir/findings-claude.json"
+  reviewer_normalize codex "$outdir/review-codex.txt" "$outdir/findings-codex.json"
+  reviewer_normalize claude "$outdir/review-claude.txt" "$outdir/findings-claude.json"
   if [ "$codex_only" = 1 ]; then printf '%s\n' "$cTERM" > "$outdir/.spawned-terms"
   else printf '%s\n%s\n' "$cTERM" "$lTERM" > "$outdir/.spawned-terms"; fi   # for later cleanup
   echo "$outdir/review-codex.txt"; echo "$outdir/review-claude.txt"

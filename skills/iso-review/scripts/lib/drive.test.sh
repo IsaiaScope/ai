@@ -34,8 +34,7 @@ tmp=$(mktemp -d)
   RV_OUTDIR="$tmp/out"
   rv_spawn() { [ "$1" = codex ] && echo "term_CODEX pane_CODEX" || echo "term_CLAUDE pane_CLAUDE"; }
   rv_wait_ready() { return 0; }
-  reviewer_codex_dispatch() { return 0; }
-  reviewer_claude_dispatch() { return 0; }
+  reviewer_dispatch() { return 0; }
   herdr_agent_status() { echo working; }
   rv_confirm_started() { return 0; }
   rv_wait_finished() { return 0; }
@@ -56,7 +55,7 @@ tmp=$(mktemp -d)
   herdr() { printf '%s\n' "$*" >> "$tmp/herdr.calls"; }
   herdr_pane_read() { printf 'OpenAI Codex ready'; }
   herdr_pane_run() { printf '%s' "$2" > "$tmp/direct-prompt"; }
-  CODEX_REVIEW_PRESET_POLLS=1 reviewer_codex_dispatch pane_CODEX >/dev/null 2>&1
+  CODEX_REVIEW_PRESET_POLLS=1 reviewer_dispatch codex pane_CODEX >/dev/null 2>&1
   grep -q 'pane send-text pane_CODEX /review' "$tmp/herdr.calls" &&
     grep -q 'Respond only with JSON' "$tmp/direct-prompt" &&
     grep -q '"findings"' "$tmp/direct-prompt"
@@ -67,7 +66,7 @@ tmp=$(mktemp -d)
 cat > "$tmp/codex.txt" <<'JSON'
 {"findings":[{"title":"Bad branch","body":"fails when branch is empty","priority":"P1","code_location":{"absolute_file_path":"/repo/skills/x.sh","line_range":{"start":42}}}]}
 JSON
-reviewer_codex_normalize "$tmp/codex.txt" "$tmp/codex-findings.json"
+reviewer_normalize codex "$tmp/codex.txt" "$tmp/codex-findings.json"
 python3 - "$tmp/codex-findings.json" <<'PY'
 import json, sys
 d=json.load(open(sys.argv[1]))
@@ -87,7 +86,7 @@ tmp=$(mktemp -d)
 cat > "$tmp/claude.txt" <<'JSON'
 [{"file":"skills/y.sh","line":7,"summary":"Missing quote","failure_scenario":"path with spaces breaks"}]
 JSON
-reviewer_claude_normalize "$tmp/claude.txt" "$tmp/claude-findings.json"
+reviewer_normalize claude "$tmp/claude.txt" "$tmp/claude-findings.json"
 python3 - "$tmp/claude-findings.json" <<'PY'
 import json, sys
 d=json.load(open(sys.argv[1]))
@@ -148,8 +147,7 @@ rm -rf "$tmp"
 reviews_mock() {  # runs rv_reviews "$@" in the current subshell with mocks in place
   rv_spawn() { [ "$1" = codex ] && echo "term_CODEX pane_CODEX" || echo "term_CLAUDE pane_CLAUDE"; }
   rv_wait_ready() { return 0; }
-  reviewer_codex_dispatch() { return 0; }
-  reviewer_claude_dispatch() { printf '%s\n' "${2:-}" > "$tmp/level"; return 0; }  # $2 = effort level
+  reviewer_dispatch() { [ "$1" = claude ] && printf '%s\n' "${3:-}" > "$tmp/level"; return 0; }  # $3 = effort level
   herdr_agent_status() { echo working; }
   wait_done() { return 0; }
   wait_recover_settled() { printf 'settled %s' "$1"; }
@@ -171,8 +169,7 @@ tmp=$(mktemp -d)
   RV_START_WINDOW=1
   rv_spawn() { [ "$1" = codex ] && echo "term_CODEX pane_CODEX" || echo "term_CLAUDE pane_CLAUDE"; }
   rv_wait_ready() { return 0; }
-  reviewer_codex_dispatch() { return 0; }
-  reviewer_claude_dispatch() { return 0; }
+  reviewer_dispatch() { return 0; }
   herdr_agent_status() { echo idle; }
   wait_done() { touch "$tmp/waited"; return 0; }
   wait_recover_settled() { printf 'should not recover'; }
@@ -203,8 +200,7 @@ tmp=$(mktemp -d)
     esac
   }
   rv_wait_ready() { return 0; }
-  reviewer_codex_dispatch() { return 0; }
-  reviewer_claude_dispatch() { touch "$tmp/claude-dispatched"; return 1; }
+  reviewer_dispatch() { [ "$1" = claude ] && touch "$tmp/claude-dispatched"; return 0; }
   herdr_agent_status() { echo working; }
   wait_done() { return 0; }
   wait_recover_settled() { printf '{"findings":[]}'; }
