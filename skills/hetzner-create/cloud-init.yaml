@@ -1,0 +1,98 @@
+#cloud-config
+# TEMPLATE — render before use. Replace every {{ }} placeholder from the merged
+# fleet.json entry (server entry over `defaults`). Written to a temp file, passed as
+# `hcloud server create --user-data-from-file`. Nothing is stored per-server; the
+# rebuild path re-renders from this same template.
+#
+# {{USER}}        defaults.user            e.g. isoonfire
+# {{SSH_PUBKEY}}  contents of <key>.pub    e.g. ssh-ed25519 AAAA... comment
+# {{SSH_PORT}}    defaults.port            e.g. 2222
+# {{HOSTNAME}}    server name / expect_hostname
+#
+# ORDERING NOTE — this is what keeps the box reachable:
+# cloud-init runs `users` in the *init* stage and `runcmd` in the *final* stage. So
+# {{USER}} exists with the key installed BEFORE sshd is restarted with
+# PermitRootLogin no. Doing all of this in runcmd instead risks bricking the box.
+
+hostname: {{HOSTNAME}}
+preserve_hostname: false
+
+# No `- default` entry on purpose: this list REPLACES the distro default user, so the
+# stock `ubuntu` account is never created. {{USER}} is the only login, matching AllowUsers.
+users:
+  - name: {{USER}}
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      # REQUIRED. `hcloud server create --ssh-key` only injects into root, which the
+      # sshd config below locks out. Without this line the server is unreachable.
+      - {{SSH_PUBKEY}}
+
+package_update: true
+package_upgrade: true
+packages:
+  # No fail2ban: CrowdSec (below) is the IDS. Both parse sshd auth logs and both write
+  # firewall rules — fail2ban via f2b-* chains, CrowdSec via its own nftables tables.
+  # Running both is duplicated state on one backend, not layered defense.
+  - unattended-upgrades
+  - curl
+  - ca-certificates
+
+write_files:
+  # --- sshd hardening ---------------------------------------------------------
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    permissions: "0644"
+    content: |
+      Port {{SSH_PORT}}
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PubkeyAuthentication yes
+      AllowUsers {{USER}}
+      X11Forwarding no
+      MaxAuthTries 3
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+
+  # --- kernel / network hardening ---------------------------------------------
+  - path: /etc/sysctl.d/99-hardening.conf
+    permissions: "0644"
+    content: |
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.all.accept_source_route = 0
+      net.ipv4.tcp_syncookies = 1
+      net.ipv6.conf.all.accept_redirects = 0
+      kernel.dmesg_restrict = 1
+      fs.protected_hardlinks = 1
+      fs.protected_symlinks = 1
+
+  # --- unattended security updates --------------------------------------------
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+runcmd:
+  # sshd last: {{USER}} already exists with the key by this point.
+  - [sysctl, --system]
+  # Ubuntu 22.10+ can socket-activate sshd. When ssh.socket is enabled, systemd owns
+  # the listener and `Port` in sshd_config is IGNORED — sshd answers on 22 while the
+  # firewall only opens {{SSH_PORT}}. Unreachable box, no error. Hetzner's image ships
+  # it disabled; masking makes that an invariant instead of a default someone can flip.
+  - [systemctl, mask, ssh.socket]
+  - [systemctl, restart, ssh]
+  # CrowdSec — the IDS for this baseline. Collaborative blocklists + nftables bouncer.
+  # If this fails, runcmd carries on (no set -e) and still touches the marker below —
+  # which is why hetzner-create verifies `systemctl is-active crowdsec` separately.
+  - bash -c 'curl -sS https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | bash'
+  - [apt-get, install, -y, crowdsec, crowdsec-firewall-bouncer-nftables]
+  - [systemctl, enable, --now, crowdsec]
+  # Completion marker — hetzner-create polls for this over SSH.
+  - [touch, /var/lib/cloud/hetzner-create-done]
+
+final_message: "hetzner-create baseline applied after $UPTIME seconds"
