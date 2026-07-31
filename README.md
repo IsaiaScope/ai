@@ -126,7 +126,7 @@ codex plugin add isaiascope-ai@marketonfire
 
 **Upstream packs** — installed globally by `install.js`: [caveman](#-caveman) · [graphify](#-graphify) · [karpathy-guidelines](#-karpathy-guidelines) · [mattpocock/skills](https://github.com/mattpocock/skills) · [intent-layer](#-intent-layer).
 
-A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → **`iso-review`** double-checks the diff with Codex-only or dual-agent review → you commit → **`iso-init-repo`** governs how it ships. **`iso-todo`** runs the plan/write/review sequence as one orchestrated cycle and still commits nothing.
+A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → **`iso-review`** double-checks the diff with single-agent or dual-agent review → you commit → **`iso-init-repo`** governs how it ships. **`iso-todo`** runs the plan/write/review sequence as one orchestrated cycle and still commits nothing.
 
 ---
 
@@ -238,7 +238,7 @@ Spawn a `codex` or `claude` agent in its own [herdr](https://herdr.dev) tab — 
 
 ### 🧵 iso-todo *(original)*
 
-Run a full development cycle — plan, implement in a spawned codex tab, review with Codex-only or dual-agent review, and apply accepted fixes back in the implementation tab. **Never commits.**
+Run a full development cycle — plan, implement in a spawned agent tab (claude by default), review with single-agent or dual-agent review, and apply accepted fixes back in the implementation tab. **Never commits.**
 
 - 🧭 **Plan first** — delegates to `iso-plan` and stops if no new plan appears
 - ✍️ **Write in a live tab** — runs `iso-write` on a fresh `feat/<slug>` branch
@@ -256,15 +256,15 @@ Run a full development cycle — plan, implement in a spawned codex tab, review 
 
 ### 🔍 iso-review *(original)*
 
-Review your uncommitted working tree with Codex only or with codex `/review` + claude `/code-review` — then apply every fix worth keeping and verify, all without committing.
+Review your uncommitted working tree with one agent or with codex `/review` + claude `/code-review` — then apply every fix worth keeping and verify, all without committing.
 
-- 👥 **Reviewer tabs** — codex on the diff, with optional claude pairing unless `--codex-only`
+- 👥 **Reviewer tabs** — both codex and claude on the diff by default; `--agent codex|claude` runs just one
 - 🔀 **Merged, de-duplicated, filtered** — keeps everything except net-negative fixes
-- 🧪 **Applies + self-verifies** — a codex fix tab runs the repo's tests + type-check and reports
+- 🧪 **Applies + self-verifies** — a fix tab (the chosen agent, claude when both ran) runs the repo's tests + type-check and reports
 - 🛑 **Never commits** — leaves the working tree for your final read
 
 ```
-/iso-review [--codex-only] [--max]
+/iso-review [--agent codex|claude] [--claude-review-effort medium|high|max]
 ```
 
 → [Full documentation](skills/iso-review/README.md)

@@ -82,45 +82,59 @@ rv_demote_scrollback() {  # $1 = recovered file
   return 0
 }
 
-rv_reviews() {  # [--codex-only] [--claude-review-effort high|max | high|max] [--kill-review-tabs|--kill-tabs]. Wipes $RV_OUTDIR, writes fresh review-{codex,claude}.txt; prints paths.
-  local level="high" kill_tabs=0 codex_only=0 outdir="$RV_OUTDIR"
+rv_reviews() {  # [--agent codex|claude] [--claude-review-effort medium|high|max | medium|high|max] [--kill-review-tabs|--kill-tabs]. Omit --agent → both reviewers. Wipes $RV_OUTDIR, writes fresh review-{codex,claude}.txt; prints paths.
+  local level="medium" kill_tabs=0 agent="" outdir="$RV_OUTDIR" run_codex=1 run_claude=1
   while [ $# -gt 0 ]; do
     case "$1" in
-      --codex-only) codex_only=1; shift;;
+      --agent=*) agent="${1#*=}"; shift;;
+      --agent) shift; agent="${1:-}"; [ $# -gt 0 ] && shift;;
       --kill-review-tabs|--kill-tabs) kill_tabs=1; shift;;
       --claude-review-effort=*) level="${1#*=}"; shift;;
-      --claude-review-effort) shift; level="${1:-high}"; [ $# -gt 0 ] && shift;;
-      high|max) level="$1"; shift;;       # positional shorthand (--max maps here)
+      --claude-review-effort) shift; level="${1:-medium}"; [ $# -gt 0 ] && shift;;
+      medium|high|max) level="$1"; shift;;   # positional shorthand
       *) shift;;
     esac
   done
+  # --agent selects the reviewer set; omitting it runs both.
+  case "$agent" in
+    ""|both) run_codex=1; run_claude=1;;
+    codex)   run_codex=1; run_claude=0;;
+    claude)  run_codex=0; run_claude=1;;
+    *) echo "✗ unknown agent: $agent (use codex|claude)" >&2; return 1;;
+  esac
   case "$level" in
-    high|max) ;;
-    *) echo "✗ unknown claude review effort: $level (use high|max)" >&2; return 1;;
+    medium|high|max) ;;
+    *) echo "✗ unknown claude review effort: $level (use medium|high|max)" >&2; return 1;;
   esac
   # Fresh start each run: a prior review's accepted-fixes.md/.spawned-terms/transcripts must never leak into
   # this one (e.g. a stale accepted-fixes.md getting re-applied). The `:?` guard refuses an empty/unset path.
   rm -rf -- "${outdir:?refusing to wipe empty RV_OUTDIR}"
-  mkdir -p -- "$outdir"
   local cTERM cPANE lTERM lPANE sp
-  sp=$(rv_spawn codex  iso-review-codex  irvcodex)  || return 1; read -r cTERM cPANE <<<"$sp"
-  printf '%s\n' "$cTERM" > "$outdir/.spawned-terms"   # record now so a failed claude spawn still leaves codex reapable
-  if [ "$codex_only" = 0 ]; then
-    sp=$(rv_spawn claude iso-review-claude irvclaude) || return 1; read -r lTERM lPANE <<<"$sp"
+  # Each spawn records its own term immediately, so a later spawn failing still leaves the earlier
+  # tab reapable. The dir is created at its first write, not at preflight, so a first-spawn failure
+  # leaves no empty dir behind. The rm -rf above already guarantees an empty slate, so >> is safe.
+  if [ "$run_codex" = 1 ]; then
+    sp=$(rv_spawn codex  iso-review-codex  irvcodex)  || return 1; read -r cTERM cPANE <<<"$sp"
+    mkdir -p -- "$outdir"; printf '%s\n' "$cTERM" >> "$outdir/.spawned-terms"
   fi
-  # drive both (quick keystrokes; the long review work then overlaps)
+  if [ "$run_claude" = 1 ]; then
+    sp=$(rv_spawn claude iso-review-claude irvclaude) || return 1; read -r lTERM lPANE <<<"$sp"
+    mkdir -p -- "$outdir"; printf '%s\n' "$lTERM" >> "$outdir/.spawned-terms"
+  fi
+  # drive the selected reviewers (quick keystrokes; the long review work then overlaps)
   local cFAIL=0 lFAIL=0
-  if ! { rv_wait_ready "$cPANE" && reviewer_dispatch codex "$cPANE" "$level"; }; then
+  if [ "$run_codex" = 1 ] && ! { rv_wait_ready "$cPANE" && reviewer_dispatch codex "$cPANE" "$level"; }; then
     echo "codex review dispatch failed" >&2; cFAIL=1
   fi
-  if [ "$codex_only" = 0 ] && ! { rv_wait_ready "$lPANE" && reviewer_dispatch claude "$lPANE" "$level"; }; then
+  if [ "$run_claude" = 1 ] && ! { rv_wait_ready "$lPANE" && reviewer_dispatch claude "$lPANE" "$level"; }; then
     echo "claude review dispatch failed" >&2; lFAIL=1
   fi
-  # Confirm BOTH launched now, while it's unambiguous — both were just dispatched and should turn `working`
-  # within seconds. Doing this here, not after a serial finish-wait, distinguishes a dropped keystroke
-  # from an already-finished fast review.
-  local reviewer reviewers="codex" term window="${RV_START_WINDOW:-120}" st started
-  [ "$codex_only" = 0 ] && reviewers="codex claude"
+  # Confirm the selected reviewers launched now, while it's unambiguous — each was just dispatched and should
+  # turn `working` within seconds. Doing this here, not after a serial finish-wait, distinguishes a dropped
+  # keystroke from an already-finished fast review.
+  local reviewer reviewers="" term window="${RV_START_WINDOW:-120}" st started
+  [ "$run_codex" = 1 ]  && reviewers="codex"
+  [ "$run_claude" = 1 ] && reviewers="${reviewers:+$reviewers }claude"
   for reviewer in $reviewers; do
     case "$reviewer" in
       codex) term="$cTERM"; [ "$cFAIL" = 0 ] || continue;;
@@ -140,38 +154,41 @@ rv_reviews() {  # [--codex-only] [--claude-review-effort high|max | high|max] [-
       [ "$reviewer" = codex ] && cFAIL=1 || lFAIL=1
     fi
   done
-  # Then wait both to truly finish (idle/done, or a quiescent transcript behind a stuck `working` status).
+  # Then wait the selected reviewers to truly finish (idle/done, or a quiescent transcript behind a stuck `working`).
   local review_timeout="${RV_REVIEW_TIMEOUT:-3600}"
-  [ "$cFAIL" = 0 ] && { wait_done "$cTERM" --timeout "$review_timeout" --done-grep "$RV_FINDINGS_GREP" || { echo "codex review did not finish in time"  >&2; cFAIL=1; }; }
-  [ "$codex_only" = 0 ] && [ "$lFAIL" = 0 ] && { wait_done "$lTERM" --timeout "$review_timeout" --done-grep "$RV_FINDINGS_GREP" || { echo "claude review did not finish in time" >&2; lFAIL=1; }; }
-  # recover — on dispatch failure write a sentinel so 'failed' != 'no findings'; otherwise settle-recover
-  # to ride out the jsonl flush-lag (status/pane lead the disk write) so we don't grab a pre-final turn.
-  if [ "$cFAIL" = 1 ]; then echo "__DISPATCH_FAILED__" > "$outdir/review-codex.txt"
+  [ "$run_codex" = 1 ]  && [ "$cFAIL" = 0 ] && { wait_done "$cTERM" --timeout "$review_timeout" --done-grep "$RV_FINDINGS_GREP" || { echo "codex review did not finish in time"  >&2; cFAIL=1; }; }
+  [ "$run_claude" = 1 ] && [ "$lFAIL" = 0 ] && { wait_done "$lTERM" --timeout "$review_timeout" --done-grep "$RV_FINDINGS_GREP" || { echo "claude review did not finish in time" >&2; lFAIL=1; }; }
+  # recover — an unselected reviewer gets an empty file (→ [] findings); a dispatch failure writes a sentinel so
+  # 'failed' != 'no findings'; otherwise settle-recover to ride out jsonl flush-lag (status/pane lead the disk write).
+  if [ "$run_codex" = 0 ]; then : > "$outdir/review-codex.txt"
+  elif [ "$cFAIL" = 1 ]; then echo "__DISPATCH_FAILED__" > "$outdir/review-codex.txt"
   else wait_recover_settled "$cTERM" > "$outdir/review-codex.txt"; rv_demote_scrollback "$outdir/review-codex.txt"; fi
-  if [ "$codex_only" = 1 ]; then : > "$outdir/review-claude.txt"
+  if [ "$run_claude" = 0 ]; then : > "$outdir/review-claude.txt"
   elif [ "$lFAIL" = 1 ]; then echo "__DISPATCH_FAILED__" > "$outdir/review-claude.txt"
   else wait_recover_settled "$lTERM" > "$outdir/review-claude.txt"; rv_demote_scrollback "$outdir/review-claude.txt"; fi
   reviewer_normalize codex "$outdir/review-codex.txt" "$outdir/findings-codex.json"
   reviewer_normalize claude "$outdir/review-claude.txt" "$outdir/findings-claude.json"
-  if [ "$codex_only" = 1 ]; then printf '%s\n' "$cTERM" > "$outdir/.spawned-terms"
-  else printf '%s\n%s\n' "$cTERM" "$lTERM" > "$outdir/.spawned-terms"; fi   # for later cleanup
   echo "$outdir/review-codex.txt"; echo "$outdir/review-claude.txt"
-  # Systematic teardown (opt-in): both review files are on disk now, so killing the tabs reclaims the
+  # Systematic teardown (opt-in): the review files are on disk now, so killing the tabs reclaims the
   # processes without losing findings. Default leaves them alive for live inspection.
-  if [ "$kill_tabs" = 1 ]; then rv_kill_term "$cTERM"; [ "$codex_only" = 0 ] && rv_kill_term "$lTERM"; fi
-  if [ "$cFAIL" = 1 ] && { [ "$codex_only" = 1 ] || [ "$lFAIL" = 1 ]; }; then
-    echo "✗ both reviewers failed to dispatch — no review produced" >&2
+  if [ "$kill_tabs" = 1 ]; then
+    [ "$run_codex" = 1 ]  && rv_kill_term "$cTERM"
+    [ "$run_claude" = 1 ] && rv_kill_term "$lTERM"
+  fi
+  # Every selected reviewer failed → no review produced. An unselected reviewer counts as "not failing".
+  if { [ "$run_codex" = 0 ] || [ "$cFAIL" = 1 ]; } && { [ "$run_claude" = 0 ] || [ "$lFAIL" = 1 ]; }; then
+    echo "✗ all selected reviewers failed to dispatch — no review produced" >&2
     return 1
   fi
 }
 
 rv_apply() {  # <accepted-fixes.md> [--fix-agent codex|claude] [--fix-term TERM] [--kill-fix-tab|--kill-tabs]
-  local f="" kill_fix=0 fix_agent="codex" fix_term=""
+  local f="" kill_fix=0 fix_agent="claude" fix_term=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --kill-fix-tab|--kill-tabs) kill_fix=1; shift;;
       --fix-agent=*) fix_agent="${1#*=}"; shift;;
-      --fix-agent) shift; fix_agent="${1:-codex}"; [ $# -gt 0 ] && shift;;
+      --fix-agent) shift; fix_agent="${1:-claude}"; [ $# -gt 0 ] && shift;;
       --fix-term=*) fix_term="${1#*=}"; [ -n "$fix_term" ] || { echo "✗ --fix-term requires TERM" >&2; return 1; }; shift;;
       --fix-term) shift; fix_term="${1:-}"; [ -n "$fix_term" ] || { echo "✗ --fix-term requires TERM" >&2; return 1; }; shift;;
       *) [ -z "$f" ] && f="$1"; shift;;
@@ -183,7 +200,7 @@ rv_apply() {  # <accepted-fixes.md> [--fix-agent codex|claude] [--fix-term TERM]
   case "$fix_agent" in
     codex) ;;
     claude|claude-code|claudecode|cloudcode|cc) fix_agent="claude";;
-    "") fix_agent="codex";;
+    "") fix_agent="claude";;
     *) echo "✗ unknown fix agent: $fix_agent (use codex|claude)" >&2; return 1;;
   esac
   [ -f "$f" ] || { echo "✗ accepted-fixes file not found: $f" >&2; return 1; }
@@ -298,28 +315,38 @@ PY
 }
 
 rv_run() {  # full iso-review path: preflight → reviews → accepted fixes → apply
-  local level="high" kill_review=0 kill_fix=0 codex_only=0 fix_agent="codex" fix_term=""
+  local level="medium" kill_review=0 kill_fix=0 agent="" fix_term=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --codex-only) codex_only=1; shift;;
+      --agent=*) agent="${1#*=}"; shift;;
+      --agent) shift; agent="${1:-}"; [ $# -gt 0 ] && shift;;
       --kill-tabs) kill_review=1; kill_fix=1; shift;;
       --kill-review-tabs) kill_review=1; shift;;
       --kill-fix-tab) kill_fix=1; shift;;
-      --max) level="max"; shift;;
       --claude-review-effort=*) level="${1#*=}"; shift;;
-      --claude-review-effort) shift; level="${1:-high}"; [ $# -gt 0 ] && shift;;
-      --fix-agent=*) fix_agent="${1#*=}"; shift;;
-      --fix-agent) shift; fix_agent="${1:-codex}"; [ $# -gt 0 ] && shift;;
+      --claude-review-effort) shift; level="${1:-medium}"; [ $# -gt 0 ] && shift;;
       --fix-term=*) fix_term="${1#*=}"; [ -n "$fix_term" ] || { echo "✗ --fix-term requires TERM" >&2; return 1; }; shift;;
       --fix-term) shift; fix_term="${1:-}"; [ -n "$fix_term" ] || { echo "✗ --fix-term requires TERM" >&2; return 1; }; shift;;
-      high|max) level="$1"; shift;;
+      medium|high|max) level="$1"; shift;;
       *) shift;;
     esac
   done
+  # --agent picks the reviewers AND, by extension, who applies the fixes. A single named agent
+  # both reviews and fixes; omitting it (both reviewers) leaves no single choice, so the fixer
+  # falls back to the house default, claude. --fix-term still overrides the fixer downstream.
+  case "$agent" in
+    ""|both|codex|claude) ;;
+    *) echo "✗ unknown agent: $agent (use codex|claude)" >&2; return 1;;
+  esac
+  local fix_agent
+  case "$agent" in
+    codex) fix_agent="codex";;
+    *)     fix_agent="claude";;
+  esac
 
   rv_preflight || return $?
   local review_args=("--claude-review-effort" "$level")
-  [ "$codex_only" = 1 ] && review_args+=("--codex-only")
+  [ -n "$agent" ] && review_args+=("--agent" "$agent")
   [ "$kill_review" = 1 ] && review_args+=("--kill-review-tabs")
   rv_reviews "${review_args[@]}" || return $?
 

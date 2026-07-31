@@ -74,9 +74,38 @@ SH
 chmod +x "$tmp/spawn.sh" "$tmp/review.sh" "$tmp/bin/herdr"
 ( cd "$tmp/cwd" && ISO_STUB_REVIEW_LOG="$tmp/review.log" RV_OUTDIR="$tmp/review" \
   SPAWN="$tmp/spawn.sh" REVIEW="$tmp/review.sh" PATH="$tmp/bin:$PATH" \
-  WAIT_DONE_POLL=0 WAIT_DONE_STEP=1 WAIT_DONE_FAST_IDLE_POLLS=1 "$TODO" run-plan "$plan" --codex-only >/dev/null )
-assert "todo passes codex-only to iso-review" "grep -q -- 'run run --kill-review-tabs --codex-only --fix-term term_IMPL' '$tmp/review.log'"
+  WAIT_DONE_POLL=0 WAIT_DONE_STEP=1 WAIT_DONE_FAST_IDLE_POLLS=1 "$TODO" run-plan "$plan" --review-agent codex >/dev/null )
+assert "todo forwards --review-agent codex as iso-review --agent" "grep -q -- 'run run --kill-review-tabs --agent codex --fix-term term_IMPL' '$tmp/review.log'"
 rm -rf "$tmp"
+
+# impl tab spawns the default agent (claude) and honors --impl-agent
+for want in "default:claude" "explicit:codex"; do
+  mode="${want%%:*}"; expect="${want##*:}"
+  tmp=$(mktemp -d); mkdir -p "$tmp/bin" "$tmp/plan-dir" "$tmp/review" "$tmp/cwd"
+  plan="$tmp/plan-dir/2026-01-01-feat-impl.md"; printf '# plan\n' > "$plan"
+  cat > "$tmp/spawn.sh" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  spawn) echo "$2" > "$ISO_STUB_SPAWN_AGENT"; printf '{"term":"term_IMPL","pane":"pane_IMPL"}\n' ;;
+  send) : ;;
+  recover) printf '✓ Implementation complete — nothing committed.\n' ;;
+esac
+SH
+  printf '#!/usr/bin/env bash\n:\n' > "$tmp/review.sh"
+  cat > "$tmp/bin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "agent get") printf '{"result":{"agent":{"agent_status":"idle","pane_id":"pane_IMPL"}}}\n' ;;
+esac
+SH
+  chmod +x "$tmp/spawn.sh" "$tmp/review.sh" "$tmp/bin/herdr"
+  args=(); [ "$mode" = explicit ] && args=(--impl-agent codex)
+  ( cd "$tmp/cwd" && ISO_STUB_SPAWN_AGENT="$tmp/spawn-agent" RV_OUTDIR="$tmp/review" \
+    SPAWN="$tmp/spawn.sh" REVIEW="$tmp/review.sh" PATH="$tmp/bin:$PATH" \
+    WAIT_DONE_POLL=0 WAIT_DONE_STEP=1 WAIT_DONE_FAST_IDLE_POLLS=1 "$TODO" run-plan "$plan" ${args[@]+"${args[@]}"} >/dev/null )
+  assert "todo impl tab agent ($mode → $expect)" "grep -qx '$expect' '$tmp/spawn-agent'"
+  rm -rf "$tmp"
+done
 
 tmp=$(mktemp -d)
 mkdir -p "$tmp/bin" "$tmp/cwd"

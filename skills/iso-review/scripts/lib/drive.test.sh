@@ -182,6 +182,29 @@ tmp=$(mktemp -d)
 ); assert "idle without working transition fails dispatch" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
+# the run-artifact dir is created only when something is actually written into it, so a
+# spawn failure leaves no empty .iso/logs/review behind
+tmp=$(mktemp -d)
+(
+  RV_OUTDIR="$tmp/out"
+  rv_spawn() { return 1; }
+  rv_reviews >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 1 ] && [ ! -e "$tmp/out" ]
+); assert "failed spawn leaves no run-artifact dir" "[ $? -eq 0 ]"
+rm -rf "$tmp"
+
+# each spawn records its own term, so a later spawn failing still leaves the earlier tab reapable
+tmp=$(mktemp -d)
+(
+  RV_OUTDIR="$tmp/out"
+  rv_spawn() { [ "$1" = codex ] && echo "term_CODEX pane_CODEX" || return 1; }
+  rv_reviews >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 1 ] && grep -qx term_CODEX "$tmp/out/.spawned-terms"
+); assert "failed claude spawn still records codex term" "[ $? -eq 0 ]"
+rm -rf "$tmp"
+
 # default reviews keeps both tabs alive (no kill)
 tmp=$(mktemp -d)
 ( RV_OUTDIR="$tmp/out"; reviews_mock high
@@ -189,7 +212,7 @@ tmp=$(mktemp -d)
 ); assert "reviews default keeps tabs (no kill)" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
-# --codex-only skips the claude reviewer entirely but still writes the expected files
+# --agent codex skips the claude reviewer entirely but still writes the expected files
 tmp=$(mktemp -d)
 (
   RV_OUTDIR="$tmp/out"
@@ -204,14 +227,39 @@ tmp=$(mktemp -d)
   herdr_agent_status() { echo working; }
   wait_done() { return 0; }
   wait_recover_settled() { printf '{"findings":[]}'; }
-  rv_reviews --codex-only >/dev/null
+  rv_reviews --agent codex >/dev/null
   rc=$?
   [ "$rc" -eq 0 ] &&
     [ ! -f "$tmp/claude-spawned" ] &&
     [ ! -f "$tmp/claude-dispatched" ] &&
     [ "$(cat "$tmp/out/findings-claude.json")" = "[]" ] &&
     grep -qx term_CODEX "$tmp/out/.spawned-terms"
-); assert "codex-only reviews skip claude reviewer" "[ $? -eq 0 ]"
+); assert "--agent codex reviews skip claude reviewer" "[ $? -eq 0 ]"
+rm -rf "$tmp"
+
+# --agent claude skips the codex reviewer entirely (the new symmetric path)
+tmp=$(mktemp -d)
+(
+  RV_OUTDIR="$tmp/out"
+  rv_spawn() {
+    case "$1" in
+      claude) echo "term_CLAUDE pane_CLAUDE";;
+      codex) touch "$tmp/codex-spawned"; return 1;;
+    esac
+  }
+  rv_wait_ready() { return 0; }
+  reviewer_dispatch() { [ "$1" = codex ] && touch "$tmp/codex-dispatched"; return 0; }
+  herdr_agent_status() { echo working; }
+  wait_done() { return 0; }
+  wait_recover_settled() { printf '{"findings":[]}'; }
+  rv_reviews --agent claude >/dev/null
+  rc=$?
+  [ "$rc" -eq 0 ] &&
+    [ ! -f "$tmp/codex-spawned" ] &&
+    [ ! -f "$tmp/codex-dispatched" ] &&
+    [ "$(cat "$tmp/out/findings-codex.json")" = "[]" ] &&
+    grep -qx term_CLAUDE "$tmp/out/.spawned-terms"
+); assert "--agent claude reviews skip codex reviewer" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
 # --- claude review effort -------------------------------------------------------
@@ -223,14 +271,14 @@ tmp=$(mktemp -d)
 ); assert "claude-review-effort max" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
-# default effort is high
+# default effort is medium
 tmp=$(mktemp -d)
 ( RV_OUTDIR="$tmp/out"; reviews_mock
-  grep -qx high "$tmp/level"
-); assert "claude-review-effort default high" "[ $? -eq 0 ]"
+  grep -qx medium "$tmp/level"
+); assert "claude-review-effort default medium" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
-# positional level still honored (back-compat with --max → reviews max)
+# positional level still honored (e.g. `reviews max`)
 tmp=$(mktemp -d)
 ( RV_OUTDIR="$tmp/out"; reviews_mock max
   grep -qx max "$tmp/level"
@@ -265,7 +313,7 @@ tmp=$(mktemp -d)
 ); assert "run performs full review path and reuses fix term" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
-# full run: --codex-only is passed through to reviews
+# full run: --agent codex is passed through to reviews
 tmp=$(mktemp -d)
 (
   RV_OUTDIR="$tmp/out"
@@ -277,9 +325,58 @@ tmp=$(mktemp -d)
     printf '[]\n' > "$RV_OUTDIR/findings-claude.json"
   }
   rv_apply() { touch "$tmp/applied"; }
-  rv_run --codex-only >/dev/null
-  grep -q -- '--codex-only' "$tmp/reviews.args" && [ ! -f "$tmp/applied" ]
-); assert "run passes codex-only to reviews" "[ $? -eq 0 ]"
+  rv_run --agent codex >/dev/null
+  grep -q -- '--agent' "$tmp/reviews.args" && grep -qx codex "$tmp/reviews.args" && [ ! -f "$tmp/applied" ]
+); assert "run passes --agent codex to reviews" "[ $? -eq 0 ]"
+rm -rf "$tmp"
+
+# full run: no --agent forwards no agent flag (reviews default to both)
+tmp=$(mktemp -d)
+(
+  RV_OUTDIR="$tmp/out"
+  rv_preflight() { return 0; }
+  rv_reviews() {
+    printf '%s\n' "$@" > "$tmp/reviews.args"
+    mkdir -p "$RV_OUTDIR"
+    printf '[]\n' > "$RV_OUTDIR/findings-codex.json"
+    printf '[]\n' > "$RV_OUTDIR/findings-claude.json"
+  }
+  rv_apply() { touch "$tmp/applied"; }
+  rv_run >/dev/null
+  ! grep -q -- '--agent' "$tmp/reviews.args"
+); assert "run without --agent forwards no agent (both reviewers)" "[ $? -eq 0 ]"
+rm -rf "$tmp"
+
+# full run: fixer derives from --agent — codex selects a codex fixer
+tmp=$(mktemp -d)
+(
+  RV_OUTDIR="$tmp/out"
+  rv_preflight() { return 0; }
+  rv_reviews() {
+    mkdir -p "$RV_OUTDIR"
+    printf '[{"source":"codex","file":"a.sh","line":1,"problem":"x","fix":"y"}]\n' > "$RV_OUTDIR/findings-codex.json"
+    printf '[]\n' > "$RV_OUTDIR/findings-claude.json"
+  }
+  rv_apply() { printf '%s\n' "$@" > "$tmp/apply.args"; }
+  rv_run --agent codex >/dev/null
+  grep -qx -- '--fix-agent' "$tmp/apply.args" && grep -qx codex "$tmp/apply.args"
+); assert "run derives codex fixer from --agent codex" "[ $? -eq 0 ]"
+rm -rf "$tmp"
+
+# full run: omitting --agent (both reviewers) derives the house-default claude fixer
+tmp=$(mktemp -d)
+(
+  RV_OUTDIR="$tmp/out"
+  rv_preflight() { return 0; }
+  rv_reviews() {
+    mkdir -p "$RV_OUTDIR"
+    printf '[{"source":"codex","file":"a.sh","line":1,"problem":"x","fix":"y"}]\n' > "$RV_OUTDIR/findings-codex.json"
+    printf '[]\n' > "$RV_OUTDIR/findings-claude.json"
+  }
+  rv_apply() { printf '%s\n' "$@" > "$tmp/apply.args"; }
+  rv_run >/dev/null
+  grep -qx -- '--fix-agent' "$tmp/apply.args" && grep -qx claude "$tmp/apply.args"
+); assert "run derives claude fixer when no --agent" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
 # full run: no accepted findings means no apply call
@@ -341,11 +438,11 @@ tmp=$(mktemp -d)
 ); assert "fix-agent cloudcode → claude" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
-# default fixer is codex
+# default fixer is claude
 tmp=$(mktemp -d)
 ( RV_OUTDIR="$tmp/out"; apply_mock
-  grep -qx codex "$tmp/fixagent"
-); assert "fix-agent default codex" "[ $? -eq 0 ]"
+  grep -qx claude "$tmp/fixagent"
+); assert "fix-agent default claude" "[ $? -eq 0 ]"
 rm -rf "$tmp"
 
 # unknown fix agent rejected before any spawn

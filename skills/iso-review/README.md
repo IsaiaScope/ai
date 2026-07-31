@@ -1,6 +1,6 @@
 # 🔍 iso-review
 
-> Review your **uncommitted working tree** with Codex only or with Codex + Claude — merge findings, apply every fix that helps, verify, and stop uncommitted for your final read.
+> Review your **uncommitted working tree** with one agent or with Codex + Claude — merge findings, apply every fix that helps, verify, and stop uncommitted for your final read.
 
 ---
 
@@ -8,10 +8,10 @@
 
 Review of the current working-tree diff, then applies the fixes worth keeping — never committing.
 
-- 👥 **Review tabs** — Codex reviews the diff; Claude is included by default and skipped with `--codex-only`
+- 👥 **Review tabs** — both Codex and Claude review the diff by default; `--agent codex|claude` runs just that one
 - 🔀 **Merged + de-duplicated** — findings hitting the same spot fold into one (noting both reviewers raised it)
 - ✅ **Keeps almost everything** — applies every fix except the net-negative ones (over-engineering, speculative "consider…" notes, coupling/churn for no real gain)
-- 🧪 **Self-verifies** — a fix tab (codex by default, claude via `--fix-agent`, or an existing tab via `--fix-term`) applies the fixes, then runs the repo's tests + type-check and reports
+- 🧪 **Self-verifies** — a fix tab (the `--agent` agent, claude when both reviewers ran, or an existing tab via `--fix-term`) applies the fixes, then runs the repo's tests + type-check and reports
 - 🛑 **Never commits** — leaves all changes in the working tree for your final read
 
 ---
@@ -22,7 +22,7 @@ The main session orchestrates; the review and fix tabs do the work. One review a
 
 ```mermaid
 flowchart LR
-    P["1 · Pre-flight"] --> R["2 · Reviews<br/>codex<br/>or codex + claude"]
+    P["1 · Pre-flight"] --> R["2 · Reviews<br/>one agent<br/>or codex + claude"]
     R --> E["3 · Extract + merge"]
     E --> F["4 · Filter<br/>drop net-negative"]
     F --> A["5 · Apply + verify<br/>tests + type-check"]
@@ -45,23 +45,22 @@ Or ask: *"review and fix my uncommitted changes with codex only"*
 
 | Flag | Effect |
 |------|--------|
-| `--codex-only` | Run only the Codex reviewer; no Claude tab is spawned |
-| `--claude-review-effort high\|max` | Effort level for the claude reviewer (default `high`). `--max` is shorthand for `max` |
-| `--fix-agent codex\|claude` | Which agent drives a newly spawned fix tab (default `codex`; ignored with `--fix-term`) |
-| `--fix-term TERM` | Reuse an existing live agent tab for fixes instead of spawning a new fix tab |
-| `--kill-review-tabs` | Tear down both review tabs once their findings are saved to disk |
+| `--agent codex\|claude` | Run only that reviewer; **omit → both**. The chosen agent also applies the fixes (claude when both ran) |
+| `--claude-review-effort medium\|high\|max` | Effort level for the claude reviewer (default `medium`) |
+| `--fix-term TERM` | Reuse an existing live agent tab for fixes instead of spawning a new fix tab; overrides the `--agent`-derived fixer |
+| `--kill-review-tabs` | Tear down the review tabs once their findings are saved to disk |
 | `--kill-fix-tab` | Tear down the fix tab once its test/type report is captured |
 | `--kill-tabs` | Shorthand for both kill flags |
 
 ```
-/iso-review --codex-only
+/iso-review --agent codex
+/iso-review --agent claude
 /iso-review --claude-review-effort max
-/iso-review --fix-agent claude
 /iso-review --fix-term term_IMPL
 /iso-review --kill-tabs
 ```
 
-The default reviewers are codex + claude. Use `--codex-only` when Claude tokens are unavailable. Only the claude reviewer's **effort** and the **fixer** are selectable.
+The default reviewers are codex + claude. Use `--agent codex` (or `claude`) for a single reviewer — e.g. when Claude tokens are unavailable. The **fixer** follows `--agent`: a single named agent reviews and fixes; with both reviewers it falls back to claude (or reuse a tab with `--fix-term`).
 
 Teardown is **opt-in** — by default every tab stays alive for inspection. Each kill happens only *after* that tab's output is on disk, so it reclaims the process without losing anything you read.
 
@@ -82,7 +81,7 @@ Teardown is **opt-in** — by default every tab stays alive for inspection. Each
 |------|------|--------|
 | [`iso‑spawn`](../iso-spawn/) | Spawns + drives the review and fix tabs | — |
 | `herdr` | Terminal workspace manager the tabs live in | [herdr.dev](https://herdr.dev) |
-| `codex` / `claude` | The reviewing + fixing agent CLIs (`claude` only for non-Codex-only runs) | — |
+| `codex` / `claude` | The reviewing + fixing agent CLIs (`claude` only when not restricted to codex via `--agent`) | — |
 | `git` | Reads the uncommitted working-tree diff | [git-scm.com](https://git-scm.com) |
 
 > Requires running **inside a herdr pane** (`$HERDR_PANE_ID` must be set — inherited from [`iso-spawn`](../iso-spawn/)).

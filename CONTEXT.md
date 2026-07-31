@@ -32,7 +32,7 @@ Glossary of canonical terms for this repo. Definitions only — no implementatio
 
 **Fix tab** — the agent tab that applies accepted review fixes. In standalone `iso-review`, this is usually a fresh codex or claude tab. In a full `iso-todo` development cycle, the implementation tab is reused as the fix tab so review fixes land in the same agent context that wrote the implementation.
 
-**Implementation tab** — the codex tab `iso-todo` spawns to run `iso-write`, executing the plan on a fresh `feat/<slug>` branch. It stays alive for the whole development cycle and is reused to apply accepted review fixes.
+**Implementation tab** — the agent tab `iso-todo` spawns to run `iso-write`, executing the plan on a fresh `feat/<slug>` branch. It stays alive for the whole development cycle and is reused to apply accepted review fixes.
 
 **Development cycle** — the end-to-end run `iso-todo` orchestrates: plan → write → review, each phase delegating to the matching skill (`iso-plan`, `iso-write`, `iso-review`). After the plan phase completes, the write phase starts automatically. Produces one uncommitted diff; commits nothing.
 

@@ -111,9 +111,9 @@ Uncommitted work in the main checkout is **not** carried — the worktree is iso
 
 ## Step 3: Execute the plan with TDD (no commits)
 
-Before the first task, ensure the run-artifact dir exists and clear any stale marker for *this* plan, so a leftover from an earlier run cannot be mistaken for this run's halt (`<plan-basename>` is `<plan_path>`'s filename minus `.md`):
+Before the first task, clear any stale marker for *this* plan, so a leftover from an earlier run cannot be mistaken for this run's halt (`<plan-basename>` is `<plan_path>`'s filename minus `.md`). Do **not** create the directory here — `rm -f` is a no-op when it does not exist, and `.iso/logs/write/` should only appear if a halt actually writes a marker:
 
-    mkdir -p .iso/logs/write && rm -f ".iso/logs/write/<plan-basename>.blocked.md"
+    rm -f ".iso/logs/write/<plan-basename>.blocked.md"
 
 Invoke the **superpowers `executing-plans` skill** to drive execution, and the **`test-driven-development` skill** for each task's red-green-refactor loop.
 

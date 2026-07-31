@@ -9,19 +9,19 @@
 Chains the original workflow skills into one hands-off run:
 
 ```
-/iso-todo [--codex-only] [seed]
+/iso-todo [--impl-agent codex|claude] [--review-agent codex|claude] [seed]
   1. PLAN   parent session       → iso-plan → plan file
-  2. WRITE  spawned codex tab    → iso-write on fresh feat/<slug>
+  2. WRITE  spawned impl tab     → iso-write on fresh feat/<slug>
   3. REVIEW parent session       → iso-review over the resulting diff
   4. CLOSE  parent session       → no commit; implementation tab stays alive
 ```
 
-With a seed, planning starts from that text. Without one, planning starts from the current conversation. Use `--codex-only` to make review skip Claude. There is no plan-path entry, phase skip, or resume mode.
+With a seed, planning starts from that text. Without one, planning starts from the current conversation. `--impl-agent` (default `claude`) picks the agent that runs the write phase; `--review-agent` is forwarded to iso-review's `--agent`, so omitting it runs both reviewers. There is no plan-path entry, phase skip, or resume mode.
 
 | Phase | Where | Skill |
 |-------|-------|-------|
 | Plan | parent session | [`iso‑plan`](../iso-plan/) |
-| Write | spawned codex tab | [`iso‑write`](../iso-write/) |
+| Write | spawned impl tab (claude by default) | [`iso‑write`](../iso-write/) |
 | Review | parent session | [`iso‑review`](../iso-review/) |
 
 The implementation tab is reused as the review fix tab, so accepted fixes land in the same workspace as the original implementation. See [ADR 0001](../../docs/adr/0001-impl-tab-reused-as-fix-tab.md).
@@ -30,7 +30,8 @@ The implementation tab is reused as the review fix tab, so accepted fixes land i
 
 ```
 /iso-todo
-/iso-todo --codex-only
+/iso-todo --impl-agent codex
+/iso-todo --review-agent codex
 /iso-todo <seed idea>
 ```
 

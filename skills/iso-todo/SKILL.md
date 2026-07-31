@@ -1,13 +1,13 @@
 ---
 name: iso-todo
-description: Run a full development cycle — plan, then implement, then review — as one hands-off chain. Invoked as /iso-todo [--codex-only] [seed]. The parent session plans with iso-plan, spawns a codex implementation tab to run iso-write on a fresh feat/<slug> branch, keeps that tab alive, runs iso-review over the resulting uncommitted diff with reviewer tabs killed after recovery, and reuses the implementation tab for accepted fixes. With --codex-only, review skips Claude. Commits nothing. Use when the user runs /iso-todo, or asks to take an idea all the way from plan to implemented-and-reviewed without committing.
+description: Run a full development cycle — plan, then implement, then review — as one hands-off chain. Invoked as /iso-todo [--impl-agent codex|claude] [--review-agent codex|claude] [seed]. The parent session plans with iso-plan, spawns an implementation tab (claude by default, or --impl-agent) to run iso-write on a fresh feat/<slug> branch, keeps that tab alive, runs iso-review over the resulting uncommitted diff with reviewer tabs killed after recovery, and reuses the implementation tab for accepted fixes. --review-agent is forwarded to iso-review's --agent; omit it for both reviewers. Commits nothing. Use when the user runs /iso-todo, or asks to take an idea all the way from plan to implemented-and-reviewed without committing.
 ---
 
 # iso-todo
 
 The umbrella development-cycle orchestrator: `iso-plan` → `iso-write` → `iso-review`, chained into one run.
 
-Invocation: `/iso-todo [--codex-only] [seed]`. With a seed, it brainstorms from that idea; bare, it brainstorms from the conversation so far. `--codex-only` is passed to the review phase so no Claude reviewer is spawned. It **always** runs all three phases — there is no plan-path entry, no phase-skip, no resume.
+Invocation: `/iso-todo [--impl-agent codex|claude] [--review-agent codex|claude] [seed]`. With a seed, it brainstorms from that idea; bare, it brainstorms from the conversation so far. `--impl-agent` (default `claude`) picks the agent that runs the write phase; `--review-agent` is forwarded to iso-review's `--agent`, so omitting it runs both reviewers. It **always** runs all three phases — there is no plan-path entry, no phase-skip, no resume.
 
 Helpers:
 - `skills/iso-todo/scripts/todo.sh` — executable write/review mechanics after a plan exists.
@@ -20,7 +20,7 @@ Helpers:
 ```
 /iso-todo [seed]
   1. PLAN   parent, interactive  → iso-plan → plan file P   (no plan → stop)
-  2. WRITE  spawned codex tab    → /iso-write P (fresh branch); wait; classify
+  2. WRITE  spawned impl tab     → /iso-write P (fresh branch); wait; classify
   3. REVIEW parent, black box    → iso-review (kills reviewer tabs; fixes in impl tab if accepted)
   4. CLOSE  parent               → no commit; summary card; leave impl/fix tab alive, offer cleanup
 ```
@@ -36,20 +36,21 @@ If iso-plan produces no new plan (the user abandoned planning), stop here cleanl
 After Phase 1 produces plan path `P`, delegate the executable Development cycle mechanics to:
 
 ```bash
-skills/iso-todo/scripts/todo.sh run-plan "$P" [--codex-only]
+skills/iso-todo/scripts/todo.sh run-plan "$P" [--impl-agent codex|claude] [--review-agent codex|claude]
 ```
 
-Run it with its absolute path. It launches the Implementation tab through `iso-spawn --json`, sends `/iso-write "$P"`, waits and classifies the result, then runs `review.sh run --kill-review-tabs --fix-term "$TERM_IMPL"` plus `--codex-only` when requested, so the full iso-review path creates accepted fixes before applying them in the Implementation tab.
+Run it with its absolute path. It launches the Implementation tab through `iso-spawn --json` using the impl agent (claude by default), sends `/iso-write "$P"`, waits and classifies the result, then runs `review.sh run --kill-review-tabs --fix-term "$TERM_IMPL"` plus `--agent <review-agent>` when one was requested, so the full iso-review path creates accepted fixes before applying them in the Implementation tab.
 
-## Phase 2 — Write (spawned codex implementation tab)
+## Phase 2 — Write (spawned implementation tab)
 
-The implementation is offloaded to a codex tab so the parent's context stays clean and you can watch the build. The tab shares the parent's checkout (same cwd → same `.git`), so its edits are exactly what Phase 3 reviews. **Wait for it to finish before reviewing — never review a moving tree.**
+The implementation is offloaded to a separate agent tab (claude by default, or `--impl-agent codex`) so the parent's context stays clean and you can watch the build. The tab shares the parent's checkout (same cwd → same `.git`), so its edits are exactly what Phase 3 reviews. **Wait for it to finish before reviewing — never review a moving tree.**
 
 ```bash
 SPAWN=skills/iso-spawn/scripts/spawn.sh   # run with its absolute path
 
 # 1. Launch the impl tab async (keep the tab alive — capture the bare TERM from stdout)
-TERM_IMPL=$("$SPAWN" spawn codex --label iso-todo-impl --name itodoimpl)
+#    IMPL_AGENT is the --impl-agent value, default claude.
+TERM_IMPL=$("$SPAWN" spawn "${IMPL_AGENT:-claude}" --label iso-todo-impl --name itodoimpl)
 
 # 2. Send the implementation command (fresh-branch mode → feat/<slug> derived from P)
 "$SPAWN" send "$TERM_IMPL" "/iso-write $P"
@@ -76,11 +77,11 @@ Invoke the **`iso-review`** skill (it reviews the uncommitted working tree — e
 
 ```bash
 /iso-review --kill-review-tabs --fix-term "$TERM_IMPL"
-# Codex-only:
-/iso-review --codex-only --kill-review-tabs --fix-term "$TERM_IMPL"
+# Single reviewer (forwarded from --review-agent):
+/iso-review --agent codex --kill-review-tabs --fix-term "$TERM_IMPL"
 ```
 
-Pass `--max` only if the user asked for it. By default, iso-review spawns two ephemeral reviewer tabs; with `--codex-only`, it spawns only the Codex reviewer. It saves transcripts/findings, then kills those reviewer tabs. If accepted fixes are non-empty, it sends the fix prompt to the original implementation tab via `--fix-term "$TERM_IMPL"` and waits for that tab's test/type report. If nothing is accepted, iso-review spawns nothing and reports "no fixes."
+Pass `--claude-review-effort max` only if the user asked for it. By default, iso-review spawns two ephemeral reviewer tabs; with `--agent codex|claude` (forwarded from `--review-agent`), it spawns only that reviewer. It saves transcripts/findings, then kills those reviewer tabs. If accepted fixes are non-empty, it sends the fix prompt to the original implementation tab via `--fix-term "$TERM_IMPL"` and waits for that tab's test/type report. If nothing is accepted, iso-review spawns nothing and reports "no fixes."
 
 Do **not** let iso-review spawn a separate fix tab during iso-todo; the implementation tab is the fix tab by design (ADR 0001). Read iso-review's summary (accepted/dropped ledger + the implementation tab's test/type report) for the card.
 
