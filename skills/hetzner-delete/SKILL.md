@@ -149,6 +149,15 @@ never removed.
 | Firewall | **Never delete.** Shared. Report remaining attachments |
 | Hetzner SSH key | **Never delete.** Shared across the fleet |
 
+Once the roster is updated, push it back into the dotfiles source tree so the removal
+propagates instead of being reverted by the next `chezmoi apply`:
+
+```bash
+command -v chezmoi >/dev/null && chezmoi re-add ~/.config/hetzner/ 2>/dev/null || true
+```
+
+Guarded on purpose — a no-op on any machine without chezmoi.
+
 ```
 ✅ <name> deleted
    snapshot   pre-delete <name> <date>  (<size>)

@@ -14,6 +14,7 @@ The gate every README must clear **before** the Step 4 commit. `SKILL.md` turns 
 - [ ] **U4 · Links resolve** [V8] — every relative link points at a real path; deps that aren't local dirs point to their upstream source. No broken anchors.
 - [ ] **U5 · Non-breaking hyphens** [V9] — hyphenated names in narrow table cells use literal `‑` (U+2011) in **visible text only**; real `-` stays in the link target / `code` span.
 - [ ] **U6 · Short table cells** [V10] — a trigger/command column shows the **base** command only (`/iso-write`); full arg/flag syntax lives in prose below, never in the cell.
+- [ ] **U10 · No prose in a table cell** [V11] — read the longest cell in every table. If it is a sentence, the table is the wrong structure: convert it to a bullet list with a bold lead term and fold any short column into a leading marker. A wrapping cell squeezes its *neighbours*, so check the narrow columns too — `🔒 encrypted` splitting across two lines is the tell.
 - [ ] **U7 · Voice** [V1, V2] — confident, terse, no marketing fluff/hedging; tagline is one line (what it *is* + why it matters).
 - [ ] **U8 · No invented content** [SKILL Step 3] — **refine:** every real fact preserved (install steps, env vars, credits, commands). **fresh:** zero features/commands that aren't in the code.
 - [ ] **U9 · Stage README only** [SKILL Step 4] — `git add` lists only the README path(s) written this run. Never `git add -A`; unrelated working-tree changes stay untouched.

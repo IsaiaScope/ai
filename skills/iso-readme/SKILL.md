@@ -48,6 +48,7 @@ Parse whatever manifest exists to derive badge signals:
 - **README exists → refine:** preserve all real content (install steps, env vars, credits, commands) — restyle layout + badges only. **Never invent** features or commands.
 - Derive badges from Step 2, curate to **3–6 identity badges** (primary lang/runtime · 1–2 defining frameworks · license) using the STYLE.md hex table. Add a missing tech as a new row in STYLE.md.
 - **Icon realism:** use only a `logo=` slug you've verified. Look up brands at simpleicons.org; if absent, try React Icons `ri:Si<Name>` (e.g. OpenAI → `ri:SiOpenai`); only then fall back to `logo=false` + an emoji in the label. A miss renders blank. Don't hand-wave hex-table slugs as "done" — the Step 4 DoD curl-verifies **every** `logo=` badge (gate U1), so a typo or table-rot surfaces regardless. See STYLE.md "Icons".
+- **Pick the structure before writing the content [V11]:** a table only holds values that fit on one line. The moment a column would carry a sentence — `Why`, `Does`, `Notes` — it is a bullet list with a bold lead term, and any short column becomes a leading marker (`- 🔒 **\`file\`** — sentence.`). GitHub sizes columns to their widest cell, so the prose column starves its neighbours and the *narrow* cell is what visibly breaks.
 - **Format/quality:** `.svg` (crisp, GitHub-safe), `logoColor` as bare hex (`fff`, never `white`), light brand colors → dark `bg hex` + bright `logoColor`. Measure real language bytes before picking language badges; don't assume.
 
 ## Step 4: Verify against the DoD (gate)

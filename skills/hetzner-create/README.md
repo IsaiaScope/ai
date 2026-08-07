@@ -35,8 +35,8 @@ Deliberate split:
 | Part | Contains | Travels? |
 |------|----------|----------|
 | Skill dirs | logic only, zero fleet data | ✅ with the repo |
-| `~/.config/hetzner/fleet.json` | ip, port, user, aliases, hcloud ids | ❌ machine-local, not synced |
-| `~/.ssh/id_ed25519_hetzner` + passphrase | the actual credential | ❌ never |
+| `~/.config/hetzner/fleet.json` | ip, port, user, aliases, hcloud ids | ⚠️ machine-local by default; no secrets, so it is safe to track in a **private** dotfiles repo |
+| `~/.ssh/id_ed25519_hetzner` + passphrase | the actual credential | ❌ never in this repo — it is public. Encrypted in a private vault (age, sops) is a separate decision |
 | `~/.ssh/config.d/hetzner` | generated | ❌ regenerated on demand |
 
 So cloning the repo gets you the tooling, never the access.
@@ -108,8 +108,10 @@ mkdir -p ~/.config/hetzner
 cp fleet.example.json ~/.config/hetzner/fleet.json   # then edit
 ```
 
-It is machine-local and not synced, so on a fresh machine you either copy it across or
-re-register servers with `/hetzner-create`.
+It holds connection metadata only, no secrets, so it is safe to track in a private dotfiles
+repo — `/hetzner-create` and `/hetzner-delete` run `chezmoi re-add ~/.config/hetzner/` after
+they mutate it, so a synced roster stays current on its own. Without that, it is machine-local:
+on a fresh machine you either copy it across or re-register servers with `/hetzner-create`.
 
 ### 4. `hcloud`
 
@@ -251,7 +253,7 @@ ssh -O exit main-vps                             # close early; otherwise it exp
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Slash command not recognised | Symlink missing/dangling, or name ≠ frontmatter `name:` | Re-run [Install](#install); restart Claude Code |
-| `fleet.json` not found | Machine-local, never synced | Copy it across, or `/hetzner-create` |
+| `fleet.json` not found | Not present on this machine | `chezmoi apply ~/.config/hetzner/` if you vault it; else copy it across, or `/hetzner-create` |
 | `Could not resolve hostname <alias>` | No `Host` block, or `Include` missing/not line 1 | Re-render; check line 1 of `~/.ssh/config` |
 | Generated block seems ignored | `Host *` sits above the `Include` | Move `Include config.d/*` to line 1 |
 | `Permission denied (publickey)` | Key not in agent, or not on the server | `ssh-add -l`; if loaded, the box lacks the public half |

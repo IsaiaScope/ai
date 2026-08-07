@@ -27,7 +27,7 @@ cat ~/.config/hetzner/fleet.json
 
 | Condition | Action |
 |-----------|--------|
-| File missing | Roster is machine-local and not synced. Either copy it from another machine, or run `/hetzner-create` to register a server. Stop. |
+| File missing | If you sync `~/.config/hetzner/` with a dotfiles manager, restore it there first (`chezmoi apply ~/.config/hetzner/`). Otherwise copy it from another machine, or run `/hetzner-create` to register a server. Stop. |
 | Invalid JSON | Report the parse error and the offending line. Do not guess the contents. Stop. |
 | Requested `server` not in `servers` | Print the available `servers` keys and stop. **Never guess a neighbouring name.** |
 | No arg and no `default` key | Print the available keys and ask which one. Stop. |
@@ -70,7 +70,7 @@ ssh-add -l 2>&1 | grep -q <key_fingerprint_prefix> && echo "KEY-LOADED" || echo 
 | check 1 prints the `ip` from the roster | Alias resolves ✅ | Continue |
 | check 1 echoes the alias back unchanged | No `Host` block | **Self-heal:** [re-render](#re-rendering-the-ssh-config) and retry check 1 once |
 | check 1 prints a *different* IP | Roster and ssh_config disagree | Re-render (roster wins), then continue |
-| check 2 prints `KEY-MISSING` | Private key not on this machine | **Ask the user.** Never fabricate or regenerate a key — a new key is not in the box's `authorized_keys` |
+| check 2 prints `KEY-MISSING` | Private key not on this machine | If the key is vaulted in a dotfiles manager, restore it (`chezmoi apply ~/.ssh/`) and re-check. Otherwise **ask the user.** Never fabricate or regenerate a key — a new key is not in the box's `authorized_keys` |
 | check 2 shows mode looser than `-rw-------` | ssh will refuse the key | `chmod 600 <key>` |
 | check 3 prints `KEY-LOADED` | Skip to **Step 3** | |
 | check 3 prints `KEY-NOT-LOADED` | Go to **Step 2** | |
@@ -187,7 +187,7 @@ Then run whatever the user asked for, or ask what they want.
 | `ControlPath too long` | Socket path exceeds the ~104-char unix limit | Ensure the render uses `~/.ssh/cm-%C` (hashed), not `%r@%h:%p` |
 | `ssh-add -l` exits 1 | Agent holds no identities | Normal. Proceed to Step 2 |
 | `Could not open a connection to your authentication agent` | No agent in this shell | `eval "$(ssh-agent -s)"` |
-| `fleet.json` not found | Roster is machine-local, never synced | Copy from another machine, or `/hetzner-create` to register one |
+| `fleet.json` not found | Roster not present on this machine | `chezmoi apply ~/.config/hetzner/` if you vault it; else copy from another machine, or `/hetzner-create` to register one |
 
 ---
 

@@ -133,6 +133,21 @@ badges (center)             ---                         > tagline
 - **[V8]** Fix broken relative links; point deps that aren't local dirs to their upstream source.
 - **[V9] Stop ugly table wraps:** hyphenated names in a narrow table cell (`iso-ai-init`) break mid-word. Use a **literal non-breaking hyphen `‑` (U+2011)** in the *visible* text only — keep real `-` in the link target / `code` span. e.g. `[iso‑ai‑init](skills/iso-ai-init/)`. Prefer the literal char over the `&#8209;` entity (renders more reliably across GitHub views).
 - **[V10] Keep table cells short — one long cell widens the whole column.** A trigger/command column shows the *base* command only (`/iso-write`); full arg/flag syntax goes in the per-item body section below, never in the table. Same for any long value: summarise in the cell, detail in prose.
+- **[V11] A table is for values that fit on one line. Prose in a cell means the wrong structure, not a wording problem.** GitHub sizes every column to its widest cell and splits what is left, so a single sentence in a `Why` / `Does` / `Notes` column takes the width and starves the others. **The cell that visibly breaks is never the cell that caused it** — a 60-char explanation squeezes the neighbouring column until `🔒 encrypted` splits across two lines, and rows stop lining up. Choose the structure by what the widest cell holds:
+
+  | Widest cell holds | Structure |
+  |---|---|
+  | a token, path, flag, or ≤4 words | table |
+  | a sentence, in any column | bullet list |
+  | a sentence *plus* 3+ columns | bullet list; fold short columns into a leading marker |
+
+  Bullet form keeps the term scannable and lets the prose wrap where wrapping costs nothing:
+
+  ```markdown
+  - 🔒 **`hcloud/cli.toml`** — the Hetzner API token. It can create and destroy servers.
+  ```
+
+  The marker (`🔒`) replaces the column it came from; declare it once above the list. Test before committing a table: read the longest cell aloud — if it is a sentence, it is a bullet.
 
 ## Skeletons
 

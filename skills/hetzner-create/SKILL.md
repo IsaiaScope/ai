@@ -208,7 +208,20 @@ Write the entry into `~/.config/hetzner/fleet.json`. Only record what differs fr
 ```
 
 Then re-render `~/.ssh/config.d/hetzner` from the whole roster (one `Host` block per
-server — the format is in `hetzner-ssh/SKILL.md`), and report:
+server — the format is in `hetzner-ssh/SKILL.md`).
+
+Then push the updated roster back into the dotfiles source tree, so the new server
+survives a rebuild and reaches your other machines:
+
+```bash
+command -v chezmoi >/dev/null && chezmoi re-add ~/.config/hetzner/ 2>/dev/null || true
+```
+
+Guarded on purpose — a no-op on any machine without chezmoi. The roster stays
+authoritative in `~/.config/hetzner/` either way; this only stops a one-way
+`chezmoi apply` from later reverting the registration.
+
+Finally, report:
 
 ```
 ✅ <name> ready — <ip>, hardened, registered
