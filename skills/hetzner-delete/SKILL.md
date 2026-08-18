@@ -9,7 +9,7 @@ Destroy a server and remove the debris. The destroy itself is one `hcloud` call 
 value here is the guard rails around it and the six places it leaves orphans.
 
 **Invocation:** `/hetzner-delete <name>` — a key under `servers` in the roster.
-No default. Never operate on the `default` entry implicitly.
+No default. Never operate on the `fleet.default` entry implicitly.
 
 Sibling skills: `/hetzner-create` (provision) · `/hetzner-ssh` (connect).
 
@@ -22,20 +22,20 @@ Sibling skills: `/hetzner-create` (provision) · `/hetzner-ssh` (connect).
 ## Step 0 — Resolve and check protection
 
 ```bash
-cat ~/.config/hetzner/fleet.json
+cat ~/.config/hetzner/hetzner.json
 ```
 
 | Condition | Action |
 |-----------|--------|
 | `<name>` not in `servers` | Print available keys and stop. **Never fuzzy-match a name.** |
 | `protected: true` | **REFUSE.** Print the message below and stop. Take no snapshot, touch nothing |
-| No `<name>` given | Ask. Never assume, never fall back to `default` |
+| No `<name>` given | Ask. Never assume, never fall back to `fleet.default` |
 
 ```
 ⛔ REFUSED — '<name>' is protected.
 
 To delete it:
-  1. set "protected": false in ~/.config/hetzner/fleet.json
+  1. set "protected": false in fleet.servers.<name> of ~/.config/hetzner/hetzner.json
   2. re-run this command
 
 Nothing was touched.
@@ -140,7 +140,7 @@ never removed.
 
 | Site | Action |
 |------|--------|
-| `~/.config/hetzner/fleet.json` | Remove the `servers.<name>` entry. If it was `default`, clear the field and tell the user to pick a new one |
+| `~/.config/hetzner/hetzner.json` | Remove the `fleet.servers.<name>` entry. If it was `fleet.default`, clear the field and tell the user to pick a new one |
 | `~/.ssh/config.d/hetzner` | Re-render from the updated roster — the block disappears on its own |
 | `~/.ssh/known_hosts` | `ssh-keygen -R "[<ip>]:<port>"` — a stale entry causes a scary MITM warning when that IP is reassigned |
 | ControlMaster socket | `ssh -O exit <alias> 2>/dev/null` — harmless if already gone |

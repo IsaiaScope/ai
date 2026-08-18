@@ -17,7 +17,7 @@ reference: roster schema, machine setup, troubleshooting.
 /hetzner-create  ──→  /hetzner-ssh  ──→  /hetzner-delete
    born hardened      daily driver       snapshot + sweep
         │                   │                   │
-        └───── writes ─→ fleet.json ←─ prunes ──┘
+        └──── writes ─→ hetzner.json ←─ prunes ─┘
                              │
                     renders (one-way, total)
                              ↓
@@ -26,7 +26,7 @@ reference: roster schema, machine setup, troubleshooting.
               ~/.ssh/config: Include config.d/*   (line 1)
 ```
 
-**`~/.config/hetzner/fleet.json` is the single source of truth.**
+**`~/.config/hetzner/hetzner.json` is the single source of truth.**
 `~/.ssh/config.d/hetzner` is a pure render of it — regenerate it any time, it holds no
 hand-written state. Because the render is one-way and total, the two cannot drift.
 
@@ -35,7 +35,7 @@ Deliberate split:
 | Part | Contains | Travels? |
 |------|----------|----------|
 | Skill dirs | logic only, zero fleet data | ✅ with the repo |
-| `~/.config/hetzner/fleet.json` | ip, port, user, aliases, hcloud ids | ⚠️ machine-local by default; no secrets, so it is safe to track in a **private** dotfiles repo |
+| `~/.config/hetzner/hetzner.json` | ip, port, user, aliases, hcloud ids | ⚠️ machine-local by default; no secrets, so it is safe to track in a **private** dotfiles repo |
 | `~/.ssh/id_ed25519_hetzner` + passphrase | the actual credential | ❌ never in this repo — it is public. Encrypted in a private vault (age, sops) is a separate decision |
 | `~/.ssh/config.d/hetzner` | generated | ❌ regenerated on demand |
 
@@ -105,7 +105,7 @@ generated entry. Line 1 makes that impossible.
 
 ```bash
 mkdir -p ~/.config/hetzner
-cp fleet.example.json ~/.config/hetzner/fleet.json   # then edit
+cp hetzner.example.json ~/.config/hetzner/hetzner.json   # then edit
 ```
 
 It holds connection metadata only, no secrets, so it is safe to track in a private dotfiles
@@ -134,13 +134,19 @@ Four passes = everything works.
 
 ---
 
-## `fleet.json` schema
+## `hetzner.json` — `fleet` section
+
+Everything below lives under the top-level `fleet` key of `~/.config/hetzner/hetzner.json`.
+The sibling `software` key is documented in `hetzner-update/README.md`.
 
 ```jsonc
 {
-  "default": "main",              // used when /hetzner-ssh gets no argument
-  "defaults": { /* inherited by every server; overridden per entry */ },
-  "servers": { "main": { /* ... */ } }
+  "fleet": {
+    "default": "main",            // used when /hetzner-ssh gets no argument
+    "defaults": { /* inherited by every server; overridden per entry */ },
+    "servers": { "main": { /* ... */ } }
+  },
+  "software": { /* one entry per self-hosted app — see hetzner-update/README.md */ }
 }
 ```
 
@@ -253,7 +259,7 @@ ssh -O exit main-vps                             # close early; otherwise it exp
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Slash command not recognised | Symlink missing/dangling, or name ≠ frontmatter `name:` | Re-run [Install](#install); restart Claude Code |
-| `fleet.json` not found | Not present on this machine | `chezmoi apply ~/.config/hetzner/` if you vault it; else copy it across, or `/hetzner-create` |
+| `hetzner.json` not found | Not present on this machine | `chezmoi apply ~/.config/hetzner/` if you vault it; else copy it across, or `/hetzner-create` |
 | `Could not resolve hostname <alias>` | No `Host` block, or `Include` missing/not line 1 | Re-render; check line 1 of `~/.ssh/config` |
 | Generated block seems ignored | `Host *` sits above the `Include` | Move `Include config.d/*` to line 1 |
 | `Permission denied (publickey)` | Key not in agent, or not on the server | `ssh-add -l`; if loaded, the box lacks the public half |
@@ -273,7 +279,7 @@ ssh -O exit main-vps                             # close early; otherwise it exp
 
 ## Security model
 
-- **`fleet.json` carries no secrets** — connection metadata only.
+- **`hetzner.json` carries no secrets** — connection metadata only.
 - **The agent never types credentials.** Passphrases, API tokens, key material: the user
   types them. Never hardcoded, never read from a file.
 - **Creating a server always confirms** — it starts a recurring charge.

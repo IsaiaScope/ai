@@ -45,3 +45,9 @@ Glossary of canonical terms for this repo. Definitions only — no implementatio
 **Init manifest** — the ordered list of init steps for an init run. It makes step order and enabled state explicit while each step keeps its own implementation.
 
 **Skill catalog** — the repository's discovered list of local skills, supported agent targets, and marketplace projection. The filesystem remains the source for local skill discovery; catalog logic owns how those facts are exposed to installers and manifests. Upstream skill packs stay installer-owned for now.
+
+**Hetzner config** — `~/.config/hetzner/hetzner.json`, the single file describing every Hetzner server and every self-hosted app pinned to one. It carries connection metadata and version pins only; no secrets. _Avoid_: fleet.json, software.json, the config files (plural).
+
+**Fleet** — the set of Hetzner servers this machine knows how to reach, described by the `fleet` section of the Hetzner config: a default server name, inherited defaults, and one entry per server. `hetzner-create` adds entries, `hetzner-delete` prunes them, `hetzner-ssh` reads them. _Avoid_: roster, inventory.
+
+**Software registry** — the `software` section of the Hetzner config: one entry per self-hosted app, each naming the fleet server it runs on plus the commands to read, upgrade, back up, and verify its version. Read by `hetzner-update`. _Avoid_: app registry, software.json.

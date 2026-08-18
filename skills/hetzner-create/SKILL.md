@@ -22,7 +22,7 @@ Sibling skills: `/hetzner-ssh` (connect) · `/hetzner-delete` (destroy).
 ## Step 0 — Load the roster
 
 ```bash
-cat ~/.config/hetzner/fleet.json
+cat ~/.config/hetzner/hetzner.json
 ```
 
 Missing file → this is the first server on this machine. Create it with a `defaults`
@@ -192,8 +192,8 @@ rendered ssh_config stay correct. Prefer it over delete-and-recreate.
 
 ## Step 6 — Register
 
-Write the entry into `~/.config/hetzner/fleet.json`. Only record what differs from
-`defaults` plus the facts that are genuinely per-server:
+Write the entry into `fleet.servers` in `~/.config/hetzner/hetzner.json`. Only record what
+differs from `fleet.defaults` plus the facts that are genuinely per-server:
 
 ```jsonc
 "<name>": {

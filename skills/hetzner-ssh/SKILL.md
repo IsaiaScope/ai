@@ -1,6 +1,6 @@
 ---
 name: hetzner-ssh
-description: Connect to a Hetzner VPS over SSH and end up in a position to actually work on it. Reads the fleet roster at ~/.config/hetzner/fleet.json, unlocks the ed25519 key from the macOS keychain, opens a multiplexed connection to a hardened host (key-only, non-standard port), verifies it is the right box, and hands back a live socket for subsequent commands. Use when invoked as /hetzner-ssh [server], or when asked to "get into the VPS", "ssh into the server", "connect to Hetzner", or to start working on a VPS.
+description: Connect to a Hetzner VPS over SSH and end up in a position to actually work on it. Reads the fleet roster at ~/.config/hetzner/hetzner.json, unlocks the ed25519 key from the macOS keychain, opens a multiplexed connection to a hardened host (key-only, non-standard port), verifies it is the right box, and hands back a live socket for subsequent commands. Use when invoked as /hetzner-ssh [server], or when asked to "get into the VPS", "ssh into the server", "connect to Hetzner", or to start working on a VPS.
 ---
 
 # hetzner-ssh
@@ -10,7 +10,7 @@ connection** behind so every later command is cheap. Hosts are hardened: non-sta
 sshd port, key-only auth, `AllowUsers` allowlist, Hetzner Cloud Firewall in front.
 
 **Invocation:** `/hetzner-ssh [server]` — `server` is a key under `servers` in the roster.
-Omit it to use the `default` entry.
+Omit it to use the `fleet.default` entry.
 
 Sibling skills: `/hetzner-create` (provision a new box) · `/hetzner-delete` (destroy one).
 The roster schema is documented once, in `hetzner-create/README.md`.
@@ -20,7 +20,7 @@ The roster schema is documented once, in `hetzner-create/README.md`.
 ## Step 0 — Load the roster
 
 ```bash
-cat ~/.config/hetzner/fleet.json
+cat ~/.config/hetzner/hetzner.json
 ```
 
 (`$CLAUDE_SKILL_DIR` is **not** set in Claude Code — use the literal path above.)
@@ -29,8 +29,8 @@ cat ~/.config/hetzner/fleet.json
 |-----------|--------|
 | File missing | If you sync `~/.config/hetzner/` with a dotfiles manager, restore it there first (`chezmoi apply ~/.config/hetzner/`). Otherwise copy it from another machine, or run `/hetzner-create` to register a server. Stop. |
 | Invalid JSON | Report the parse error and the offending line. Do not guess the contents. Stop. |
-| Requested `server` not in `servers` | Print the available `servers` keys and stop. **Never guess a neighbouring name.** |
-| No arg and no `default` key | Print the available keys and ask which one. Stop. |
+| Requested `server` not in `fleet.servers` | Print the available `fleet.servers` keys and stop. **Never guess a neighbouring name.** |
+| No arg and no `fleet.default` key | Print the available keys and ask which one. Stop. |
 
 Resolve the target: the user-supplied name, else `.default`. **Fields missing from a
 server entry fall back to `defaults`** — so a lean entry is normal, not broken. Every
@@ -82,10 +82,10 @@ ssh-add -l 2>&1 | grep -q <key_fingerprint_prefix> && echo "KEY-LOADED" || echo 
 ### Re-rendering the ssh config
 
 `~/.ssh/config.d/hetzner` is a **pure render of the roster** — regenerate it freely, it
-holds no hand-written state. One `Host` block per server in `servers`:
+holds no hand-written state. One `Host` block per server in `fleet.servers`:
 
 ```sshconfig
-# generated from ~/.config/hetzner/fleet.json — do not edit by hand
+# generated from ~/.config/hetzner/hetzner.json — do not edit by hand
 Host <ssh_alias>
   HostName <ip>
   Port <port>
@@ -187,7 +187,7 @@ Then run whatever the user asked for, or ask what they want.
 | `ControlPath too long` | Socket path exceeds the ~104-char unix limit | Ensure the render uses `~/.ssh/cm-%C` (hashed), not `%r@%h:%p` |
 | `ssh-add -l` exits 1 | Agent holds no identities | Normal. Proceed to Step 2 |
 | `Could not open a connection to your authentication agent` | No agent in this shell | `eval "$(ssh-agent -s)"` |
-| `fleet.json` not found | Roster not present on this machine | `chezmoi apply ~/.config/hetzner/` if you vault it; else copy from another machine, or `/hetzner-create` to register one |
+| `hetzner.json` not found | Roster not present on this machine | `chezmoi apply ~/.config/hetzner/` if you vault it; else copy from another machine, or `/hetzner-create` to register one |
 
 ---
 
@@ -195,7 +195,7 @@ Then run whatever the user asked for, or ask what they want.
 
 - **Never paste VPS secrets into chat or write them to disk.** Tokens, DB/MinIO/Dokploy
   passwords, and the age secret key live in the runbook and the server's own env — read
-  them there, in place. `fleet.json` holds connection metadata only; no secrets.
+  them there, in place. `hetzner.json` holds connection metadata only; no secrets.
 - **Never type the user's passphrase, key material, or API token.** Hand any prompt to them.
 - **Read-only by default.** Do not restart services, run migrations, or touch Dokploy
   unless the user asks for that specific action.
