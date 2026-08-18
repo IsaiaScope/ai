@@ -1,0 +1,29 @@
+name: Branch Gate
+on:
+  pull_request:
+    branches: [prod, test]
+
+jobs:
+  verify-source:
+    name: Verify Source Branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure PR comes from the allowed upstream branch
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          case "$BASE" in
+            prod) EXPECTED=test ;;
+            test) EXPECTED=dev ;;
+            *)    echo "ℹ️ No gate configured for '$BASE'"; exit 0 ;;
+          esac
+
+          if [ "$HEAD" != "$EXPECTED" ]; then
+            # ::error:: surfaces as a red annotation on the PR's Checks tab.
+            # On a repo without a required status check this message IS the
+            # whole product, so it has to be readable without opening the log.
+            echo "::error title=Wrong source branch::PRs to '$BASE' must come from '$EXPECTED' — got '$HEAD'"
+            exit 1
+          fi
+          echo "✅ $HEAD → $BASE"
