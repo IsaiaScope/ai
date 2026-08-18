@@ -122,15 +122,52 @@ d=$(mktemp -d)
 (cd "$d" && bash "$SH" preflight >/dev/null 2>&1); check "refuses outside a repo" "$?" 1
 
 d=$(newrepo); mkbranch "$d" dev
-git -C "$d" checkout -q -b feat/c
+git -C "$d" checkout -q dev
 (cd "$d" && bash "$SH" preflight --cascade >/dev/null 2>&1)
 check "cascade without test/prod refuses" "$?" 1
+
+echo "cascade branch rule:"
+# --pr is what decides, not the branch alone. A pure cascade reads only origin/*
+# refs and promotes the base as it stands, so the base is the ONE right place to
+# run it from — and it is where `home` leaves you. These assert on the message
+# rather than the exit code: preflight ends at `gh auth status`, so a genuinely
+# clean run's exit code depends on whether this machine has a gh session.
+d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test; mkbranch "$d" prod
+git -C "$d" checkout -q dev
+check "pure cascade from the base clears the branch check" \
+  "$(cd "$d" && bash "$SH" preflight --cascade 2>&1 >/dev/null | grep -c 'on protected branch')" "0"
+
+# --pr means a feature branch is being landed, and dev cannot PR into itself.
+(cd "$d" && bash "$SH" preflight --cascade --pr >/dev/null 2>&1)
+check "cascade --pr from the base refuses" "$?" 1
+check "refusal names the pure-cascade exception" \
+  "$(cd "$d" && bash "$SH" preflight --cascade --pr 2>&1 >/dev/null | grep -c 'pure cascade')" "1"
+
+# Bare preflight from the base still refuses — the relaxation is cascade-only.
+(cd "$d" && bash "$SH" preflight >/dev/null 2>&1)
+check "bare preflight from the base still refuses" "$?" 1
+
+d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test; mkbranch "$d" prod
+git -C "$d" checkout -q -b feat/cascade
+(cd "$d" && bash "$SH" preflight --cascade >/dev/null 2>&1)
+check "pure cascade from a feature branch refuses" "$?" 1
+# The fix has to be in the message: --pr is the flag that makes this branch legal.
+check "refusal names --pr as the fix" \
+  "$(cd "$d" && bash "$SH" preflight --cascade 2>&1 >/dev/null | grep -c '\-\-pr')" "1"
+check "cascade --pr from a feature branch clears the branch check" \
+  "$(cd "$d" && bash "$SH" preflight --cascade --pr 2>&1 >/dev/null | grep -c 'pure cascade')" "0"
+
+# Flags are parsed, not positional: an unknown one is a typo, not a no-op.
+(cd "$d" && bash "$SH" preflight --casacde >/dev/null 2>&1)
+check "unknown preflight flag refuses" "$?" 1
+check "flag order does not matter" \
+  "$(cd "$d" && bash "$SH" preflight --pr --cascade 2>&1 >/dev/null | grep -c 'pure cascade')" "0"
 
 echo "downstream integrity gate:"
 # A hotfix committed straight onto test: real content living only downstream.
 # The promotion PR shows only dev's side, so nobody reviewing it sees this.
 d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test; mkbranch "$d" prod
-git -C "$d" checkout -q -b feat/b
+git -C "$d" checkout -q dev
 onbranch "$d" test "fix: hotfix straight onto test"
 (cd "$d" && bash "$SH" preflight --cascade >/dev/null 2>&1)
 check "own work on test refuses" "$?" 1
@@ -142,7 +179,7 @@ check "refusal reports the offending commit" \
 # read it as drift. An earlier fast-forward-shaped gate failed exactly here, on
 # the second cascade, and could never recover.
 d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test; mkbranch "$d" prod
-git -C "$d" checkout -q -b feat/c
+git -C "$d" checkout -q dev
 onbranch "$d" dev "feat: work that landed on dev"
 mergeonto "$d" test dev "Merge pull request #1 from x/dev"
 (cd "$d" && bash "$SH" preflight --cascade >/dev/null 2>&1)
@@ -155,7 +192,7 @@ check "test holds a merge dev lacks" \
 # like real downstream work, but the FIX IS OPPOSITE — carrying these up would
 # replay dev onto itself — so the message must not confuse the two.
 d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test; mkbranch "$d" prod
-git -C "$d" checkout -q -b feat/e
+git -C "$d" checkout -q dev
 # TWO commits on dev, and only the second is copied. The first exists solely to
 # move dev's tip, so the copy lands on a DIFFERENT PARENT and therefore gets a
 # different sha. Copy the only commit instead and git rebuilds a byte-identical
