@@ -10,7 +10,7 @@ Takes the plan [`iso‑plan`](../iso-plan/) wrote and implements it, task by tas
 
 ```
 1. Read the whole plan end-to-end
-2. Resolve the workspace mode → fresh branch (default), current branch, named branch, or worktree
+2. Resolve the workspace mode → reuse the current feature branch, or cut a fresh one if on a base branch (default); named branch; worktree
 3. Execute each task with TDD   (write failing test → minimal code → pass)
 4. Tick each checkbox in the plan as tasks finish
 5. Stamp the plan "implemented (uncommitted)"

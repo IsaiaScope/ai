@@ -1,6 +1,6 @@
 ---
 name: iso-write
-description: Implement a written plan using TDD, without committing. Use when invoked as /iso-write <plan_path> [--no-branch | --branch=<name> | --worktree] or handed an implementation plan to build. Default creates a fresh branch from the plan filename; --no-branch implements on the current branch; --branch=<name> uses a named branch; --worktree runs in an isolated worktree. Delegates execution to superpowers executing-plans (red-green-refactor per task), stamps the plan done, and stops so the user reviews all changes before any commit. Agent-independent (Claude Code or Codex).
+description: Implement a written plan using TDD, without committing. Use when invoked as /iso-write <plan_path> [--no-branch | --branch=<name> | --worktree] or handed an implementation plan to build. By default it cuts a fresh branch from the plan filename only when the current branch is a base branch (dev, develop, test, prod, main, master) or detached, and otherwise stays on the feature branch already checked out; --no-branch always implements on the current branch; --branch=<name> uses a named branch; --worktree runs in an isolated worktree. Delegates execution to superpowers executing-plans (red-green-refactor per task), stamps the plan done, and stops so the user reviews all changes before any commit. Agent-independent (Claude Code or Codex).
 ---
 
 # iso-write
@@ -15,7 +15,7 @@ An optional **workspace flag** selects where the implementation happens. The fla
 
 | Flag | Workspace |
 |------|-----------|
-| *(none)* | **Fresh branch** — derive `<type>/<slug>` from the plan filename and create it (default, unchanged). |
+| *(none)* | **Reuse or cut** — on a base branch (`dev`, `develop`, `test`, `prod`, `main`, `master`) or detached HEAD, derive `<type>/<slug>` from the plan filename and create it. Already on a feature branch: stay on it, create nothing. |
 | `--no-branch` | **In place** — stay on the current branch, no checkout. |
 | `--branch=<name>` | **Named branch** — checkout `<name>`, creating it if missing. |
 | `--worktree` | **Worktree** — isolated worktree on a fresh `<type>/<slug>` branch via the `using-git-worktrees` skill. |
@@ -72,19 +72,36 @@ stash_pop() {  # arg: the stash label returned by stash_carry (empty = nothing t
 }
 ```
 
-### Default — fresh branch
+### Default — fresh branch, but only from a base branch
+
+**A branch is cut only when there is nowhere else to be.** If the current branch is already a feature branch, the plan is implemented on it and nothing is created.
 
 ```bash
-if git rev-parse --verify "$branch" &>/dev/null; then
-  echo "✗ branch $branch already exists. Delete it, rename the plan, or pass --branch=$branch."
-  exit 1
-fi
-label=$(stash_carry "$branch")
-git checkout -b "$branch"
-stash_pop "$label"
+current=$(git branch --show-current)
+case "$current" in
+  dev|develop|test|prod|main|master|"")   # a base branch, or detached HEAD
+    if git rev-parse --verify "$branch" &>/dev/null; then
+      echo "✗ branch $branch already exists. Delete it, rename the plan, or pass --branch=$branch."
+      exit 1
+    fi
+    label=$(stash_carry "$branch")
+    git checkout -b "$branch"
+    stash_pop "$label"
+    mode="fresh-branch"
+    ;;
+  *)                                       # already somewhere that is not a base
+    branch="$current"
+    mode="current-branch"
+    echo "→ staying on $branch — already a feature branch. Pass --branch=<name> to move."
+    ;;
+esac
 ```
 
-All edits and tests happen on this branch in the current working directory. Any pre-existing uncommitted work is carried onto the branch and appears in the final review diff alongside the plan's changes.
+Why the gate: the default used to cut `<type>/<slug>` unconditionally, and since this skill **never commits**, every run left a branch pointing at the base's tip with nothing on it. Four accumulated in `ai-agent` inside two days, all at the same SHA. They isolated nothing either — one working tree, one index, so `checkout -b` only relabelled the same uncommitted pile. Isolation comes from committing, or from `--worktree`; a branch with no commits buys the bookkeeping and none of the separation.
+
+`test`, `prod`, `main` and `master` sit in the create list beside `dev`/`develop` for the reason `iso-push` refuses them — they are places work is promoted **to**, never worked **on**. A detached HEAD (`""`) also cuts a branch, so the work gets a ref to live on.
+
+All edits and tests happen on the resulting branch in the current working directory. Pre-existing uncommitted work is carried onto a newly created branch, and simply stays put when the current branch is reused — appearing either way in the final review diff alongside the plan's changes.
 
 ### `--no-branch` — implement in place
 
@@ -157,7 +174,7 @@ Append a footer:
 
 ```
 ✓ Implementation complete — nothing committed.
-  Mode:    <fresh-branch | no-branch | named-branch | worktree>
+  Mode:    <fresh-branch | current-branch | no-branch | named-branch | worktree>
   Branch:  <branch>          (the current branch for --no-branch)
   Worktree: <path>           (only printed in --worktree mode)
   Plan:    <plan_path> (stamped)
