@@ -340,6 +340,34 @@ check "refusal names the origin ref" \
   "$(cd "$d" && bash "$SH" integrate feat/local-only dev 2>&1 \
      | grep -c 'origin/feat/local-only')" "1"
 
+echo "home:"
+d=$(newrepo); mkbranch "$d" dev
+git -C "$d" checkout -q -b feat/landed
+onbranch "$d" dev "fix: landed while you were on the feature branch"
+check "returns to the base" \
+  "$(cd "$d" && bash "$SH" home dev >/dev/null 2>&1; git -C "$d" symbolic-ref --short HEAD)" \
+  "dev"
+# The fast-forward is the point: a base left at its stale local tip is a branch
+# that only looks like origin/dev, which is what cmd_integrate refuses to trust.
+check "base is fast-forwarded to origin" \
+  "$(git -C "$d" rev-parse HEAD)" "$(git -C "$d" rev-parse origin/dev)"
+
+d=$(newrepo); mkbranch "$d" dev
+git -C "$d" checkout -q -b feat/dirty
+printf 'wip\n' > "$d/scratch.txt"
+(cd "$d" && bash "$SH" home dev >/dev/null 2>&1); check "dirty tree exits 3" "$?" 3
+check "dirty tree stays on the feature branch" \
+  "$(git -C "$d" symbolic-ref --short HEAD)" "feat/dirty"
+
+# A local dev that has drifted is the trap, not an inconvenience: every later
+# rev-parse in a cascade would read it instead of origin/dev.
+d=$(newrepo); mkbranch "$d" dev
+git -C "$d" fetch -q origin dev
+git -C "$d" checkout -q -b dev origin/dev
+git -C "$d" commit -q --allow-empty -m "chore: committed straight onto local dev"
+git -C "$d" checkout -q -b feat/other
+(cd "$d" && bash "$SH" home dev >/dev/null 2>&1); check "drifted local base refuses" "$?" 1
+
 echo "bump:"
 d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
 setversion "$d" dev 0.3.2

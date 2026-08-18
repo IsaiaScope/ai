@@ -391,6 +391,57 @@ history. Check the repo's merge-method settings before promoting"
     "$src" "$dst" "$(git rev-parse --short "origin/$dst")" "$src" "$dst"
 }
 
+# --------------------------------------------------------------------- home
+# Put the working copy back on the base once something has landed.
+#
+# The flow used to end on a feature branch GitHub had already merged. Nothing
+# will ever move that branch again, so the next commit made there starts a second
+# head on a dead lane, and `git pull` fetches a ref frozen at the merge. Landing
+# is the moment the feature branch stops being the place to work.
+#
+# A local `dev` carrying commits origin/dev lacks is the exact trap cmd_integrate
+# documents at :358 — refs/heads/dev shadows origin/dev in every later rev-parse,
+# so a cascade would read a branch that only LOOKS like the base.
+#
+# `--ff-only` alone does NOT catch that, and the comment here claimed it did.
+# When the local branch is AHEAD, origin/<base> is already an ancestor, so the
+# merge reports "already up to date" and exits 0 — the one shape most worth
+# refusing is the one it waves through. Only the diverged case fails. So the
+# ancestry is asserted outright, and --ff-only is kept for what it is good at:
+# advancing a base that is merely behind, without inventing a merge node.
+#
+# Exit 3 = dirty tree, the same code cmd_status uses for it. A checkout would
+# carry the changes onto the base or abort halfway, and neither is what a flag
+# about where you end up should do to uncommitted work.
+cmd_home() {
+  local base="${1:?usage: push.sh home <base>}" branch dirty own
+  branch=$(git symbolic-ref --short HEAD)
+  dirty=$(git status --porcelain)
+
+  if [ -n "$dirty" ]; then
+    printf 'home: staying on %s, working tree is dirty\n%s\n' \
+      "$branch" "$(printf '%s' "$dirty" | sed 's/^/  /')"
+    return 3
+  fi
+
+  git fetch --quiet origin "$base"
+  # No local branch is fine: checkout creates one tracking origin/<base>.
+  [ "$branch" = "$base" ] || git checkout --quiet "$base" \
+    || die "cannot check out $base from $branch"
+
+  own=$(git rev-list --count "origin/$base..HEAD")
+  [ "$own" -eq 0 ] || die "local '$base' holds $own commit(s) origin/$base does not — it
+is not a copy of the remote branch, and every later rev-parse would read it
+instead. Inspect it before working from it; straightening an integration branch
+belongs to /iso-init-repo, not here"
+
+  git merge --quiet --ff-only "origin/$base" \
+    || die "cannot fast-forward '$base' to origin/$base"
+
+  printf 'home: %s at %s (was %s)\n' \
+    "$base" "$(git rev-parse --short HEAD)" "$branch"
+}
+
 # ------------------------------------------------------------------ promote
 # Commit subjects the promotion would carry, for the cascade PR body and the
 # release tag annotation. SHAs are omitted on purpose — the PR page links every
@@ -667,8 +718,9 @@ case "${1:-}" in
   checks)    shift; cmd_checks "$@" ;;
   method)    shift; cmd_method "$@" ;;
   integrate) shift; cmd_integrate "$@" ;;
+  home)      shift; cmd_home "$@" ;;
   promote)   shift; cmd_promote "$@" ;;
   bump)      shift; cmd_bump "$@" ;;
   release)   shift; cmd_release "$@" ;;
-  *) die "usage: push.sh {preflight|base|status|rebase|push|pr|checks|integrate|promote|bump|release} [args]" ;;
+  *) die "usage: push.sh {preflight|base|status|rebase|push|pr|checks|integrate|home|promote|bump|release} [args]" ;;
 esac

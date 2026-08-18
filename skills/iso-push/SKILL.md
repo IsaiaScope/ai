@@ -1,6 +1,6 @@
 ---
 name: iso-push
-description: Push committed work, open a PR against dev, and land it with a merge commit so no commit is ever rewritten or duplicated. Use when invoked as /iso-push [--pr] [--cascade test|prod] [--no-merge], or when asked to push a branch, open a PR against dev, or promote dev to test or prod. Requires a dev or develop branch on origin. Rebases the branch onto its base automatically; never force-pushes without explicit approval.
+description: Push committed work, open a PR against dev, and land it with a merge commit so no commit is ever rewritten or duplicated. Use when invoked as /iso-push [--pr] [--cascade test|prod] [--no-merge] [--stay], or when asked to push a branch, open a PR against dev, or promote dev to test or prod. Requires a dev or develop branch on origin. Rebases the branch onto its base automatically; returns to dev after a landing unless --stay; never force-pushes without explicit approval.
 ---
 
 # iso-push
@@ -9,7 +9,7 @@ Push what is committed, open a PR a person can read, and promote it through the
 environment branches — leaving a single linear history and rewriting nothing
 that has been published without asking first.
 
-Invocation: `/iso-push [--pr] [--cascade test|prod] [--no-merge]`.
+Invocation: `/iso-push [--pr] [--cascade test|prod] [--no-merge] [--stay]`.
 
 | flag | effect |
 |---|---|
@@ -18,9 +18,16 @@ Invocation: `/iso-push [--pr] [--cascade test|prod] [--no-merge]`.
 | `--cascade test` | release, then promote `dev` → `test` |
 | `--cascade prod` | release, then promote `dev` → `test` → `prod` |
 | `--no-merge` | open the PRs and stop; integrate nothing |
+| `--stay` | stay on the feature branch after a landing instead of returning to the base |
 
 `--cascade` works with or without `--pr`. Without it, `dev` is promoted exactly
 as it currently stands.
+
+**After anything lands, you end up on the base.** A merged feature branch is a
+dead lane — GitHub will never move it again, so a commit made there starts a
+second head and `git pull` fetches a ref frozen at the merge. `--stay` keeps you
+on it, for the case where the branch is a base for follow-up work you are about
+to push again.
 
 Mechanics live in `skills/iso-push/scripts/push.sh`. Run it by absolute path.
 
@@ -139,6 +146,10 @@ a branch tip that a PR and CI have already passed.
    PR with no content in it, and do not check the user out onto `dev`. Say where
    they are and let them move.
 
+   That is not in tension with step 8: the return happens because **this run**
+   landed something. Here the branch was already in the base before the run
+   started, so there is nothing to report and no reason to move anyone.
+
    **Dirty tree → ask.** List the paths and confirm before going further. A push
    ships commits, not files, so uncommitted work silently stays out of the PR.
    Do not offer to commit it — that is `/iso-commit`'s job.
@@ -247,8 +258,30 @@ a branch tip that a PR and CI have already passed.
 
    A hop that fails CI stops the cascade. Later hops do not run.
 
-8. **Report** — every PR URL created or merged, the version released and its
-   tag, and what was skipped.
+8. **Home** — once, after the last successful landing of the run, unless
+   `--stay`. Run `push.sh home <base>`: it checks out the base and
+   fast-forwards it to `origin/<base>`.
+
+   **Only when something actually landed.** Not after `--no-merge`, not after
+   the `integrated:` exit in step 2, not after a red build or a stopped
+   cascade — moving the user off a branch whose work is still in flight loses
+   them the thing they were looking at.
+
+   `<base>` is always the base from step 1, `dev`, including after a cascade to
+   `prod`. `test` and `prod` are places work is promoted **to**, never worked
+   **on**; checking someone out onto one invites the straight-to-prod commit the
+   preflight gate exists to refuse.
+
+   Two refusals, both reported and neither fatal to what already landed:
+
+   - **Dirty tree** — exit 3. Says which paths and leaves you where you are.
+     Uncommitted work is not something a flag about your final branch may move.
+   - **Local base holds commits `origin/<base>` lacks** — exit 1. That branch is
+     not a copy of the remote one, and `refs/heads/dev` shadows `origin/dev` in
+     every later `rev-parse`. Report it; do not straighten it here.
+
+9. **Report** — every PR URL created or merged, the version released and its
+   tag, where the run left you, and what was skipped.
 
 ## Versioning
 
@@ -526,6 +559,9 @@ the subject, not on the dots, not sprinkled through the prose.
 - Never `git push --force` to `dev`, `test`, or `prod`. Straightening an
   environment branch belongs to `/iso-init-repo`.
 - Never integrate a red build. No CI configured is a pass; a failing check is not.
+- Never `home` past uncommitted work, and never onto a `test` or `prod` checkout.
+  The return moves the working copy and nothing else — no commit, no push, no
+  branch deleted.
 - `prod` is only ever fed from `test`; the gate workflow `iso-init-repo` installs
   enforces it server-side. Reference it by role, not by filename — it has been
   renamed once already.
