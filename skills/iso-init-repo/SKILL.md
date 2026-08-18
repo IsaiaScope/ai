@@ -99,13 +99,33 @@ for b in prod test dev; do
   git push -u origin "$b"
 done
 
-# dev as GitHub default
-if [ "$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)" = dev ]; then
-  echo "⏭️ dev already default branch"
-else
-  gh repo edit --default-branch dev
-fi
+# Default branch: set it once, then never move it again.
+cur=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+case "$cur" in
+  dev|develop|test|prod) echo "⏭️ '$cur' already a governed default branch — left alone" ;;
+  *) gh repo edit --default-branch dev && echo "✓ default branch: $cur → dev" ;;
+esac
 ```
+
+**Which of the three is default is a repo-shaped decision, so this step sets one
+and then defers to it.** A default already pointing at `dev`, `develop`, `test`
+or `prod` is left exactly as it is; only `main`/`master`/anything else is moved,
+and it moves to `dev`.
+
+The trade-off it is deferring to:
+
+| default | wins | costs |
+|---|---|---|
+| `dev` | the web UI's "Compare & pull request" opens with base `dev` — right every time | a fresh clone, and anything that tracks the default, gets unreleased work |
+| `prod` | clones get released work — the right call when the repo is consumed, e.g. a plugin marketplace | web-UI PRs open with base `prod`, which the branch gate rejects; you retarget by hand |
+
+`iso-push` is unaffected either way: it resolves the base by probing `origin` for
+`dev`/`develop`, and always passes `gh pr create --base` explicitly. Nothing in
+the promotion flow reads the default branch.
+
+To choose `prod`, run `gh repo edit --default-branch prod` once. This step will
+preserve it from then on — an earlier version reset it to `dev` on every re-run,
+silently undoing the choice.
 
 `main` is deleted only when it was the starting point **and** `prod` now exists
 on origin with that history. Never delete it to reach the target shape — the
@@ -435,7 +455,7 @@ done
 
 ```
 ✓ GitHub repo created/configured
-✓ Branches: dev (default) ← test ← prod
+✓ Branches: dev ← test ← prod (default branch reported above, left alone if already governed)
 ✓ Protection: PR required on dev, test, prod (no direct push)
 ✓ .github/workflows/ci-branch-gate.yml — test accepts PRs from dev only
                                        — prod accepts PRs from test only
@@ -445,7 +465,7 @@ done
 
 ```
 ✓ GitHub repo created/configured
-✓ Branches: dev (default) ← test ← prod
+✓ Branches: dev ← test ← prod (default branch reported above, left alone if already governed)
 ⚠ Protection: SKIPPED — private repo on GitHub Free (403 from protection API)
 ✓ .github/workflows/ci-branch-gate.yml — written, ADVISORY ONLY
 ✓ .githooks/pre-push — written, core.hooksPath set, refuses prod

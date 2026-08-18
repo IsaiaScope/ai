@@ -77,17 +77,47 @@ assert_no_own_work() {
 # Repo? On a branch? Not on a protected one? gh usable? Cascade branches present
 # AND still linear? Echoes "<branch> <base>".
 cmd_preflight() {
-  local want_cascade="${1:-}"
+  local want_cascade= want_pr=
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --cascade) want_cascade=1 ;;
+      --pr)      want_pr=1 ;;
+      *) die "preflight: unknown flag '$1'" ;;
+    esac
+    shift
+  done
+
   git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository"
 
   local branch
   branch=$(git symbolic-ref --short HEAD 2>/dev/null) \
     || die "detached HEAD — check out a branch before pushing"
 
-  # A protected branch is integrated into, never worked on. Fail here with a
-  # clear message rather than letting the remote reject the push.
+  # test and prod are promoted INTO. Nothing is ever worked on there and no run
+  # is ever driven from there, so they are refused unconditionally.
+  #
+  # dev is not the same case. A PURE cascade — --cascade with no --pr — promotes
+  # dev exactly as it stands: it reads only origin/* refs, writes nothing to the
+  # working tree, and has no feature branch in play at all. It is also precisely
+  # where `home` leaves you at the end of the previous run. Refusing dev for it
+  # made a documented invocation unreachable from the only branch you could be
+  # standing on.
+  #
+  # So the rule splits on --pr, not on the branch alone: --pr means a feature
+  # branch is being landed and dev is wrong; no --pr means dev is the only right
+  # place. `set -e` is why these are `if` blocks and not `&&` chains inside the
+  # case — an arm ending in a false test would exit the script.
   case "$branch" in
-    dev|develop|test|prod) die "on protected branch '$branch' — iso-push runs from a feature branch";;
+    test|prod)
+      die "on protected branch '$branch' — iso-push runs from a feature branch" ;;
+    dev|develop)
+      if [ -z "$want_cascade" ] || [ -n "$want_pr" ]; then
+        die "on protected branch '$branch' — iso-push runs from a feature branch, except for a pure cascade (--cascade with no --pr), which promotes '$branch' as it stands"
+      fi ;;
+    *)
+      if [ -n "$want_cascade" ] && [ -z "$want_pr" ]; then
+        die "a pure cascade promotes the base as it stands and runs from it, not from '$branch' — add --pr to land this branch first, or check out the base"
+      fi ;;
   esac
 
   local base; base=$(cmd_base)
@@ -95,7 +125,7 @@ cmd_preflight() {
   # Repo-shape checks run BEFORE the network auth probe: they are cheaper, more
   # specific, and failing on the most precise problem first reads better. It
   # also keeps them testable without a live gh session.
-  if [ "$want_cascade" = "--cascade" ]; then
+  if [ -n "$want_cascade" ]; then
     local b
     for b in test prod; do
       git ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1 \
