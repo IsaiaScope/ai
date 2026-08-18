@@ -23,6 +23,18 @@ Invocation: `/iso-push [--pr] [--cascade test|prod] [--no-merge] [--stay]`.
 `--cascade` works with or without `--pr`. Without it, `dev` is promoted exactly
 as it currently stands.
 
+**A pure cascade — `--cascade` with no `--pr` — runs from the base, not from a
+feature branch.** It has no branch to land: it reads only `origin/*` refs and
+promotes `dev` as it is. That is also where step 8 leaves you at the end of the
+previous run, so the two compose. With `--pr` the opposite holds — there *is* a
+branch to land, and `dev` cannot open a PR into itself.
+
+| you are on | `--cascade` | `--cascade --pr` |
+|---|---|---|
+| `dev` / `develop` | ✅ the right place | ❌ refused |
+| a feature branch | ❌ refused, "add `--pr`" | ✅ the right place |
+| `test` / `prod` | ❌ refused | ❌ refused |
+
 **After anything lands, you end up on the base.** A merged feature branch is a
 dead lane — GitHub will never move it again, so a commit made there starts a
 second head and `git pull` fetches a ref frozen at the merge. `--stay` keeps you
@@ -109,11 +121,15 @@ a branch tip that a PR and CI have already passed.
 
 ## Flow
 
-1. **Preflight** — `push.sh preflight [--cascade]`. Non-zero: print its message
-   and stop. Checks the repo, refuses a detached HEAD, refuses to run from
-   `dev`/`develop`/`test`/`prod`, checks `gh` auth, resolves the base branch,
-   and with `--cascade` additionally verifies `test` and `prod` carry no work of
-   their own. Echoes `<branch> <base>`.
+1. **Preflight** — `push.sh preflight [--cascade] [--pr]`. **Pass the same flags
+   the user typed** — the branch rule reads both, and omitting `--pr` turns a
+   feature-branch run into a refusal. Non-zero: print its message and stop.
+
+   Checks the repo, refuses a detached HEAD, applies the branch rule in the
+   table above, checks `gh` auth, resolves the base branch, and with
+   `--cascade` additionally verifies `test` and `prod` carry no work of their
+   own. Echoes `<branch> <base>` — for a pure cascade both fields are the base,
+   which is expected.
 
    Merge nodes left by past promotions are expected and allowed. What is refused
    is a **non-merge** commit on `test` or `prod` that its upstream lacks — a
@@ -122,8 +138,16 @@ a branch tip that a PR and CI have already passed.
    problem: get the commit onto `dev` first. This skill never force-pushes an
    integration branch to fix it.
 
-2. **Status** — `push.sh status <base>`. Four independent things, any one of
-   which can sink the push:
+2. **Status** — `push.sh status <base>`.
+
+   **Steps 2, 3 and 4 are skipped entirely for a pure cascade.** There is no
+   feature branch: nothing to compare against the base, nothing to rebase,
+   nothing to push. Running them anyway would misfire in both directions —
+   `status` reports `integrated:` (branch and base are the same ref) and would
+   halt the run at step 2, and `push` refuses a protected branch outright. Go
+   straight to step 7.
+
+   Otherwise, four independent things, any one of which can sink the push:
 
    - `behind: N` — commits on the base you don't have, plus the replay list.
    - `integrated:` — nothing left to carry. The branch is already in the base.
@@ -266,6 +290,10 @@ a branch tip that a PR and CI have already passed.
    the `integrated:` exit in step 2, not after a red build or a stopped
    cascade — moving the user off a branch whose work is still in flight loses
    them the thing they were looking at.
+
+   **A pure cascade still needs this**, even though it started on the base: the
+   release commit reaches `dev` through a PR, so local `dev` ends the run one
+   behind `origin/dev`. `home` fast-forwards it.
 
    `<base>` is always the base from step 1, `dev`, including after a cascade to
    `prod`. `test` and `prod` are places work is promoted **to**, never worked
