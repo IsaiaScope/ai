@@ -2,8 +2,11 @@
   "name": "isaiascope-eng",
   "skills": [
     "./skills/iso-ai-init",
+    "./skills/iso-commit",
     "./skills/iso-init-repo",
+    "./skills/iso-multica-tracking",
     "./skills/iso-plan",
+    "./skills/iso-push",
     "./skills/iso-readme",
     "./skills/iso-review",
     "./skills/iso-spawn",
