@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 const { execSync } = require("child_process");
-const { copyFileSync, mkdirSync, readdirSync, lstatSync, unlinkSync, symlinkSync, rmSync } = require("fs");
+const { copyFileSync, mkdirSync, readdirSync, lstatSync, unlinkSync, symlinkSync, rmSync, existsSync, readFileSync, writeFileSync } = require("fs");
 const { localSkillCatalog, routeSkills, materializePlugin } = require("./skills-manifest");
+const { syncAgentHooks } = require("./agent-hooks");
 const { join } = require("path");
 const { homedir } = require("os");
 
@@ -77,6 +78,19 @@ for (const [agent, dir] of Object.entries(agentSkillsDir)) {
   }
 }
 
+// Prune dangling links left by a renamed or deleted skill. A rename (say
+// iso-multica-tracking -> iso-tracking) otherwise leaves the old name behind
+// looking installed, which makes `iso-config doctor` miscount. Only broken
+// symlinks are removed — a real directory is never touched.
+for (const dir of Object.values(agentSkillsDir)) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isSymbolicLink()) continue;
+    const link = join(dir, entry.name);
+    if (existsSync(link)) continue;          // resolves fine, leave it alone
+    try { unlinkSync(link); console.log(`  ✗ pruned dangling link: ${link}`); } catch {}
+  }
+}
+
 // Create or refresh symlinks for every targeted agent
 for (const { dir, agents } of localSkills) {
   const src = join(repoRoot, "skills", dir);
@@ -103,6 +117,40 @@ for (const { plugin, skills } of routes) {
   const { changed, pruned } = materializePlugin(pluginDir, skills);
   for (const name of pruned) console.log(`  ✗ ${plugin.name}: pruned stale ${name}`);
   console.log(`  ✓ ${plugin.name.padEnd(20)} ${skills.length} skill(s)${changed ? " — manifest updated" : ""}`);
+}
+
+// The tracker's two hooks live in the agent's own settings.json, which nothing
+// here used to own. When the skill was renamed the hooks kept pointing at the
+// old path and their `[ -x "$S" ]` guard turned them into silent no-ops — the
+// board simply stopped being reconciled, with nothing to notice it. Owning them
+// here means a rename self-heals on the next install.
+console.log("\n→ Syncing agent hooks");
+const settingsPath = join(home, ".claude", "settings.json");
+try {
+  let current = {};
+  if (existsSync(settingsPath)) {
+    // A file we cannot parse is a file we must not rewrite: it holds hooks from
+    // tools this repo does not own, and a well-meaning reformat would lose them.
+    try {
+      current = JSON.parse(readFileSync(settingsPath, "utf8"));
+    } catch (err) {
+      throw new Error(`${settingsPath} is not valid JSON (${err.message}) — leaving it untouched`);
+    }
+  }
+  const { settings, changes } = syncAgentHooks(current);
+  const serialized = JSON.stringify(settings, null, 2) + "\n";
+  JSON.parse(serialized); // refuse to write anything that will not read back
+  if (changes.some((c) => c.action !== "unchanged")) {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(settingsPath, serialized);
+  }
+  for (const c of changes) {
+    if (c.action === "unchanged") console.log(`  ✓ ${c.event.padEnd(14)} ${c.name}`);
+    else if (c.action === "added") console.log(`  ✓ ${c.event.padEnd(14)} ${c.name} — added`);
+    else console.log(`  ✓ ${c.event.padEnd(14)} ${c.name} — replaced: ${c.was}`);
+  }
+} catch (err) {
+  console.log(`  ⚠ ${err.message}`);
 }
 
 // Also clean up any old IsaiaScope/ai symlinks from ~/.agents/skills/ (the universal storage skills.sh used)

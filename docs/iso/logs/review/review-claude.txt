@@ -1,0 +1,73 @@
+All 7 angles done. Deduped, verified against exact code. Correctness bugs cluster in `herdr_pane_active` (dead-detection) and `wait.sh` (units/gating). Findings ranked, ≤10:
+
+```json
+[
+  {
+    "file": "skills/iso-spawn/scripts/lib/herdr.sh",
+    "line": 654,
+    "summary": "herdr_pane_active returns 0 (active) when the term has NO live pane (`[ -n \"$pane\" ] || return 0`), so wait_done's dead-detection can never fire for a tab that was closed or crashed.",
+    "failure_scenario": "A reviewer/fix tab is killed mid-run → herdr_pane_for returns empty → herdr_pane_active returns 0 on every poll → wait_done's `*)` branch keeps resetting dead=0 → it never returns 3 (dead) and instead blocks the full RV_REVIEW_TIMEOUT (3600s) on an agent that is already gone, stalling rv_reviews for an hour."
+  },
+  {
+    "file": "skills/iso-spawn/scripts/lib/herdr.sh",
+    "line": 656,
+    "summary": "herdr_pane_active treats any pane whose last 40 visible lines contain 'esc to interrupt' as active, so a frozen agent that left that footer painted is reported active forever.",
+    "failure_scenario": "An agent hangs after a turn whose scrollback retains the 'esc to interrupt' status line. herdr_pane_active keeps returning 0, dead never increments, and wait_done waits the entire --timeout (up to 3600s) instead of detecting the stuck pane — the dead path is defeated."
+  },
+  {
+    "file": "skills/iso-spawn/scripts/lib/wait.sh",
+    "line": 841,
+    "summary": "wait_done --done-grep runs over wait_recover_once output, which can be raw TUI scrollback (recover's '# source: scrollback' fallback) or an echo of the dispatched prompt; the regex words ('findings','summary','failure_scenario') appear verbatim in the /code-review prompt text.",
+    "failure_scenario": "The reviewer pane echoes the slash-command prompt (which literally contains 'summary'/'failure_scenario'), or recover falls back to scrollback before the review finishes. done-grep matches → wait_done returns 0 early → rv_reviews captures a truncated/empty review. rv_demote_scrollback only guards the final file, not this gate."
+  },
+  {
+    "file": "skills/iso-spawn/scripts/lib/wait.sh",
+    "line": 802,
+    "summary": "wait_seconds' fixed ms-vs-seconds threshold of 10000 silently mis-converts any legitimate seconds timeout above 10000 into ~n/1000 seconds.",
+    "failure_scenario": "RV_REVIEW_TIMEOUT or WAIT_DONE_TIMEOUT set to a multi-hour seconds value (e.g. 14400 for 4h) → wait_seconds sees n>10000 → returns (14400+999)/1000 = 15s → wait_done times out after 15s (return 4), aborting a long review the user explicitly asked to run for hours."
+  },
+  {
+    "file": "skills/iso-spawn/scripts/lib/herdr.sh",
+    "line": 660,
+    "summary": "herdr_pane_active's cksum cache lives in $TMPDIR/iso-spawn-pane-active/<term>.cksum and is never cleared, so it leaks across separate runs that reuse a terminal_id.",
+    "failure_scenario": "A stale .cksum from a prior run matches the current pane's checksum on the first escalate poll of a new agent that recycled the same term → herdr_pane_active returns 1 (inactive) immediately → dead counter advances against a healthy agent → wait_done can return 3 (dead) prematurely and abort a live review/fix."
+  },
+  {
+    "file": "skills/iso-spawn/scripts/lib/wait.sh",
+    "line": 825,
+    "summary": "An explicitly-passed --escalate larger than --timeout is never clamped, so the escalate/dead block (gated on `elapsed >= escalate`) is dead code and dead-detection never runs for that call.",
+    "failure_scenario": "Caller passes --timeout 60 --escalate 120: the while loop exits at elapsed>60 before escalate(120) is ever reached, so a frozen 'working' agent is never flagged dead — wait_done always returns 4 (timeout) instead of 3 (dead), misclassifying the failure for callers that distinguish them."
+  },
+  {
+    "file": "skills/iso-review/scripts/lib/drive.sh",
+    "line": 301,
+    "summary": "rv_reviews captures the review via wait_recover_settled, whose length-only stability heuristic (WAIT_SETTLE_MAX=15 polls × 2s) can lock onto a pre-final transcript while the jsonl flush still lags.",
+    "failure_scenario": "wait_done returns 0 on idle/done while the final assistant turn hasn't flushed; if it lands after the ~30s settle window, two equal-length partial reads register as stable and rv_reviews writes a silently truncated review to review-codex.txt, not flagged as failure."
+  },
+  {
+    "file": "skills/iso-spawn/scripts/lib/wait.sh",
+    "line": 841,
+    "summary": "EFFICIENCY: wait_done's done-grep branch calls wait_recover_once every poll, each spawning a full spawn.sh recover subprocess that runs python3 recover.py to re-read/re-parse the ENTIRE growing JSONL from byte 0.",
+    "failure_scenario": "poll=2s, RV_REVIEW_TIMEOUT=3600s → up to ~1800 full transcript re-parses per reviewer ×2 = ~3600 python3 forks, each re-reading a JSONL that grows to thousands of turns. Cost grows superlinearly; cheaper: grep the cheap pane scrollback first / check file mtime and only invoke recover.py once it matches."
+  },
+  {
+    "file": "skills/iso-spawn/scripts/lib/herdr.sh",
+    "line": 660,
+    "summary": "REUSE/SIMPLIFICATION: herdr_pane_active repeats the same 'sum=$(...|cksum); safe=$(...|tr); dir=...; mkdir -p; write; return 0' boilerplate in three near-identical branches (interrupt-marker, no-cache, changed-sum).",
+    "failure_scenario": "The cache mechanic is hand-copied 3×; a change to the cache key, cksum command, or dir must be edited in three places and missing one silently breaks active-detection. Collapse to: compute sum/path once, then `if marker || no-cache || sum!=cached; write; return 0; else return 1`."
+  },
+  {
+    "file": "skills/iso-review/scripts/lib/drive.sh",
+    "line": 184,
+    "summary": "REUSE: drive.sh sources herdr.sh (which provides herdr_pane_read) yet rv_wait_ready/rv_drive_codex_review/rv_drive_claude_review open-code `herdr pane read \"$p\" --source visible --lines 30 2>/dev/null` 5+ times.",
+    "failure_scenario": "The wrapper exists so the read flags live in one place; bypassing it scatters '--source visible --lines 30' across drive.sh. A change to how panes are read updates herdr_pane_read but silently misses every raw call here. Replace with herdr_pane_read \"$p\" 30."
+  }
+]
+```
+
+**Top correctness risks** (1–3): `herdr_pane_active` defeats the very dead-detection `wait_done` relies on — a closed tab (line 654) or lingering `esc to interrupt` footer (line 656) makes a dead agent wait the full 3600s. And the done-grep gate (wait.sh:841) can match prompt-echo/scrollback containing `summary`/`failure_scenario` → premature truncated review.
+
+`★ Insight ─────────────────────────────────────`
+- The recurring shape: **liveness detected by side-channel proxies** (pane scrollback text, /tmp checksums, output length) instead of authoritative state. Each proxy has a failure mode where "can't tell" defaults to the wrong answer — and the safe default flipped: "no pane → active" should arguably be "no pane → dead".
+- **Unit ambiguity at a boundary** (`wait_seconds` 10000 threshold) is the classic heuristic-papering-over-inconsistent-callers smell — deliver.sh feeds ms, drive.sh feeds seconds into one `--timeout`. The deeper fix is one unit at the call site, not a guess in the callee.
+`─────────────────────────────────────────────────`

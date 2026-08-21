@@ -1,0 +1,6 @@
+{
+  "branches": {
+    "default": "prod",
+    "pr_base": "dev"
+  }
+}

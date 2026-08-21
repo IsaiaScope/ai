@@ -83,29 +83,33 @@ Confirm accessible, then continue.
 
 Target: `dev` (default, daily work) ← `test` (staging) ← `prod` (release)
 
+Record the branch the repository started on before anything moves — Step 2's
+second half needs it, and by then HEAD has moved:
+
 ```bash
-git fetch -q origin
-ORIGIN=$(git symbolic-ref --short HEAD)   # current default, likely 'main'
+WAS=$(git symbolic-ref --short HEAD)   # likely 'main'
+scripts/init-repo.sh create-branches
+```
 
-# prod first — test and dev branch from it.
-for b in prod test dev; do
-  if git rev-parse --verify -q "origin/$b" >/dev/null; then
-    echo "⏭️ $b already on origin"
-    continue
-  fi
-  base=prod
-  [ "$b" = prod ] && base="$ORIGIN"
-  git checkout -b "$b" "$base" 2>/dev/null || git checkout "$b"
-  git push -u origin "$b"
-done
+Then the default branch, which is the one `gh` call here. Set it once, then
+never move it again:
 
-# Default branch: set it once, then never move it again.
+```bash
 cur=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
-case "$cur" in
-  dev|develop|test|prod) echo "⏭️ '$cur' already a governed default branch — left alone" ;;
-  *) gh repo edit --default-branch dev && echo "✓ default branch: $cur → dev" ;;
+governed=$(scripts/init-repo.sh branches | tr '\n' ' ')
+case " $governed develop " in
+  *" $cur "*) echo "⏭️ '$cur' already a governed default branch — left alone" ;;
+  *) gh repo edit --default-branch "$(scripts/init-repo.sh default-branch)" ;;
 esac
 ```
+
+A repository whose default branch is not its development branch is unusual but
+deliberate for a marketplace: `/plugin marketplace add` clones whatever GitHub
+reports as default, so consumers must land on released work. Set
+`branches.default` in the repository's overlay; this skill reads it rather than
+assuming. That is the fix for the recurring annoyance where re-running this
+step reset the default to `dev` and quietly served unreleased daily work to
+every consumer.
 
 **Which of the three is default is a repo-shaped decision, so this step sets one
 and then defers to it.** A default already pointing at `dev`, `develop`, `test`
@@ -133,14 +137,12 @@ target is reached by creating `prod`, and removing `main` is only tidying up
 after that succeeded.
 
 ```bash
-if [ "$ORIGIN" = main ] && git rev-parse --verify -q origin/prod >/dev/null; then
-  git merge-base --is-ancestor origin/main origin/prod 2>/dev/null \
-    && { git push origin --delete main; git branch -d main; } \
-    || echo "⚠ main has commits not in prod — leaving it. Merge them first."
-elif ! git rev-parse --verify -q origin/main >/dev/null; then
-  echo "⏭️ no main branch to remove"
-fi
+scripts/init-repo.sh retire-main "$WAS"
 ```
+
+It refuses unless production already contains every commit `main` carries. That
+ancestor test is the whole safety property, which is why it lives in a script
+with an assertion behind it rather than in this paragraph.
 
 ## Step 3 — GitHub files
 
@@ -162,13 +164,10 @@ about *where a PR may come from*, not about direct pushes: `dev` is PR-only too.
 Probe first — skip when the gate is already on `origin/dev` and matches:
 
 ```bash
-git fetch -q origin
-if git show origin/dev:.github/workflows/ci-branch-gate.yml 2>/dev/null \
-   | diff -q - templates/ci-branch-gate.yml >/dev/null 2>&1; then
-  echo "⏭️ branch gate already on origin/dev and current"
-  # → skip to Step 4
-fi
+scripts/init-repo.sh gate-status   # absent | stale | current
 ```
+
+`current` → skip to Step 4. `absent` or `stale` → write the workflow below.
 
 Otherwise write the file and **stop there**.
 
@@ -205,12 +204,9 @@ normal, not an error: the skill is re-runnable precisely so this can happen in
 two passes.
 
 ```bash
-git fetch -q origin
-git cat-file -e origin/dev:.github/workflows/ci-branch-gate.yml 2>/dev/null \
-  || { echo "⏭️ gate not on origin/dev yet — skipping protection."
-       echo "   Land it with /iso-commit then /iso-push, and re-run /iso-init-repo."
-       # → skip to Step 5
-     }
+[ "$(scripts/init-repo.sh gate-status)" = absent ] \
+  && echo "⏭️ gate not on the development branch yet — land it with /iso-commit
+     then /iso-push, and re-run /iso-init-repo."   # → skip to Step 5
 ```
 
 Skip, don't `exit 1` — the earlier steps did real work and Step 5 should still
@@ -275,56 +271,15 @@ Three cases:
 **No hook** → generate a minimal host around the block.
 
 ```bash
-mkdir -p .githooks
-{ printf '#!/usr/bin/env bash\nset -uo pipefail\nrc=0\n\n'
-  cat templates/pre-push-branch-guard.sh
-  printf '\nif [ "$rc" -ne 0 ]; then\n  echo "pre-push: blocked." >&2\nfi\nexit "$rc"\n'
-} > .githooks/pre-push
+scripts/init-repo.sh install-hook
 ```
 
-**Hook exists, markers present** → replace between them, in place. This is the
-re-run path and must not append a second copy.
-
-The replacement is read from the file with `getline`, **not** passed via `awk -v`:
-BSD awk (macOS) rejects a newline inside a `-v` assignment, and the failure is
-quiet enough to look like success — `awk … && mv` simply skips the `mv`, leaving
-the hook untouched while the run reports fine.
-
-```bash
-awk -v f=templates/pre-push-branch-guard.sh '
-  /^# >>> iso-init-repo branch guard >>>$/ { while ((getline l < f) > 0) print l; close(f); skip=1; next }
-  /^# <<< iso-init-repo branch guard <<<$/ { skip=0; next }
-  !skip
-' .githooks/pre-push > .githooks/pre-push.new \
-  && mv .githooks/pre-push.new .githooks/pre-push
-```
-
-The template carries its own markers, so this re-emits them — run it any number
-of times and the file is byte-identical after the first.
-
-**Hook exists, no markers** → insert the block *before* the `rc` summary. It must
-land ahead of whatever reads `$rc`, or it sets a variable nothing looks at again.
-Anchor on the summary `if`; fall back to before the final `exit` and say so.
-
-```bash
-anchor=$(grep -n '^if \[ "\$rc" -ne 0 \]' .githooks/pre-push | head -1 | cut -d: -f1)
-[ -n "$anchor" ] || { anchor=$(grep -n '^exit ' .githooks/pre-push | tail -1 | cut -d: -f1)
-                      echo "⚠ no rc summary found — inserting before final exit"; }
-[ -n "$anchor" ] || { echo "✗ cannot find an insertion point; add the block by hand"; exit 1; }
-{ head -n $((anchor - 1)) .githooks/pre-push
-  cat templates/pre-push-branch-guard.sh; echo
-  tail -n +"$anchor" .githooks/pre-push
-} > .githooks/pre-push.new && mv .githooks/pre-push.new .githooks/pre-push
-```
-
-Then, in all three cases:
-
-```bash
-chmod +x .githooks/pre-push
-
-# Per-clone, NOT committed, NOT automatic. Without this git ignores .githooks/
-git config core.hooksPath .githooks
-```
+One command, three cases: no hook yet (write header, guard, rc summary), a hook
+carrying the `# >>> iso-init-repo branch guard >>>` markers (replace between
+them), or someone else's hook with no markers (splice the guard in above the rc
+summary, or above the final `exit` if there is none). It also sets
+`core.hooksPath`, without which git ignores `.githooks/` entirely and the hook
+just written protects nothing.
 
 ### Verify the hook actually refuses
 
@@ -333,14 +288,12 @@ executable, block landed after the `exit`. All of those exit 0 and produce a
 guard that guards nothing, discovered on the one day it mattered. Test-fire it:
 
 ```bash
-SHA=$(git rev-parse HEAD)
-printf 'refs/heads/prod %s refs/heads/prod %s\n' "$SHA" "$SHA" \
-  | .githooks/pre-push origin "$(git remote get-url origin)" >/dev/null 2>&1 \
-  && { echo "✗ hook did not refuse a push to prod"; exit 1; }
-[ "$(git config core.hooksPath)" = .githooks ] \
-  || { echo "✗ core.hooksPath not set — git will ignore this hook"; exit 1; }
-echo "✓ hook refuses prod, hooksPath set"
+scripts/init-repo.sh verify-hook
 ```
+
+It feeds the hook a push to production and fails if the hook allows it, then
+checks `core.hooksPath` — a hook that is perfectly correct and never consulted
+fails the same way as one that is wrong.
 
 Leave it uncommitted, same as Step 3:
 
@@ -374,11 +327,11 @@ would not stop the merge.
 workflow (not the workflow name), so read it back out of the file just installed:
 
 ```bash
-CONTEXT=$(awk '/^jobs:/{f=1} f && /^ {4}name:/{sub(/^ *name: */,""); print; exit}' \
-          .github/workflows/ci-branch-gate.yml)
-[ -n "$CONTEXT" ] || { echo "✗ could not read job name from ci-branch-gate.yml"; exit 1; }
-echo "gate context: $CONTEXT"
+CONTEXT=$(scripts/init-repo.sh gate-context)
 ```
+
+Read from the workflow, never retyped: a job name written twice is a job name
+that drifts, and the drift shows up as a branch nobody can merge into.
 
 Rename the job later and a re-run re-syncs protection to the new name, because
 the comparator below reads a mismatch and repairs it.
@@ -408,27 +361,15 @@ are neither read nor written.
 
 # prod and test are gated on the workflow; dev requires a PR but gates no source.
 # All three are equally PR-only — only the SOURCE differs.
-for b in prod test dev; do
-  want="$CONTEXT"
-  [ "$b" = dev ] && want=""
-
+DEVELOPMENT=$(scripts/init-repo.sh branches | head -1)
+for b in $(scripts/init-repo.sh branches); do
+  want="$CONTEXT"; [ "$b" = "$DEVELOPMENT" ] && want=""
   if ! needs_apply "$b" "$want"; then
     echo "⏭️ $b protection already correct"
     continue
   fi
-
-  if [ -n "$want" ]; then
-    checks=$(jq -n --arg c "$want" '{strict:false, contexts:[$c]}')
-  else
-    checks=null
-  fi
-
-  jq -n --argjson checks "$checks" '{
-    required_status_checks: $checks,
-    enforce_admins: false,
-    required_pull_request_reviews: { required_approving_review_count: 0 },
-    restrictions: null
-  }' | gh api "repos/$REPO/branches/$b/protection" --method PUT --input -
+  scripts/init-repo.sh protection-json "$b" \
+    | gh api "repos/$REPO/branches/$b/protection" --method PUT --input -
 done
 ```
 
@@ -441,8 +382,9 @@ how the `null` bug survived. Re-run the comparator against what GitHub now
 reports, and only then claim success:
 
 ```bash
-for b in prod test dev; do
-  want="$CONTEXT"; [ "$b" = dev ] && want=""
+DEVELOPMENT=$(scripts/init-repo.sh branches | head -1)
+for b in $(scripts/init-repo.sh branches); do
+  want="$CONTEXT"; [ "$b" = "$DEVELOPMENT" ] && want=""
   needs_apply "$b" "$want" \
     && { echo "✗ $b protection did not take effect"; exit 1; } \
     || echo "✓ $b verified"

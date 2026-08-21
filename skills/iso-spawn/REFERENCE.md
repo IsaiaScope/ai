@@ -43,7 +43,7 @@ The tab survives with only the agent pane. Caveats:
 | `agent_name_taken` | name already used by a live/idle agent | auto-suffixed (`codex`, `codex-2`, …) by the script |
 | `pane_not_found` / `tab_not_found` | the tab self-closed when its only agent exited | re-list (`herdr agent list`), respawn |
 | spawn denied by classifier | auto-mode safety gate on `--dangerously-*` | **turn auto-mode OFF** — allowlisting alone does NOT pass the classifier; or use `--safe` |
-| first prompt swallowed | sent keys into an unrecognised trust modal | check `$CWD/.iso/logs/spawn/<date>__<agent>__<name>__<term>.log`: `injects:0` + a modal on screen = add its pattern |
+| first prompt swallowed | sent keys into an unrecognised trust modal | check `$CWD/docs/iso/logs/spawn/<date>__<agent>__<name>__<term>.log`: `injects:0` + a modal on screen = add its pattern |
 | prompt never lands / worker died | a `set -e` abort or lost prompt in the detached worker | `cat` the worker log (xtrace) — the failing command is the last line before EOF |
 
 ## Delivery model (async by default)
@@ -81,7 +81,7 @@ stream assignment is **not** safe to change casually. The contract is covered by
 
 ### The `.spawn` sidecar (one file per spawn)
 
-`<cwd>/.iso/logs/spawn/<date>__<agent>__<name>__<TERM>.spawn` holds two regions:
+`<cwd>/docs/iso/logs/spawn/<date>__<agent>__<name>__<TERM>.spawn` holds two regions:
 - **meta** (always, both `--wait` and background): `term=`, `agent=`, `cwd=`, `slug=`
   (claude), `pre=` (the candidate transcript set snapshotted before `agent start`), and
   `session_file=` (the resolved transcript, appended by `__deliver` after the agent boots).

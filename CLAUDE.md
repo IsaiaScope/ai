@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 node scripts/install.js
 ```
 
-Copies `config/CLAUDE.md` → `~/CLAUDE.md` and `config/AGENTS.md` → `~/.codex/AGENTS.md`, installs upstream skill packs via `npx skills@latest`, and symlinks the local `IsaiaScope/ai` skills directly into both supported agents' skills dirs (Claude-side → `~/.claude/skills/`, Codex-side → `~/.codex/skills/`). No build step, no tests, no package.json.
+Copies `config/CLAUDE.md` → `~/CLAUDE.md` and `config/AGENTS.md` → `~/.codex/AGENTS.md`, installs upstream skill packs via `npx skills@latest`, symlinks the local `IsaiaScope/ai` skills directly into both supported agents' skills dirs (Claude-side → `~/.claude/skills/`, Codex-side → `~/.codex/skills/`), and owns the tracker's two hooks in `~/.claude/settings.json` (see `scripts/agent-hooks.js`). No build step, no package.json. Tests are ad hoc: `node --test scripts/*.test.js` for the JS, `bash <skill>/scripts/*.test.sh` for the shell.
 
 ## Architecture
 
@@ -17,6 +17,8 @@ config/
   CLAUDE.md   — global Claude Code instructions (copied to ~/CLAUDE.md on install)
   AGENTS.md   — global Codex instructions (copied to ~/.codex/AGENTS.md on install)
 skills/                            — prefix routes each skill to a marketplace plugin (iso-* → eng, social-* → social)
+  iso-config/SKILL.md              — the Iso config every iso-* skill reads
+  iso-tracking/SKILL.md            — work tracker, reached through a swappable adapter
   iso-ai-init/SKILL.md             — initialize a repo with IsaiaScope AI defaults
   iso-init-repo/SKILL.md           — initialize repo governance (branches, CI, hooks)
   iso-plan/SKILL.md                — planning pipeline orchestrator
@@ -28,6 +30,8 @@ skills/                            — prefix routes each skill to a marketplace
   social-new-notebooklm-project/SKILL.md — research-first NotebookLM prep for a new video
 scripts/
   install.js                        — deploys config files + installs skill packs globally
+  agent-hooks.js                    — writes the tracker hooks into ~/.claude/settings.json (list: skills/iso-tracking/scripts/hooks.json)
+  dispatch-integrity.test.sh        — every verb a script dispatches must resolve to a defined function
 .claude-plugin/
   marketplace.json                  — Claude marketplace catalog (2 plugins → ./plugins/<name>)
 .agents/plugins/
@@ -57,7 +61,12 @@ The local `IsaiaScope/ai` skills are NOT installed via the marketplace pack. `sc
 1. Create `skills/<name>/SKILL.md`
 2. Re-run `node scripts/install.js`
 
-The skill set is derived from the filesystem: `scripts/install.js` scans `skills/*/SKILL.md`, symlinks each into both agents, **routes it to a plugin by name prefix** (`iso-` → `isaiascope-eng`, `social-` → `isaiascope-social`; see `PLUGINS` in `scripts/skills-manifest.js`), and regenerates that plugin's `.claude-plugin/plugin.json` + its private `skills/` symlink dir. There is no list to maintain — a directory with a `SKILL.md` is a skill, and its prefix picks the plugin. Commit the regenerated `plugin.json` diffs.
+The skill set is derived from the filesystem: `scripts/install.js` scans `skills/*/SKILL.md`, symlinks each into both agents, **routes it to a plugin by name prefix** (`iso-` → `isaiascope-eng`, `social-` → `isaiascope-social`; see `PLUGINS` in `scripts/skills-manifest.js`), and regenerates that plugin's `.claude-plugin/plugin.json` + its private `skills/` symlink dir. There is no list to maintain — a directory with a `SKILL.md` is a skill, and its prefix picks the plugin.
+
+A skill that needs configuration sources `iso-config/scripts/lib/config.sh` through
+`iso_sibling`, never through an absolute `$HOME` path — `$HOME/.claude/skills/…`
+resolves under exactly one of the four install topologies and is silently wrong
+under the other three. Commit the regenerated `plugin.json` diffs.
 
 Marketplace manifests need **no** edit when adding a skill: each Codex plugin declares `skills: "./skills/"` (whole-dir, auto-globbed over that plugin's private `plugins/<name>/skills/` dir), and only the Claude `plugin.json` arrays are regenerated. `install.js` rebuilds each plugin's per-skill symlinks (and prunes stale ones) on every run. A skill whose prefix matches no plugin is **not packaged** — `install.js` logs it as unrouted; add a new entry to `PLUGINS` to introduce a new prefix/plugin.
 
@@ -90,3 +99,17 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `IsaiaScope/ai`, driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.

@@ -25,7 +25,7 @@ transcript_known_logdirs() {
   idx=$(transcript_logdir_index)
   {
     [ -n "${ISO_SPAWN_LOGDIR:-}" ] && printf '%s\n' "$ISO_SPAWN_LOGDIR"
-    printf '%s\n' "./.iso/logs/spawn"
+    printf '%s\n' "./$(iso_config_get paths.artifacts)/spawn"
     printf '%s\n' "${TMPDIR:-/tmp}"
     [ -f "$idx" ] && cat "$idx"
   } | awk 'NF && !seen[$0]++'
@@ -56,16 +56,27 @@ transcript_diff_new() { # $1=agent $2=cwd $3=pre(newline-joined)
     | sort -rn | head -1 | cut -f2-
 }
 
+# Sidecars are tracked in git, so they must not carry the author's home path.
+# ponytail: leading-$HOME only. A path with $HOME in the middle is not a case
+# that occurs here, and matching it would risk mangling ordinary strings.
+iso_tildify() {
+  case "$1" in
+    "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;;
+    "$HOME")   printf '~' ;;
+    *)         printf '%s' "$1" ;;
+  esac
+}
+
 # Write the .spawn meta block. deliver_worker later appends `session_file=`.
 transcript_write_meta() { # $1=spawnfile $2=term $3=agent $4=cwd $5=pre(newline-joined)
   {
     echo "[meta]"
     echo "term=$2"
     echo "agent=$3"
-    echo "cwd=$4"
+    echo "cwd=$(iso_tildify "$4")"
     [ -n "$(agentkind_slug_needed "$3")" ] && echo "slug=$(transcript_slug "$4")"
     if [ -n "$5" ]; then
-      while IFS= read -r p; do [ -n "$p" ] && echo "pre=$p"; done <<< "$5"
+      while IFS= read -r p; do [ -n "$p" ] && echo "pre=$(iso_tildify "$p")"; done <<< "$5"
     fi
   } > "$1"
 }

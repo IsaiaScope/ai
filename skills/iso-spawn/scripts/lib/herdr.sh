@@ -3,6 +3,28 @@
 # a caller running under `set -euo pipefail`. Assumes the caller set pipefail.
 
 # Extract a value from herdr JSON on stdin by a ["a"]["b"][0] path.
+_H_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$_H_HERE/../../../iso-config/scripts/lib/sibling.sh"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/config.sh)"
+# the install hint lives in prereq.sh, which config.sh does not pull in
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/prereq.sh)"
+
+TERMINAL=$(iso_config_get terminal.kind)
+
+# Called at the point of use, not at source time: the test suite sources this
+# file and must not need a terminal to do it.
+# ponytail: checks that the binary exists, nothing more. Every wrapper below
+# speaks herdr's CLI, so a different terminal needs an adapter the way the
+# tracker got one -- not a rename of the binary.
+terminal_require() {
+  command -v "$TERMINAL" >/dev/null 2>&1 && return 0
+  printf 'iso-spawn: %s not found -- %s\n' "$TERMINAL" "$(iso_prereq_hint "$TERMINAL")" >&2
+  return 1
+}
+
 herdr_jget() {
   python3 -c 'import json,sys,re
 d=json.load(sys.stdin); cur=d

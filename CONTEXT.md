@@ -51,3 +51,15 @@ Glossary of canonical terms for this repo. Definitions only — no implementatio
 **Fleet** — the set of Hetzner servers this machine knows how to reach, described by the `fleet` section of the Hetzner config: a default server name, inherited defaults, and one entry per server. `hetzner-create` adds entries, `hetzner-delete` prunes them, `hetzner-ssh` reads them. _Avoid_: roster, inventory.
 
 **Software registry** — the `software` section of the Hetzner config: one entry per self-hosted app, each naming the fleet server it runs on plus the commands to read, upgrade, back up, and verify its version. Read by `hetzner-update`. _Avoid_: app registry, software.json.
+
+**Iso config** — the merged view of the two configuration scopes that every `iso-*` skill reads. Not either file on its own: a value has no meaning until both scopes have been consulted. Carries no secrets. _Avoid_: the config file (singular), iso.json, settings.
+
+**Config scope** — one of the two layers the Iso config is merged from: **global** (`~/.config/iso/iso.json`) describes the person and their machine; **repo** describes one repository. Repo wins per key, never per file. A repo scope may only carry `branches` and `paths` — letting it name the tracker or the identity would mean cloning a repository silently redirects where work is filed. _Avoid_: local config, user config, level.
+
+**Overlay** — the repo config scope: a sparse document holding only the keys that differ from global, and a complete valid document at any size. An unknown or misspelled key is a hard error, never a silent fall-through to global. _Avoid_: partial config, patch, fragment.
+
+**Prerequisite** — an external binary a skill shells out to, classified by what can be done when it is absent: **auto** (installable without asking — `jq`, `gh`, `multica`), **manual** (the steps are printed for a human to run — `codex`, `claude`), **hard-cut** (no install path exists, so the skill stops — `herdr`). The classification, not the binary, is what the code branches on. _Avoid_: dependency, requirement.
+
+**Readiness stamp** — the record in the global config that the prerequisite sweep passed, carrying the time it ran and the prerequisite-list version it ran against. Skills trust the stamp instead of re-probing; a version bump invalidates it, so adding a prerequisite re-triggers the check without anyone remembering to. _Avoid_: ready flag, health check, cache.
+
+**Run artifact** — per-run output written under `docs/iso/logs/`: review transcripts, spawn sidecars, blocked markers. Distinct from config in lifetime and in ownership — a run writes it, no human edits it. _Avoid_: log, output, temp file.

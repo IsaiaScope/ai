@@ -5,7 +5,7 @@ rv_exclude_runtime_logs() {
   local exclude
   exclude=$(git rev-parse --git-path info/exclude 2>/dev/null) || return 0
   mkdir -p "$(dirname "$exclude")"
-  grep -qxF '.iso/logs/' "$exclude" 2>/dev/null || printf '\n.iso/logs/\n' >> "$exclude"
+  grep -qxF 'docs/iso/logs/' "$exclude" 2>/dev/null || printf '\ndocs/iso/logs/\n' >> "$exclude"
 }
 
 rv_preflight() {
@@ -29,8 +29,15 @@ rv_detect_test_cmd() {  # prints a runnable test command, or nothing
 SPAWN="${SPAWN:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../iso-spawn/scripts" && pwd)/spawn.sh}"
 
 # Scratch + handoff dir (transcripts, accepted-fixes.md, .spawned-terms, stderr). Co-located with iso-spawn's
-# logs at .iso/logs/spawn so all iso-* run artifacts live under .iso/logs. Single source of truth.
-RV_OUTDIR="${RV_OUTDIR:-.iso/logs/review}"
+# logs at docs/iso/logs/spawn so all iso-* run artifacts live under docs/iso/logs. Single source of truth.
+_ISO_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$_ISO_HERE/../../../iso-config/scripts/lib/sibling.sh"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/config.sh)"
+ISO_ARTIFACTS=$(iso_config_get paths.artifacts)
+
+RV_OUTDIR="${RV_OUTDIR:-$ISO_ARTIFACTS/review}"
 
 # Reuse iso-spawn's status reader so iso-review and iso-spawn agree on agent states (incl. `done`).
 ISO_SPAWN_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../iso-spawn/scripts/lib" 2>/dev/null && pwd)"
