@@ -11,6 +11,7 @@ LIBDIR="$SELFDIR/lib"
 . "$LIBDIR/agentkind.sh"
 . "$LIBDIR/transcript.sh"
 . "$LIBDIR/herdr.sh"
+ISO_ARTIFACTS=$(iso_config_get paths.artifacts)
 . "$LIBDIR/wait.sh"
 . "$LIBDIR/deliver.sh"
 . "$LIBDIR/cleanup.sh"
@@ -211,6 +212,7 @@ done
 LABEL="${LABEL:-$TYPE}"; NAMEBASE="${NAMEBASE:-$TYPE}"
 
 # 1. Resolve the caller's pane -> workspace (focus-proof anchor) AND its cwd (default working dir).
+terminal_require || exit 1
 CTX=$(herdr_caller_context) || { echo "error: \$HERDR_PANE_ID unset or unresolvable — run inside a herdr pane" >&2; exit 1; }
 WS=${CTX%%$'\t'*}; CALLER_CWD=${CTX#*$'\t'}
 [ -n "$CWD" ] || CWD="$CALLER_CWD"
@@ -264,7 +266,7 @@ fi
 
 # 7. Sidecar: write meta.
 LOGDIR="${TMPDIR:-/tmp}"
-if [ -n "$CWD" ] && mkdir -p "$CWD/.iso/logs/spawn" 2>/dev/null; then LOGDIR="$CWD/.iso/logs/spawn"; fi
+if [ -n "$CWD" ] && mkdir -p "$CWD/$ISO_ARTIFACTS/spawn" 2>/dev/null; then LOGDIR="$CWD/$ISO_ARTIFACTS/spawn"; fi
 AGENTLABEL=$(agentkind_label "$TYPE")
 SPAWNFILE="$LOGDIR/$(date +%Y%m%d-%H%M%S)__${AGENTLABEL}__${NAME}__${ATERM}.spawn"
 transcript_record_logdir "$LOGDIR"

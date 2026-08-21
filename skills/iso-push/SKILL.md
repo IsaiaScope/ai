@@ -31,9 +31,52 @@ branch to land, and `dev` cannot open a PR into itself.
 
 | you are on | `--cascade` | `--cascade --pr` |
 |---|---|---|
-| `dev` / `develop` | ✅ the right place | ❌ refused |
+| `dev` / `develop` | ✅ the right place | ❌ refused, or rescued¹ |
 | a feature branch | ❌ refused, "add `--pr`" | ✅ the right place |
-| `test` / `prod` | ❌ refused | ❌ refused |
+| `test` / `prod` | ❌ refused, or rescued¹ | ❌ refused, or rescued¹ |
+
+¹ **A protected branch carrying its own commits is rescued, not refused.**
+
+A commit made while standing on `dev`, `test` or `prod` is stranded: iso-push
+cannot push those branches, and a cascade promotes `origin/*` and so never sees
+it. The only way out used to be a hand-typed `git reset --hard` at the end of a
+working session, which is the worst possible moment to improvise one.
+
+So preflight names a branch after the work, moves the commits onto it, resets
+the protected branch back to its remote, and leaves you on the new branch. The
+run then continues normally — `preflight` echoes the *new* branch, so every
+later step sees it.
+
+The name comes from the **oldest** commit above the base, read as a
+conventional subject — the one that started the work, not whatever you happened
+to commit last:
+
+| subject | branch |
+|---|---|
+| `feat(wiki)!: add note and supersede, delete destroys bytes` | `feat/wiki-add-note-and-supersede-delete-destroys` |
+| `fix: reject tokens with a future iat` | `fix/reject-tokens-with-a-future-iat` |
+| `random subject with no type at all` | `chore/random-subject-with-no-type-at-all` |
+
+An unrecognised type becomes `chore/`, which is what the version bump would
+treat it as anyway — the branch name agrees with what the release will do
+rather than guessing something prettier. The slug is cut at a word boundary at
+48 characters, never mid-word.
+
+On `test` or `prod` this is also the documented remedy for an environment
+defect: the stray commit lands on a feature branch whose base is `dev`, which
+is exactly where step 1 says to get it.
+
+Two states are still refused:
+
+- **Dirty tree.** The move ends in `git reset --hard`, which would discard
+  uncommitted work. Commit or stash first.
+- **The target branch already exists.** Check it out and merge, or rename it.
+
+The branch is created **before** the reset, so every commit is reachable from a
+second ref before anything moves. A failure between the two steps loses nothing.
+
+A protected branch with no commits of its own is refused exactly as before —
+there is nothing to move, and the invocation is simply wrong.
 
 **After anything lands, you end up on the base.** A merged feature branch is a
 dead lane — GitHub will never move it again, so a commit made there starts a
@@ -130,6 +173,13 @@ a branch tip that a PR and CI have already passed.
    `--cascade` additionally verifies `test` and `prod` carry no work of their
    own. Echoes `<branch> <base>` — for a pure cascade both fields are the base,
    which is expected.
+
+   **This step can move you.** If it rescues commits off a protected branch it
+   creates a branch, resets that branch to its remote and checks the new one
+   out, then echoes the new name. Read the branch it echoes rather than the one
+   you started on — it is the only step in the flow that writes to the working
+   tree before you have approved anything, and it does so precisely because the
+   alternative is stopping with no way forward.
 
    Merge nodes left by past promotions are expected and allowed. What is refused
    is a **non-merge** commit on `test` or `prod` that its upstream lacks — a
@@ -245,6 +295,46 @@ a branch tip that a PR and CI have already passed.
    `integrate` refuses if the base moved while CI ran. That is not an error to
    work around: go back to step 3, rebase, and re-run. The branch is never
    deleted.
+
+   **Then write the retro and close the card.** This is the one moment where
+   "it shipped" and "someone still remembers why" overlap: commits carry the
+   decisions, but the transcript carries the problems, and it is gone by the
+   time the reconciler next runs. Guarded, and never allowed to fail the push:
+
+   ```bash
+   # Resolve the tracking script from this skill's own location. Task 12/13 move
+   # this into a real script, where BASH_SOURCE anchors it; until then a failed
+   # resolve must leave S empty, never error — tracking may not fail the run.
+   _sib="$(dirname "${BASH_SOURCE[0]:-$0}")/../../iso-config/scripts/lib/sibling.sh"
+   # shellcheck source=/dev/null
+   [ -f "$_sib" ] && . "$_sib"
+   S=$(iso_sibling iso-tracking scripts/tracking.sh 2>/dev/null) || S=""
+   [ -x "$S" ] && printf '%s\n' \
+     '🏁 **Landed** · PR [#42](url)' \
+     'Swapped the polling loop for a webhook receiver.' \
+     '- 🔀 started on cron every 30s, dropped events under load, moved to a webhook' \
+     '- 🐛 signature check failed on replays — clock skew, widened tolerance to 5m' \
+     '- ⚠️ retry backoff is still fixed, not exponential' \
+     | "$S" retro "<branch>"
+   ```
+
+   `retro` posts stdin as one comment on the card and then sets it `done`. It
+   resolves the card from the branch, so nothing here needs the plan path.
+
+   **Format.** A line only for something that actually happened. A clean run is
+   two lines and no list at all. Cap it at ~6 lines or 60 words — the card is
+   not a work log. The emoji marks the kind:
+
+   | emoji | means |
+   |---|---|
+   | 🔀 | a change of direction |
+   | 🐛 | a problem hit on the way |
+   | ⚠️ | a known gap left behind |
+   | 💡 | something discovered |
+
+   The reconciler still closes rows for merges made outside a session — it just
+   posts no retro, because it genuinely does not know the story. That fallback
+   stays.
 
 7. **Cascade** — only with `--cascade`.
 

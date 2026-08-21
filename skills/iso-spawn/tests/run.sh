@@ -428,4 +428,35 @@ assert_eq "slug_needed codex"      "$(agentkind_slug_needed codex)"      ""
 assert_eq "root codex honors env"  "$(ISO_CODEX_SESS=/tmp/cx agentkind_root codex)"   "/tmp/cx"
 assert_eq "root claude honors env" "$(ISO_CLAUDE_PROJ=/tmp/cl agentkind_root claude)" "/tmp/cl"
 
+# --- agent data from config ---------------------------------------------------
+AGENTKIND="$HERE/../scripts/lib/agentkind.sh"
+_g=$(mktemp -d)/iso.json; mkdir -p "$(dirname "$_g")"
+printf '%s\n' '{"agents":{"codex":{"sessions":"/tmp/sess"}}}' > "$_g"
+assert_eq "config sets codex sessions dir" \
+  "$( ISO_GLOBAL_CONFIG="$_g" bash -c ". $AGENTKIND; agentkind_root codex" )" "/tmp/sess"
+assert_eq "codex sessions default" \
+  "$( ISO_GLOBAL_CONFIG=/nonexistent bash -c ". $AGENTKIND; agentkind_root codex" )" "$HOME/.codex/sessions"
+assert_eq "claude perm flag from config" \
+  "$( ISO_GLOBAL_CONFIG=/nonexistent bash -c ". $AGENTKIND; agentkind_perm_argv claude" )" \
+  "--dangerously-skip-permissions"
+# The env override predates the config and still wins: anything already setting
+# it must keep working.
+assert_eq "env still beats config" \
+  "$( ISO_CODEX_SESS=/tmp/env ISO_GLOBAL_CONFIG="$_g" bash -c ". $AGENTKIND; agentkind_root codex" )" "/tmp/env"
+
+
+# --- sidecar home redaction ---------------------------------------------------
+TRANSCRIPT="$HERE/../scripts/lib/transcript.sh"
+assert_eq "home becomes tilde" \
+  "$(HOME=/Users/x bash -c ". $AGENTKIND; . $TRANSCRIPT; iso_tildify /Users/x/.codex/sessions/a.jsonl")" \
+  "~/.codex/sessions/a.jsonl"
+assert_eq "other paths untouched" \
+  "$(HOME=/Users/x bash -c ". $AGENTKIND; . $TRANSCRIPT; iso_tildify /tmp/a.jsonl")" "/tmp/a.jsonl"
+assert_eq "home as substring untouched" \
+  "$(HOME=/Users/x bash -c ". $AGENTKIND; . $TRANSCRIPT; iso_tildify /Users/xyz/a")" "/Users/xyz/a"
+# the round trip is what matters: readers expand it back
+assert_eq "tilde expands back" \
+  "$(HOME=/Users/x bash -c 'v="~/.codex/s"; printf "%s" "${v/#\~/$HOME}"')" "/Users/x/.codex/s"
+
+
 exit $fail

@@ -10,14 +10,39 @@
 # atomically by the remote instead of by this script guessing beforehand.
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$HERE/../../iso-config/scripts/lib/sibling.sh"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/config.sh)"
+
 die() { printf 'iso-push: %s\n' "$1" >&2; exit 1; }
+
+# Branch vocabulary. Read once — every lookup is a jq pass, and this file runs
+# dozens of them per invocation otherwise.
+DEVELOPMENT=$(iso_config_get branches.development)
+TEST_BRANCH=$(iso_config_get branches.test)
+PRODUCTION=$(iso_config_get branches.production)
+PROTECTED=$(iso_config_get branches.protected)
+PR_BASE=$(iso_config_get branches.pr_base)
+
+cmd_development_branch() { printf '%s\n' "$DEVELOPMENT"; }
+
+# A flat membership test against branches.protected. push.sh's own gate is
+# role-specific (production refuses, development has a cascade exemption), so
+# this is for callers that only need "may I work here?".
+is_protected() {
+  local b
+  for b in $PROTECTED; do [ "$b" = "$1" ] && return 0; done
+  return 1
+}
 
 # --------------------------------------------------------------------- base
 # The integration branch a feature PR targets. dev wins when both exist.
 # Hard requirement: no dev/develop means this repo has no governance layout.
 cmd_base() {
   local b
-  for b in dev develop; do
+  for b in "$DEVELOPMENT" develop; do
     if git ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1; then
       printf '%s\n' "$b"; return 0
     fi
@@ -76,6 +101,84 @@ assert_no_own_work() {
 # ---------------------------------------------------------------- preflight
 # Repo? On a branch? Not on a protected one? gh usable? Cascade branches present
 # AND still linear? Echoes "<branch> <base>".
+
+# Derive <type>/<slug> from the work that has to move off a protected branch.
+#
+# Named from the OLDEST commit above the base, not the newest: it is the one
+# that started the branch, and a branch named after the last thing you happened
+# to commit reads wrong the moment there are two.
+#
+# Same shape iso-write derives from a plan filename, for the same reason — a
+# name you did not choose is a name you do not argue with, and every branch in
+# the repo then sorts by type.
+branch_name_from() {   # <base> -> <type>/<slug>
+  local base="$1" subject type scope msg slug
+  subject=$(git log --format=%s --no-merges "origin/$base..HEAD" 2>/dev/null | tail -1)
+  [ -n "$subject" ] || return 1
+
+  type=$(printf '%s' "$subject" | sed -n 's/^\([a-z][a-z]*\)[(!:].*/\1/p')
+  case "$type" in
+    feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert) ;;
+    # Not a conventional subject. chore is the honest answer: it is what the
+    # version bump would treat it as anyway, so the branch name agrees with what
+    # the release will do rather than guessing something prettier.
+    *) type=chore ;;
+  esac
+
+  scope=$(printf '%s' "$subject" | sed -n 's/^[a-z][a-z]*(\([^)]*\)).*/\1/p')
+  msg=$(printf '%s' "$subject" | sed 's/^[^:]*: *//')
+
+  slug=$(printf '%s-%s' "$scope" "$msg" | tr '[:upper:]' '[:lower:]' \
+         | sed 's/[^a-z0-9]\{1,\}/-/g; s/^-*//; s/-*$//')
+
+  # Cut at a word boundary, never mid-word: a branch ending in `destro` invites
+  # someone to wonder whether it was truncated or misspelled.
+  if [ ${#slug} -gt 48 ]; then
+    slug=$(printf '%s' "$slug" | cut -c1-48 | sed 's/-[^-]*$//')
+  fi
+  [ -n "$slug" ] || slug=work
+
+  printf '%s/%s\n' "$type" "$slug"
+}
+
+# Move commits off a protected branch onto a feature branch named after them.
+#
+# iso-push cannot push dev, test or prod — GitHub is their only writer — so a
+# commit made while standing on one is stranded: not pushable from where it is,
+# and invisible to a cascade, which promotes origin/* and never sees it. The
+# refusal that used to happen here was correct and useless, because the only
+# way forward was a `git reset --hard` typed by hand, which is exactly the
+# operation nobody should be improvising at the end of a working session.
+#
+# ORDER IS THE SAFETY. The branch is created first, so every commit is
+# reachable from a second ref before the reset moves anything. A reset that
+# fails, or a terminal that dies between the two, leaves the work on the new
+# branch either way.
+#
+# Refuses a dirty tree outright. --hard discards uncommitted changes and this
+# function runs without being asked, so the one state where it could destroy
+# something it cannot recreate is the one state it will not run in.
+rescue_to_branch() {   # <protected-branch> -> echoes the new branch name
+  local prot="$1" new
+
+  [ -z "$(git status --porcelain)" ] \
+    || die "'$prot' carries commits that have to move to a feature branch, but the working tree is dirty.
+       Moving them resets '$prot' to origin/$prot, which would discard those changes.
+       Commit or stash them, then run again."
+
+  new=$(branch_name_from "$prot") \
+    || die "cannot name a branch: no non-merge commit above origin/$prot"
+
+  ! git rev-parse --verify --quiet "$new" >/dev/null \
+    || die "would move the work to '$new', but that branch already exists.
+       Check it out and merge, or rename it, then run again."
+
+  git branch "$new"                      # reachable from two refs before anything moves
+  git reset --hard "origin/$prot" >&2
+  git checkout "$new" >&2
+  printf '%s\n' "$new"
+}
+
 cmd_preflight() {
   local want_cascade= want_pr=
   while [ $# -gt 0 ]; do
@@ -107,12 +210,37 @@ cmd_preflight() {
   # branch is being landed and dev is wrong; no --pr means dev is the only right
   # place. `set -e` is why these are `if` blocks and not `&&` chains inside the
   # case — an arm ending in a false test would exit the script.
+  # A protected branch carrying its own commits is now RESCUED rather than
+  # refused: rescue_to_branch names a branch after the work and moves it there.
+  # See that function for why, and for the two states it still refuses in.
+  #
+  # `local` is deliberately not used for `branch` below — it is reassigned to
+  # whatever we were moved onto, and everything after this point (cmd_base, the
+  # echo at the end, and every caller reading that echo) has to see the new one.
   case "$branch" in
-    test|prod)
-      die "on protected branch '$branch' — iso-push runs from a feature branch" ;;
-    dev|develop)
+    "$TEST_BRANCH"|"$PRODUCTION")
+      # No cascade exemption here, unlike dev. A cascade promotes INTO test and
+      # prod, so standing on one is never the right place to drive a run from —
+      # and a commit made there is the environment defect the later check
+      # refuses anyway. Moving it to a feature branch is the documented remedy
+      # for that defect, so doing it here just means it happens before the
+      # refusal instead of after.
+      if [ -n "$(git log --format=%H "origin/$branch..HEAD" 2>/dev/null)" ]; then
+        branch=$(rescue_to_branch "$branch")
+      else
+        die "on protected branch '$branch' — iso-push runs from a feature branch"
+      fi ;;
+    "$DEVELOPMENT"|develop)
       if [ -z "$want_cascade" ] || [ -n "$want_pr" ]; then
-        die "on protected branch '$branch' — iso-push runs from a feature branch, except for a pure cascade (--cascade with no --pr), which promotes '$branch' as it stands"
+        # Commits sitting here are stranded: unpushable from dev, and invisible
+        # to a cascade, which reads origin/* only. Move them. With none, the
+        # branch is a faithful copy of the remote and the invocation is simply
+        # wrong — say so, as before.
+        if [ -n "$(git log --format=%H "origin/$branch..HEAD" 2>/dev/null)" ]; then
+          branch=$(rescue_to_branch "$branch")
+        else
+          die "on protected branch '$branch' — iso-push runs from a feature branch, except for a pure cascade (--cascade with no --pr), which promotes '$branch' as it stands"
+        fi
       fi ;;
     *)
       if [ -n "$want_cascade" ] && [ -z "$want_pr" ]; then
@@ -741,16 +869,16 @@ cmd_release() {
 case "${1:-}" in
   preflight) shift; cmd_preflight "$@" ;;
   base)      shift; cmd_base "$@" ;;
+  development-branch) shift; cmd_development_branch "$@" ;;
   status)    shift; cmd_status "$@" ;;
   rebase)    shift; cmd_rebase "$@" ;;
   push)      shift; cmd_push "$@" ;;
   pr)        shift; cmd_pr "$@" ;;
   checks)    shift; cmd_checks "$@" ;;
-  method)    shift; cmd_method "$@" ;;
   integrate) shift; cmd_integrate "$@" ;;
   home)      shift; cmd_home "$@" ;;
   promote)   shift; cmd_promote "$@" ;;
   bump)      shift; cmd_bump "$@" ;;
   release)   shift; cmd_release "$@" ;;
-  *) die "usage: push.sh {preflight|base|status|rebase|push|pr|checks|integrate|home|promote|bump|release} [args]" ;;
+  *) die "usage: push.sh {preflight|base|development-branch|status|rebase|push|pr|checks|integrate|home|promote|bump|release} [args]" ;;
 esac

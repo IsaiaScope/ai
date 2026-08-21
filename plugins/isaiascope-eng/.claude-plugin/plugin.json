@@ -3,14 +3,15 @@
   "skills": [
     "./skills/iso-ai-init",
     "./skills/iso-commit",
+    "./skills/iso-config",
     "./skills/iso-init-repo",
-    "./skills/iso-multica-tracking",
     "./skills/iso-plan",
     "./skills/iso-push",
     "./skills/iso-readme",
     "./skills/iso-review",
     "./skills/iso-spawn",
     "./skills/iso-todo",
+    "./skills/iso-tracking",
     "./skills/iso-write"
   ]
 }
