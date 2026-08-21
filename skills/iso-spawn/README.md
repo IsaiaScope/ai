@@ -127,7 +127,7 @@ herdr agent get <term>                              # one agent's status
 herdr agent wait <term> --status idle --timeout MS  # block on completion
 ```
 
-Each spawn writes a `.spawn` sidecar to `<cwd>/.iso/logs/spawn/<date>__<agent>__<name>__<term>.spawn` — `[meta]` (TERM→transcript mapping, read by `--recover`) plus the delivery `[trace]`.
+Each spawn writes a `.spawn` sidecar to `<cwd>/docs/iso/logs/spawn/<date>__<agent>__<name>__<term>.spawn` — `[meta]` (TERM→transcript mapping, read by `--recover`) plus the delivery `[trace]`.
 
 ---
 

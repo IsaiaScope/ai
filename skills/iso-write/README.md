@@ -74,7 +74,7 @@ Known types: `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `perf`. Used by
 Review the full diff, then commit yourself when satisfied.
 ```
 
-If a task gets stuck (test fails >3×, missing file, ambiguous instruction), it writes `.iso/logs/write/<plan-basename>.blocked.md` (git-ignored, keyed per plan) with what failed and what it tried, then waits for you — still no commit.
+If a task gets stuck (test fails >3×, missing file, ambiguous instruction), it writes `docs/iso/logs/write/<plan-basename>.blocked.md` (git-ignored, keyed per plan) with what failed and what it tried, then waits for you — still no commit.
 
 ---
 

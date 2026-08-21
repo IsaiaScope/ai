@@ -39,8 +39,8 @@ deliver_worker() { # $1=term $2=pane $3=wait $4=wait_ms $5=prompt $6=spawnfile
   if [ -n "$SPAWNFILE" ] && [ -f "$SPAWNFILE" ]; then
     local m_agent m_cwd m_pre a newf
     m_agent=$(transcript_meta_get "$SPAWNFILE" agent)
-    m_cwd=$(transcript_meta_get "$SPAWNFILE" cwd)
-    m_pre=$(transcript_meta_get_all "$SPAWNFILE" pre)
+    m_cwd=$(transcript_meta_get "$SPAWNFILE" cwd); m_cwd="${m_cwd/#\~/$HOME}"
+    m_pre=$(transcript_meta_get_all "$SPAWNFILE" pre); m_pre="${m_pre//$'\n'~\//$'\n'$HOME/}"; m_pre="${m_pre/#\~\//$HOME/}"
     a=$(agentkind_normalize "$m_agent")
     newf=$(transcript_resolve_new "$a" "$m_cwd" "$m_pre" "$PROMPT")
     [ -n "$newf" ] && echo "session_file=$newf" >> "$SPAWNFILE"

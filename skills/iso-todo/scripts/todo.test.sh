@@ -126,7 +126,7 @@ case "$1 $2" in
 esac
 SH
 chmod +x "$tmp/spawn.sh" "$tmp/bin/herdr"
-( cd "$tmp/cwd" && mkdir -p .iso/logs/write && touch .iso/logs/write/2026-01-01-feat-blocked.blocked.md \
+( cd "$tmp/cwd" && mkdir -p docs/iso/logs/write && touch docs/iso/logs/write/2026-01-01-feat-blocked.blocked.md \
   && SPAWN="$tmp/spawn.sh" REVIEW="$tmp/missing-review" PATH="$tmp/bin:$PATH" \
   WAIT_DONE_POLL=0 WAIT_DONE_STEP=1 WAIT_DONE_FAST_IDLE_POLLS=1 "$TODO" run-plan "$plan" >/dev/null 2>&1 )
 assert "todo stops before review when implementation blocked" "[ $? -eq 3 ]"

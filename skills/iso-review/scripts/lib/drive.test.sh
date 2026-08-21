@@ -12,7 +12,7 @@ tmp=$(mktemp -d); ( cd "$tmp" && HERDR_PANE_ID=p_1 rv_preflight >/dev/null 2>&1 
 tmp=$(mktemp -d); ( cd "$tmp" && git init -q && git commit -q --allow-empty -m init && HERDR_PANE_ID=p_1 rv_preflight >/dev/null 2>&1 ); assert "clean-tree rejected" "[ $? -ne 0 ]"
 
 # preflight ignores its own generated runtime logs
-tmp=$(mktemp -d); ( cd "$tmp" && git init -q && git commit -q --allow-empty -m init && mkdir -p .iso/logs/review && echo x > .iso/logs/review/generated.txt && HERDR_PANE_ID=p_1 rv_preflight >/dev/null 2>&1 ); assert "runtime logs do not make tree reviewable" "[ $? -ne 0 ]"
+tmp=$(mktemp -d); ( cd "$tmp" && git init -q && git commit -q --allow-empty -m init && mkdir -p docs/iso/logs/review && echo x > docs/iso/logs/review/generated.txt && HERDR_PANE_ID=p_1 rv_preflight >/dev/null 2>&1 ); assert "runtime logs do not make tree reviewable" "[ $? -ne 0 ]"
 
 # preflight fails without HERDR_PANE_ID
 tmp=$(mktemp -d); ( cd "$tmp" && git init -q && echo x > f && unset HERDR_PANE_ID && rv_preflight >/dev/null 2>&1 ); assert "no-herdr rejected" "[ $? -ne 0 ]"
@@ -183,7 +183,7 @@ tmp=$(mktemp -d)
 rm -rf "$tmp"
 
 # the run-artifact dir is created only when something is actually written into it, so a
-# spawn failure leaves no empty .iso/logs/review behind
+# spawn failure leaves no empty docs/iso/logs/review behind
 tmp=$(mktemp -d)
 (
   RV_OUTDIR="$tmp/out"
@@ -499,5 +499,15 @@ tmp=$(mktemp -d)
   ; [ -f "$tmp/spawned" ] )
 assert "non-empty accepted → spawn invoked" "[ $? -eq 0 ]"
 rm -rf "$tmp"
+
+# artifact root comes from config, default unchanged
+_D="$HERE/drive.sh"
+_g=$(mktemp -d)/iso.json; mkdir -p "$(dirname "$_g")"
+printf '%s\n' '{"paths":{"artifacts":"build/iso"}}' > "$_g"
+_out=$( ISO_GLOBAL_CONFIG="$_g" bash -c ". $_D; printf '%s' \"\$RV_OUTDIR\"" )
+assert "config moves review outdir" '[ "$_out" = "build/iso/review" ]'
+_out=$( ISO_GLOBAL_CONFIG=/nonexistent bash -c ". $_D; printf '%s' \"\$RV_OUTDIR\"" )
+assert "default review outdir" '[ "$_out" = "docs/iso/logs/review" ]'
+
 
 exit $fail
