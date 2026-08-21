@@ -4,14 +4,24 @@
 # Pure constants + normalize; bash 3.2-safe (no associative arrays). Assumes pipefail.
 
 # Normalize a raw type/agent string to the canonical kind.
+_AK_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$_AK_HERE/../../../iso-config/scripts/lib/sibling.sh"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/config.sh)"
+
 agentkind_normalize() { case "$1" in claude*) echo claude;; *) echo codex;; esac; }
 
 # Root dir holding this kind's native JSONL transcripts (env-overridable for tests).
 agentkind_root() { # $1=kind
+  local _d
+  # The env overrides predate the config and still win: anything already
+  # exporting them must keep working.
   case "$(agentkind_normalize "$1")" in
-    claude) printf '%s' "${ISO_CLAUDE_PROJ:-$HOME/.claude/projects}";;
-    *)      printf '%s' "${ISO_CODEX_SESS:-$HOME/.codex/sessions}";;
+    claude) _d="${ISO_CLAUDE_PROJ:-$(iso_config_get agents.claude.sessions)}";;
+    *)      _d="${ISO_CODEX_SESS:-$(iso_config_get agents.codex.sessions)}";;
   esac
+  printf '%s' "${_d/#\~/$HOME}"
 }
 
 # Glob matching this kind's transcript files within its (sub)dir.
@@ -36,7 +46,7 @@ agentkind_label() { # $1=kind
 # argv fragment enabling full permissions for this kind. Single token (caller word-splits safely).
 agentkind_perm_argv() { # $1=kind
   case "$(agentkind_normalize "$1")" in
-    claude) printf '%s' '--dangerously-skip-permissions';;
-    *)      printf '%s' '--dangerously-bypass-approvals-and-sandbox';;
+    claude) iso_config_get agents.claude.full_access;;
+    *)      iso_config_get agents.codex.full_access;;
   esac
 }

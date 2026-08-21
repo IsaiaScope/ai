@@ -5,7 +5,7 @@ description: Planning-only chain. Runs brainstorming → grilling → (prototype
 
 # iso-plan
 
-Take a raw idea and turn it into a written implementation plan by running four skills in order. The only output is the plan file. Nothing is implemented, nothing is committed, no state is tracked. When the plan is written, tell the user where it lives.
+Take a raw idea and turn it into a written implementation plan by running four skills in order. The only artefact is the plan file — nothing is implemented and nothing is committed. The one piece of state it writes is the Multica card that tracks the plan, and only inside a repo. When the plan is written, tell the user where it lives.
 
 ## Pipeline
 
@@ -26,10 +26,9 @@ If the user passed an argument, it is the seed idea — hand it to brainstorming
 
 2. **grilling** (gated) — which grill skill runs depends on where you are. Resolve it with one check, before invoking anything:
 
-   ```bash
-   git rev-parse --git-dir >/dev/null 2>&1 && echo repo || echo no-repo
-   [ -f docs/agents/domain.md ] && echo setup-done || echo setup-missing
-   ```
+```bash
+scripts/plan.sh gate     # -> no-repo | setup-done | setup-missing
+```
 
    | state | action |
    |---|---|
@@ -50,9 +49,9 @@ If the user passed an argument, it is the seed idea — hand it to brainstorming
 
 4. **writing** — before invoking, snapshot the current newest plan so you can tell what's new:
 
-   ```bash
-   before=$(ls -t docs/superpowers/plans/*.md 2>/dev/null | head -1)
-   ```
+```bash
+before=$(scripts/plan.sh newest)
+```
 
    Then invoke `superpowers:writing-plans` to turn the agreed design into a step-by-step plan file.
 
@@ -61,7 +60,7 @@ If the user passed an argument, it is the seed idea — hand it to brainstorming
 `superpowers:writing-plans` saves the plan under `docs/superpowers/plans/`. After it returns, find the newest file and confirm it is actually new:
 
 ```bash
-after=$(ls -t docs/superpowers/plans/*.md 2>/dev/null | head -1)
+after=$(scripts/plan.sh newest)
 ```
 
 If `after` is empty or equals `before`, `writing-plans` produced no new plan — say so and stop; do not render a card for a stale file. Otherwise `after` is the plan to summarize.
@@ -75,7 +74,114 @@ Read that file and extract, for the summary:
 - **Files touched** — any file paths the plan names as created/modified, if listed.
 - **Covers** — 3–6 dots naming what the plan actually delivers. Derive these from the phases and task titles you already read; do not re-read the plan. Write outcomes, not headings retyped — "auth tokens rotate on refresh", not "Phase 2: Auth". Skip pure-chore tasks (rename, tidy, bump). Fewer than 3 real outcomes → list what there is.
 
-Then render a summary card (do not just print the path). Use a left-rule style — a header line with an underline rule, then indented sections. **No right-side border and no box frame** — never pad lines to a fixed width, since that aligns unreliably. Shape:
+## Tracking
+
+Open the Multica card for this plan, before rendering the summary. This is the
+only step in the chain that can judge scopes: a model is live and has just read
+the plan. A `SessionEnd` file scan can count `### Task N:` headings but cannot
+tell `be` from `ci`.
+
+**Guard it.** Run the open only when both hold, and carry on silently when
+either does not — outside a repo there is no project to file against, and a
+missing script is not an error here:
+
+```bash
+S=$(scripts/plan.sh tracker) || S=""   # empty when tracking cannot run
+```
+
+Tracking must never be able to fail a planning run. No card is a small loss; a
+`/iso-plan` that dies because a board was unreachable is a large one.
+
+**One plan, one card.** No sub-issues, no `--parent`. A plan across three scopes
+is one card carrying three scope labels.
+
+**But a card can outlive its plan.** When the first attempt was wrong, or came
+back from review needing a different approach, the second plan is the *same*
+piece of work — so it goes on the same card. Ask before writing:
+
+```bash
+existing=$("$S" card-for-branch)   # "<KEY>\t<status>", or empty
+```
+
+| result | what to do |
+|---|---|
+| empty | `open` — no live card for this branch, this is new work |
+| `FIRE-13\tin_review` | `replan` — attach to that card and send it back to `todo` |
+
+`card-for-branch` only names cards that are still live; `done` and `cancelled`
+read as empty, because a new plan against shipped work is new work. Say which
+one you took, and which card:
+
+> Attaching to **FIRE-13** (was `in_review`) — this supersedes the earlier plan.
+
+`replan` takes the same stdin body as `open`, replaces the description with it,
+posts a comment naming the plan it superseded, and moves the card to `todo`.
+Nothing has been implemented against the new plan yet, so `todo` is the honest
+status — `/iso-write` still owns the move to `in_progress`.
+
+```bash
+printf '%s\n' … | "$S" replan "$SESSION_ID" --plan "$after"
+```
+
+Pass `--key FIRE-13` when the user names a card the branch lookup would miss —
+an explicit key always wins. Everything below applies to both verbs.
+
+**Write the card as a briefing.** You have just read the whole plan — this is
+the only moment anything can. Follow the shape `iso-tracking` defines: three or
+four sentences of prose first, then whatever makes it concrete.
+
+The prose is the part that must not be skimped. Four sentences drawn straight
+from the plan: what it changes, what it replaces, why the old thing was wrong,
+and what it means going forward. Below that, append the shapes the plan actually
+gives you — its before/after pairs become the table, its motivation section
+becomes **Why**, its prerequisites and irreversible steps become **Watch out**.
+Everything in **English**. Write no scope line and no plan path: scopes are a
+structured field already, and `--plan` makes `open` append two copy-ready blocks
+under the body — the `claude --resume` command, then the `/iso-write <plan>`
+slash command to paste into it.
+
+**A plan spanning different parts of the app repeats the pattern per topic.**
+Give each a `##` heading — `## Ingest`, `## Scheduling` — then the same shape
+underneath: three or four sentences, then its own table and dot lists. Two or
+three topics is the useful range; past that the headings are a table of contents
+and belong in the plan file. This is the job sub-issues used to do, without the
+four rows nobody ever moved.
+
+Roughly 40 lines per topic. Prose gets the room it needs — the thing that does
+not belong on the card is step-by-step detail, which `--plan` already links.
+
+```bash
+printf '%s\n' \
+  'The wiki stops relying on a nightly crawl and gets an explicit `wiki ingest`' \
+  'command, plus a scheduled push at 03:07. The crawl was implicit and silent,' \
+  'so any page created after midnight stayed invisible until the following' \
+  'night. From here, ingest is something you run and can watch fail.' \
+  '' \
+  '| Thing | Before | After |' \
+  '|---|---|---|' \
+  '| ingest | implicit nightly crawl | `wiki ingest <path>` |' \
+  '| push | by hand | cron 03:07 |' \
+  '' \
+  '**Why**' \
+  '- the crawl skipped every page created after midnight' \
+  '- no way to force a reindex without waiting for the night' \
+  '' \
+  '**Watch out**' \
+  '- `WIKI_INGEST_TOKEN` must be in secrets **before** the deploy' \
+  | "$S" open "$SESSION_ID" "🌱 Wiki ingest becomes explicit" \
+      --plan "$after" --scope be --scope ci --scope doc
+```
+
+Title and emoji follow `iso-tracking`: a plain sentence a human understands,
+emoji for the type of change. Everything is piped on stdin — multi-line safe, no
+quoting, and redacted before it reaches the board.
+
+The card opens at `todo` and stays there. `/iso-write` moves it to
+`in_progress`; nothing here promotes it.
+
+## Summary card
+
+Render a summary card (do not just print the path). Use a left-rule style — a header line with an underline rule, then indented sections. **No right-side border and no box frame** — never pad lines to a fixed width, since that aligns unreliably. Shape:
 
 ```
   PLAN READY

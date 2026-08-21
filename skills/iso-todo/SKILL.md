@@ -59,14 +59,14 @@ TERM_IMPL=$("$SPAWN" spawn "${IMPL_AGENT:-claude}" --label iso-todo-impl --name 
 wait_done "$TERM_IMPL" --timeout 3600
 
 # 4. Classify the outcome — lifecycle completion alone does NOT mean success. Pass the plan path so the
-#    classifier checks THIS plan's marker (.iso/logs/write/<plan-basename>.blocked.md).
+#    classifier checks THIS plan's marker (docs/iso/logs/write/<plan-basename>.blocked.md).
 OUTCOME=$("$SPAWN" recover "$TERM_IMPL" | skills/iso-todo/scripts/classify-impl.sh "$P")
 ```
 
 Act on `$OUTCOME`:
 
 - **`complete`** → proceed to Phase 3. **Leave the impl tab alive** so accepted review fixes can be applied in that same tab (see ADR 0001).
-- **`blocked`** → iso-write halted. **Stop the pipeline.** Print the contents of `.iso/logs/write/$(basename "$P" .md).blocked.md` and the live impl `TERM`. Tell the user they can `send` guidance to that tab or take over manually. Do **not** run review.
+- **`blocked`** → iso-write halted. **Stop the pipeline.** Print the contents of `docs/iso/logs/write/$(basename "$P" .md).blocked.md` and the live impl `TERM`. Tell the user they can `send` guidance to that tab or take over manually. Do **not** run review.
 - **`unknown`** → the tab timed out, died, or produced no recognizable signal. Treat as a halt: stop, print `recover "$TERM_IMPL" --what chat | tail -40` for context and the live `TERM`, hand off. Do **not** run review.
 
 Record the branch for the summary: `git branch --show-current`.

@@ -7,7 +7,14 @@ ROOT="$(cd "$HERE/../../.." && pwd)"
 SPAWN="${SPAWN:-$ROOT/skills/iso-spawn/scripts/spawn.sh}"
 REVIEW="${REVIEW:-$ROOT/skills/iso-review/scripts/review.sh}"
 CLASSIFY="${CLASSIFY:-$HERE/classify-impl.sh}"
-RV_OUTDIR="${RV_OUTDIR:-.iso/logs/review}"
+_ISO_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$_ISO_HERE/../../iso-config/scripts/lib/sibling.sh"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/config.sh)"
+ISO_ARTIFACTS=$(iso_config_get paths.artifacts)
+
+RV_OUTDIR="${RV_OUTDIR:-$ISO_ARTIFACTS/review}"
 ISO_SPAWN_LIB="${ISO_SPAWN_LIB:-$ROOT/skills/iso-spawn/scripts/lib}"
 
 # shellcheck source=../../iso-spawn/scripts/lib/herdr.sh

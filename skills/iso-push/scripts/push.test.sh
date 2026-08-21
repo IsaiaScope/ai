@@ -6,6 +6,10 @@
 set -uo pipefail
 SH="$(cd "$(dirname "$0")" && pwd)/push.sh"
 
+# Hermetic: the suite must not read whatever this machine happens to have in
+# ~/.config/iso/iso.json. Cases that want a scope set it themselves.
+export ISO_GLOBAL_CONFIG=/nonexistent
+
 pass=0; fail=0
 ok()  { pass=$((pass+1)); printf '  ok   %s\n' "$1"; }
 bad() { fail=$((fail+1)); printf '  FAIL %s\n' "$1"; }
@@ -86,7 +90,12 @@ setversion() {
   git -C "$d" worktree add -q --detach "$wt" "origin/$b"
   printf '%s\n' "$v" > "$wt/VERSION"
   git -C "$wt" add VERSION
-  git -C "$wt" commit -q -m "chore: seed version"
+  # Pinned dates: two branches seeded with the same version from the same base
+  # must produce the SAME commit, so "level branches" is level by construction.
+  # Left to the clock, the pair collides only when both land inside one second —
+  # the assertion below was riding a hash collision it never asked for.
+  GIT_AUTHOR_DATE='2026-01-01T00:00:00Z' GIT_COMMITTER_DATE='2026-01-01T00:00:00Z' \
+    git -C "$wt" commit -q -m "chore: seed version"
   git -C "$wt" push -q origin "HEAD:refs/heads/$b"
   git -C "$d" worktree remove --force "$wt"
   git -C "$d" fetch -q origin "$b"
@@ -636,6 +645,16 @@ echo "usage:"
 d=$(newrepo)
 (cd "$d" && bash "$SH" >/dev/null 2>&1); check "no subcommand refuses" "$?" 1
 (cd "$d" && bash "$SH" merge 1 rebase >/dev/null 2>&1); check "merge is gone" "$?" 1
+
+echo "branch vocabulary from config"
+cfgrepo=$(mktemp -d); mkdir -p "$cfgrepo/docs/iso"
+( cd "$cfgrepo" && git init -q -b main . )
+printf '%s\n' '{"branches":{"development":"trunk"}}' > "$cfgrepo/docs/iso/config.json"
+out=$( cd "$cfgrepo" && ISO_GLOBAL_CONFIG=/nonexistent bash "$SH" development-branch )
+check "overlay renames development" "$out" "trunk"
+
+out=$( cd "$cfgrepo" && rm -f docs/iso/config.json && ISO_GLOBAL_CONFIG=/nonexistent bash "$SH" development-branch )
+check "default when no overlay" "$out" "dev"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

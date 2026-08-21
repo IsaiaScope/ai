@@ -18,7 +18,7 @@ Review of the current working-tree diff, then applies the fixes worth keeping �
 
 ### Flow
 
-The main session orchestrates; the review and fix tabs do the work. One review at a time per working tree — for parallel reviews, use separate git worktrees (each gets its own cwd-local `.iso/logs/review`).
+The main session orchestrates; the review and fix tabs do the work. One review at a time per working tree — for parallel reviews, use separate git worktrees (each gets its own cwd-local `docs/iso/logs/review`).
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,7 @@ flowchart LR
     A --> C["6 · Close-out<br/>uncommitted"]
 ```
 
-`.iso/logs/review` is wiped clean at the start of each run, so no prior run's findings, transcripts, or accepted fixes leak in.
+`docs/iso/logs/review` is wiped clean at the start of each run, so no prior run's findings, transcripts, or accepted fixes leak in.
 
 ---
 
@@ -68,8 +68,8 @@ Teardown is **opt-in** — by default every tab stays alive for inspection. Each
 
 ## ✅ Output
 
-- 📄 `.iso/logs/review/review-codex.txt` + `review-claude.txt` — the raw reviewer findings (JSON)
-- 📋 `.iso/logs/review/accepted-fixes.md` — the itemised fix instructions actually applied
+- 📄 `docs/iso/logs/review/review-codex.txt` + `review-claude.txt` — the raw reviewer findings (JSON)
+- 📋 `docs/iso/logs/review/accepted-fixes.md` — the itemised fix instructions actually applied
 - 🧾 An **accepted / dropped ledger** (each drop with a one-line reason) plus the fix tab's test + type-check report, printed in the session
 - 🌳 Every fix left **uncommitted** in your working tree — you review and commit
 

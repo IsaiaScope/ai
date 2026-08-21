@@ -162,7 +162,7 @@ The skill reads no shared mutable state, so concurrent spawns never contend. See
   `--dangerously-skip-permissions`. Pass `--safe` to disable.
 - **cwd = caller's pane cwd** — the agent starts where you are working, not `~`. Override with `--cwd`.
 - **Background / no focus** — spawns beside you without stealing focus; the prompt is delivered by a
-  detached, **traced** worker (sidecar at `<cwd>/.iso/logs/spawn/<date>__<codex|claude-code>__<name>__<term>.spawn`
+  detached, **traced** worker (sidecar at `<cwd>/docs/iso/logs/spawn/<date>__<codex|claude-code>__<name>__<term>.spawn`
   — meta + trace). Pass `--focus` to jump to it, `--wait` to block until the task completes.
 - **One agent per call.** Fan-out = call it again.
 

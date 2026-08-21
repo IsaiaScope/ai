@@ -29,13 +29,28 @@ If more than one workspace flag is given, halt:
 ## Pre-flight
 
 ```bash
-command -v git &>/dev/null || { echo "✗ git not found"; exit 1; }
-git rev-parse --is-inside-work-tree &>/dev/null || { echo "✗ not a git repo"; exit 1; }
-[ -f "$plan_path" ] || { echo "✗ plan not found: $plan_path"; exit 1; }
+# scripts/write.sh resolve refuses on all three: no git, no repo, no plan.
+eval "$(scripts/write.sh resolve "$plan_path" $workspace_flag)"
+# $mode and $branch are now set
 ```
 
 A dirty working tree (staged or unstaged) is **not** refused. How Step 2 handles it depends on the mode: the default and `--branch=<name>` modes stash the changes and carry them onto the target branch; `--no-branch` leaves them in place; `--worktree` leaves them in the main checkout (the worktree starts clean).
 
+
+## Tracking
+
+Each transition below runs through one guarded call. It is a no-op when the
+script is absent or the working directory is not a repo — tracking must never be
+able to fail a write run:
+
+```bash
+scripts/write.sh track <progress|review|blocked> "$plan_path"
+```
+
+The card is resolved from `<plan_path>` alone — the same path `/iso-plan` recorded
+with `--plan` when it opened the card. A plan written by hand was never carded, so
+the call resolves nothing and does nothing, which is correct. One plan is one
+card, so each transition is a single status write.
 ## Step 1: Read the full plan
 
 Read `<plan_path>` end-to-end before touching anything. Understand all tasks, file layout, and architectural decisions.
@@ -55,46 +70,16 @@ Then prepare the workspace according to the flag.
 
 **Stash-carry** (shared by the default and `--branch=<name>` modes): before switching branches, carry any uncommitted work across via a named stash, then pop exactly that stash.
 
-```bash
-stash_carry() {  # arg: target branch name, used to label the stash
-  local stash_name="iso-write/$1"
-  if [ -n "$(git status --porcelain)" ]; then
-    git stash push -u -m "$stash_name" >&2 || { echo "✗ stash failed" >&2; exit 1; }
-    echo "$stash_name"   # echo the label (only this) so the caller can pop it after checkout
-  fi
-}
-stash_pop() {  # arg: the stash label returned by stash_carry (empty = nothing to pop)
-  [ -z "$1" ] && return 0
-  local ref
-  ref=$(git stash list --format='%gd %s' | grep -F "$1" | head -1 | cut -d' ' -f1)
-  ref="${ref:-stash@{0}}"
-  git stash pop "$ref" || { echo "✗ stash pop conflict. Resolve, then re-run."; exit 1; }
-}
-```
+The carry is `scripts/write.sh`'s job — it stashes under a label naming the
+target branch and pops exactly that stash, so a concurrent stash cannot be
+popped by mistake.
 
 ### Default — fresh branch, but only from a base branch
 
 **A branch is cut only when there is nowhere else to be.** If the current branch is already a feature branch, the plan is implemented on it and nothing is created.
 
 ```bash
-current=$(git branch --show-current)
-case "$current" in
-  dev|develop|test|prod|main|master|"")   # a base branch, or detached HEAD
-    if git rev-parse --verify "$branch" &>/dev/null; then
-      echo "✗ branch $branch already exists. Delete it, rename the plan, or pass --branch=$branch."
-      exit 1
-    fi
-    label=$(stash_carry "$branch")
-    git checkout -b "$branch"
-    stash_pop "$label"
-    mode="fresh-branch"
-    ;;
-  *)                                       # already somewhere that is not a base
-    branch="$current"
-    mode="current-branch"
-    echo "→ staying on $branch — already a feature branch. Pass --branch=<name> to move."
-    ;;
-esac
+# handled by: scripts/write.sh resolve "$plan_path"
 ```
 
 Why the gate: the default used to cut `<type>/<slug>` unconditionally, and since this skill **never commits**, every run left a branch pointing at the base's tip with nothing on it. Four accumulated in `ai-agent` inside two days, all at the same SHA. They isolated nothing either — one working tree, one index, so `checkout -b` only relabelled the same uncommitted pile. Isolation comes from committing, or from `--worktree`; a branch with no commits buys the bookkeeping and none of the separation.
@@ -110,14 +95,7 @@ No checkout, no stash. The plan is implemented on whatever branch is currently c
 ### `--branch=<name>` — named branch
 
 ```bash
-label=$(stash_carry "$name")
-if git rev-parse --verify "$name" &>/dev/null; then
-  git checkout "$name"          # existing branch — reuse it, no halt (named on purpose)
-else
-  git checkout -b "$name"       # create it
-fi
-stash_pop "$label"
-branch="$name"
+# handled by: scripts/write.sh resolve "$plan_path" --branch=<name>
 ```
 
 ### `--worktree` — isolated worktree
@@ -126,11 +104,23 @@ Invoke the **superpowers `using-git-worktrees` skill** to create the isolated wo
 
 Uncommitted work in the main checkout is **not** carried — the worktree is isolated by design and starts clean from the current HEAD. Tell the user their uncommitted changes remain in the original checkout. Record the worktree path for the Step 6 summary.
 
+### Mark the card in progress
+
+The workspace is now resolved, which is the moment work actually starts. Move the
+card:
+
+```bash
+scripts/write.sh track progress "$plan_path"
+```
+
+This is the only place `in_progress` is written. Nothing infers it from a prompt,
+and nothing infers it from a branch existing — a branch can sit unused for days.
+
 ## Step 3: Execute the plan with TDD (no commits)
 
-Before the first task, clear any stale marker for *this* plan, so a leftover from an earlier run cannot be mistaken for this run's halt (`<plan-basename>` is `<plan_path>`'s filename minus `.md`). Do **not** create the directory here — `rm -f` is a no-op when it does not exist, and `.iso/logs/write/` should only appear if a halt actually writes a marker:
+Before the first task, clear any stale marker for *this* plan, so a leftover from an earlier run cannot be mistaken for this run's halt (`<plan-basename>` is `<plan_path>`'s filename minus `.md`). Do **not** create the directory here — `rm -f` is a no-op when it does not exist, and `docs/iso/logs/write/` should only appear if a halt actually writes a marker:
 
-    rm -f ".iso/logs/write/<plan-basename>.blocked.md"
+    rm -f "docs/iso/logs/write/<plan-basename>.blocked.md"
 
 Invoke the **superpowers `executing-plans` skill** to drive execution, and the **`test-driven-development` skill** for each task's red-green-refactor loop.
 
@@ -151,7 +141,21 @@ Halt immediately if:
 - A referenced dependency is missing and not listed as something to install.
 - A plan instruction is ambiguous or self-contradictory.
 
-On halt: write the blocked marker `.iso/logs/write/<plan-basename>.blocked.md` (create `.iso/logs/write/` if needed; `<plan-basename>` is `<plan_path>`'s filename minus `.md`) with the failed task number/title, the exact error or ambiguity, what you tried, and the suggested next action. Then print `Halted at task <N>. See .iso/logs/write/<plan-basename>.blocked.md.` and wait for user input. Do not commit, do not exit.
+On halt: write the blocked marker `docs/iso/logs/write/<plan-basename>.blocked.md` (create `docs/iso/logs/write/` if needed; `<plan-basename>` is `<plan_path>`'s filename minus `.md`) with the failed task number/title, the exact error or ambiguity, what you tried, and the suggested next action. Then print `Halted at task <N>. See docs/iso/logs/write/<plan-basename>.blocked.md.` and wait for user input. Do not commit, do not exit.
+
+Mark the card blocked at the same time, so the board shows where the run stopped:
+
+```bash
+scripts/write.sh track blocked "$plan_path"
+```
+
+**On resume**, once the ambiguity is settled and the marker is removed
+(`rm -f "docs/iso/logs/write/<plan-basename>.blocked.md"`), move it back before
+continuing:
+
+```bash
+scripts/write.sh track progress "$plan_path"
+```
 
 ## Step 5: Finalize (still no commit)
 
@@ -169,6 +173,15 @@ Append a footer:
 - Workspace: <mode> — <branch> (worktree mode also records the worktree path)
 - Committed: no — awaiting user review
 ```
+
+Then move the card to review — the plan is implemented and Iso should look at it:
+
+```bash
+scripts/write.sh track review "$plan_path"
+```
+
+`in_review` is a claim about attention, not about GitHub. It is set here whether
+or not a PR exists; `/iso-push` is what later closes the card.
 
 ## Step 6: Print review summary and stop
 
