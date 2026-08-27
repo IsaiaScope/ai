@@ -33,7 +33,19 @@ while IFS= read -r f; do
     grep -qE '^[[:space:]]+[a-z][a-z0-9|_-]*\)' "$f" && skipped="$skipped $rel"
     continue
   fi
-  n=0; bad_here=0
+  # A dispatched verb missing from the usage string is invisible: the script
+  # runs it happily, and the one place a human looks to find out it exists
+  # never mentions it. push.sh shipped `rescue` that way. Each script's own
+  # suite only ever calls verbs it already knows about, so none of them can
+  # see this — only a sweep that reads the dispatch itself can.
+  # Anchored on `die "usage:`, not on the first `usage:` in the file: the
+  # per-argument `${1:?usage: ...}` messages name one verb each, and matching
+  # one of those would report every other verb as undocumented.
+  # Newlines folded first: init-repo.sh's usage string spans three lines, and a
+  # line-based match would read only the first and call the rest undocumented.
+  usage=$(tr '\n' ' ' < "$f" | grep -oE 'die "usage: [^"]*' | tail -1 || true)
+
+  n=0; bad_here=0; undoc=""
   while read -r verb fn; do
     [ -n "${fn:-}" ] || continue
     n=$((n+1))
@@ -41,7 +53,19 @@ while IFS= read -r f; do
       bad "$rel: verb '$verb' dispatches to $fn, which is not defined"
       bad_here=1
     }
+    # A case arm may list alternatives (`a|b)`); each one needs documenting.
+    # Delimiters are explicit rather than grep -w so that `pr` does not match
+    # inside `preflight`, and `development-branch` matches as one word.
+    for v in $(printf '%s' "$verb" | tr '|' ' '); do
+      printf '%s' "$usage" | grep -qE "(^|[^a-z0-9_-])$v([^a-z0-9_-]|\$)" \
+        || undoc="$undoc $v"
+    done
   done < <(verbs_of "$f")
+
+  if [ -n "$usage" ] && [ -n "$undoc" ]; then
+    bad "$rel: dispatches verb(s) its usage string never names:$undoc"
+    bad_here=1
+  fi
   if [ "$n" -eq 0 ]; then
     bad "$rel: defines cmd_* but no verb dispatches to any of them"
   elif [ "$bad_here" -eq 0 ]; then

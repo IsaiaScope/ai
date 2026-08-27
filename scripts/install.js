@@ -79,7 +79,7 @@ for (const [agent, dir] of Object.entries(agentSkillsDir)) {
 }
 
 // Prune dangling links left by a renamed or deleted skill. A rename (say
-// iso-multica-tracking -> iso-tracking) otherwise leaves the old name behind
+// iso-multica-tracking -> iso-issue-tracking) otherwise leaves the old name behind
 // looking installed, which makes `iso-config doctor` miscount. Only broken
 // symlinks are removed — a real directory is never touched.
 for (const dir of Object.values(agentSkillsDir)) {

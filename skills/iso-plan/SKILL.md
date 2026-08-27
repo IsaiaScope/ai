@@ -5,7 +5,7 @@ description: Planning-only chain. Runs brainstorming → grilling → (prototype
 
 # iso-plan
 
-Take a raw idea and turn it into a written implementation plan by running four skills in order. The only artefact is the plan file — nothing is implemented and nothing is committed. The one piece of state it writes is the Multica card that tracks the plan, and only inside a repo. When the plan is written, tell the user where it lives.
+Take a raw idea and turn it into a written implementation plan by running four skills in order. The only artefact is the plan file — nothing is implemented and nothing is committed. The one piece of state it writes is the Multica ticket that tracks the plan, and only inside a repo. When the plan is written, tell the user where it lives.
 
 ## Pipeline
 
@@ -63,7 +63,7 @@ before=$(scripts/plan.sh newest)
 after=$(scripts/plan.sh newest)
 ```
 
-If `after` is empty or equals `before`, `writing-plans` produced no new plan — say so and stop; do not render a card for a stale file. Otherwise `after` is the plan to summarize.
+If `after` is empty or equals `before`, `writing-plans` produced no new plan — say so and stop; do not render a ticket for a stale file. Otherwise `after` is the plan to summarize.
 
 Read that file and extract, for the summary:
 
@@ -76,7 +76,7 @@ Read that file and extract, for the summary:
 
 ## Tracking
 
-Open the Multica card for this plan, before rendering the summary. This is the
+Open the Multica ticket for this plan, before rendering the summary. This is the
 only step in the chain that can judge scopes: a model is live and has just read
 the plan. A `SessionEnd` file scan can count `### Task N:` headings but cannot
 tell `be` from `ci`.
@@ -89,33 +89,33 @@ missing script is not an error here:
 S=$(scripts/plan.sh tracker) || S=""   # empty when tracking cannot run
 ```
 
-Tracking must never be able to fail a planning run. No card is a small loss; a
+Tracking must never be able to fail a planning run. No ticket is a small loss; a
 `/iso-plan` that dies because a board was unreachable is a large one.
 
-**One plan, one card.** No sub-issues, no `--parent`. A plan across three scopes
-is one card carrying three scope labels.
+**One plan, one ticket.** No sub-issues, no `--parent`. A plan across three scopes
+is one ticket carrying three scope labels.
 
-**But a card can outlive its plan.** When the first attempt was wrong, or came
+**But a ticket can outlive its plan.** When the first attempt was wrong, or came
 back from review needing a different approach, the second plan is the *same*
-piece of work — so it goes on the same card. Ask before writing:
+piece of work — so it goes on the same ticket. Ask before writing:
 
 ```bash
-existing=$("$S" card-for-branch)   # "<KEY>\t<status>", or empty
+existing=$("$S" ticket-for-branch)   # "<KEY>\t<status>", or empty
 ```
 
 | result | what to do |
 |---|---|
-| empty | `open` — no live card for this branch, this is new work |
-| `FIRE-13\tin_review` | `replan` — attach to that card and send it back to `todo` |
+| empty | `open` — no live ticket for this branch, this is new work |
+| `FIRE-13\tin_review` | `replan` — attach to that ticket and send it back to `todo` |
 
-`card-for-branch` only names cards that are still live; `done` and `cancelled`
+`ticket-for-branch` only names tickets that are still live; `done` and `cancelled`
 read as empty, because a new plan against shipped work is new work. Say which
-one you took, and which card:
+one you took, and which ticket:
 
 > Attaching to **FIRE-13** (was `in_review`) — this supersedes the earlier plan.
 
 `replan` takes the same stdin body as `open`, replaces the description with it,
-posts a comment naming the plan it superseded, and moves the card to `todo`.
+posts a comment naming the plan it superseded, and moves the ticket to `todo`.
 Nothing has been implemented against the new plan yet, so `todo` is the honest
 status — `/iso-write` still owns the move to `in_progress`.
 
@@ -123,11 +123,11 @@ status — `/iso-write` still owns the move to `in_progress`.
 printf '%s\n' … | "$S" replan "$SESSION_ID" --plan "$after"
 ```
 
-Pass `--key FIRE-13` when the user names a card the branch lookup would miss —
+Pass `--key FIRE-13` when the user names a ticket the branch lookup would miss —
 an explicit key always wins. Everything below applies to both verbs.
 
-**Write the card as a briefing.** You have just read the whole plan — this is
-the only moment anything can. Follow the shape `iso-tracking` defines: three or
+**Write the ticket as a briefing.** You have just read the whole plan — this is
+the only moment anything can. Follow the shape `iso-issue-tracking` defines: three or
 four sentences of prose first, then whatever makes it concrete.
 
 The prose is the part that must not be skimped. Four sentences drawn straight
@@ -148,7 +148,7 @@ and belong in the plan file. This is the job sub-issues used to do, without the
 four rows nobody ever moved.
 
 Roughly 40 lines per topic. Prose gets the room it needs — the thing that does
-not belong on the card is step-by-step detail, which `--plan` already links.
+not belong on the ticket is step-by-step detail, which `--plan` already links.
 
 ```bash
 printf '%s\n' \
@@ -172,16 +172,16 @@ printf '%s\n' \
       --plan "$after" --scope be --scope ci --scope doc
 ```
 
-Title and emoji follow `iso-tracking`: a plain sentence a human understands,
+Title and emoji follow `iso-issue-tracking`: a plain sentence a human understands,
 emoji for the type of change. Everything is piped on stdin — multi-line safe, no
 quoting, and redacted before it reaches the board.
 
-The card opens at `todo` and stays there. `/iso-write` moves it to
+The ticket opens at `todo` and stays there. `/iso-write` moves it to
 `in_progress`; nothing here promotes it.
 
-## Summary card
+## Summary ticket
 
-Render a summary card (do not just print the path). Use a left-rule style — a header line with an underline rule, then indented sections. **No right-side border and no box frame** — never pad lines to a fixed width, since that aligns unreliably. Shape:
+Render a summary ticket (do not just print the path). Use a left-rule style — a header line with an underline rule, then indented sections. **No right-side border and no box frame** — never pad lines to a fixed width, since that aligns unreliably. Shape:
 
 ```
   PLAN READY

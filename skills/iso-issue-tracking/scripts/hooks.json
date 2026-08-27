@@ -3,7 +3,7 @@
     "name": "reconcile",
     "event": "SessionStart",
     "verb": "reconcile",
-    "why": "close cards whose branch has since merged or disappeared"
+    "why": "close tickets whose branch has since merged or disappeared"
   },
   {
     "name": "end",

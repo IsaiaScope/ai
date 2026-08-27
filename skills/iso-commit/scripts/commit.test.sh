@@ -50,5 +50,51 @@ printf 'feat(x): thing\n\n- did a thing\n' > "$d/msg"
 check "body preserved" "$(git -C "$d" log -1 --format=%b | tr -d '\n')" "- did a thing"
 check "no AI trailer" "$(git -C "$d" log -1 --format=%B | grep -ci 'co-authored-by\|claude' || true)" "0"
 
+echo "branch gate"
+export ISO_GLOBAL_CONFIG=/nonexistent
+export ISO_TRACKER_STATE_DIR; ISO_TRACKER_STATE_DIR=$(mktemp -d)
+r=$(mktemp -d)
+git init -q -b dev "$r"
+git -C "$r" config user.email t@t.t; git -C "$r" config user.name t
+git -C "$r" commit -q --allow-empty -m init
+
+g_act() { ( cd "$r" && bash "$SH" gate "$1" ) | sed -n 's/^action=//p'; }
+g_brn() { ( cd "$r" && bash "$SH" gate "$1" ) | sed -n 's/^branch=//p'; }
+
+check "on dev, a subject yields a create" "$(g_act 'feat(auth): add token refresh')" "create"
+check "named from the subject" "$(g_brn 'feat(auth): add token refresh')" "feat/auth-add-token-refresh"
+check "no subject yields ask" "$(g_act '')" "ask"
+
+( cd "$r" && git checkout -q -b feat/existing )
+check "on a feature branch, stay" "$(g_act 'feat: whatever')" "stay"
+check "stay names the current branch" "$(g_brn 'feat: whatever')" "feat/existing"
+
+echo "landing"
+( cd "$r" && git checkout -q dev )
+BINC=$(mktemp -d)
+cat > "$BINC/tracking.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "$@" >> "$TRACK_CALLS"
+STUB
+chmod +x "$BINC/tracking.sh"
+export TRACK_CALLS="$BINC/calls"; : > "$TRACK_CALLS"
+
+got=$( cd "$r" && ISO_TRACKING_SH="$BINC/tracking.sh" bash "$SH" land create feat/landed )
+check "land prints the branch" "$got" "feat/landed"
+check "land checked it out" "$(git -C "$r" branch --show-current)" "feat/landed"
+grep -q 'rebranch dev feat/landed' "$TRACK_CALLS" \
+  && ok "landing rebinds off the old branch" || bad "landing did not rebind"
+
+# Staged work must survive the move, or the commit that follows is empty.
+( cd "$r" && git checkout -q dev )
+printf 'x\n' > "$r/staged.txt"; git -C "$r" add staged.txt
+( cd "$r" && ISO_TRACKING_SH="$BINC/tracking.sh" bash "$SH" land create feat/carried ) >/dev/null
+check "staged work carried across" "$(git -C "$r" diff --cached --name-only)" "staged.txt"
+
+: > "$TRACK_CALLS"
+( cd "$r" && ISO_TRACKING_SH="$BINC/tracking.sh" bash "$SH" land stay feat/carried ) >/dev/null
+check "stay does not move" "$(git -C "$r" branch --show-current)" "feat/carried"
+check "stay does not rebind" "$(wc -l < "$TRACK_CALLS" | tr -d ' ')" "0"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

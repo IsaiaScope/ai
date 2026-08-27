@@ -22,7 +22,7 @@ Helpers:
   1. PLAN   parent, interactive  → iso-plan → plan file P   (no plan → stop)
   2. WRITE  spawned impl tab     → /iso-write P (fresh branch); wait; classify
   3. REVIEW parent, black box    → iso-review (kills reviewer tabs; fixes in impl tab if accepted)
-  4. CLOSE  parent               → no commit; summary card; leave impl/fix tab alive, offer cleanup
+  4. CLOSE  parent               → no commit; summary ticket; leave impl/fix tab alive, offer cleanup
 ```
 
 ## Phase 1 — Plan (parent session)
@@ -83,13 +83,13 @@ Invoke the **`iso-review`** skill (it reviews the uncommitted working tree — e
 
 Pass `--claude-review-effort max` only if the user asked for it. By default, iso-review spawns two ephemeral reviewer tabs; with `--agent codex|claude` (forwarded from `--review-agent`), it spawns only that reviewer. It saves transcripts/findings, then kills those reviewer tabs. If accepted fixes are non-empty, it sends the fix prompt to the original implementation tab via `--fix-term "$TERM_IMPL"` and waits for that tab's test/type report. If nothing is accepted, iso-review spawns nothing and reports "no fixes."
 
-Do **not** let iso-review spawn a separate fix tab during iso-todo; the implementation tab is the fix tab by design (ADR 0001). Read iso-review's summary (accepted/dropped ledger + the implementation tab's test/type report) for the card.
+Do **not** let iso-review spawn a separate fix tab during iso-todo; the implementation tab is the fix tab by design (ADR 0001). Read iso-review's summary (accepted/dropped ledger + the implementation tab's test/type report) for the ticket.
 
 ## Phase 4 — Close-out (parent session)
 
 **Never commit, never open a PR.** Everything stays uncommitted on `feat/<slug>`.
 
-Print the compact phase-checklist card (left-rule, no box frame; fill the real values):
+Print the compact phase-checklist ticket (left-rule, no box frame; fill the real values):
 
 ```
   /iso-todo — <branch>              no commit

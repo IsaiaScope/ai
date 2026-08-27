@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Multica work tracker. Called by Claude Code hooks (reconcile/end) and
-# by Claude (bind/open/done). Outbound only — nothing here starts an agent.
+# Multica work tracker. Called by the Claude Code session hooks (reconcile/end)
+# and by the agent (bind/open/done). Outbound only — nothing here starts an
+# agent.
 # ponytail: one file. Every subcommand shares redact + the ledger; splitting it
 # would buy nothing but an extra sourced path to get wrong.
 set -uo pipefail
@@ -16,7 +17,7 @@ TRACKER_KIND=$(iso_config_get tracker.kind)
 # rows pointing at issue keys the new board never issued. tracker.ledger is
 # therefore the full path, not a parent to append the kind to: appending it
 # silently relocates an existing ledger, and the transition that follows
-# reports "no card for plan" against an empty file it just created.
+# reports "no ticket for plan" against an empty file it just created.
 _ledger=$(iso_config_get tracker.ledger)
 STATE="${ISO_TRACKER_STATE_DIR:-${MULTICA_STATE_DIR:-${_ledger/#\~/$HOME}}}"
 LEDGER="$STATE/tracked.json"
@@ -92,7 +93,7 @@ ledger_del() {
     && mv "$tmp" "$LEDGER" || rm -f "$tmp"
 }
 
-# Reverse lookup: plan path -> card key. The ledger is keyed by issue, so this
+# Reverse lookup: plan path -> ticket key. The ledger is keyed by issue, so this
 # is a scan; it holds one row per open branch, not a history, so a scan is
 # cheaper than a second index that can drift.
 # Matched on basename: /iso-plan records whatever path it was given and
@@ -100,7 +101,7 @@ ledger_del() {
 # string compare would silently no-op, which is the failure this replaces.
 # A branch name resolves too, because /iso-push holds a branch and never a
 # plan path - the ledger already stores the branch for the reconciler.
-card_for_plan() {
+ticket_for_plan() {
   local plan="${1:-}" base key
   [ -n "$plan" ] || return 1
   base=${plan##*/}
@@ -116,16 +117,16 @@ card_for_plan() {
   return 0
 }
 
-# One plan, one card. There is nothing to fan out to.
+# One plan, one ticket. There is nothing to fan out to.
 # A miss also goes to stderr, not just the log: the whole point of these writes
 # is that the board matches reality, and a transition that quietly moved nothing
 # is indistinguishable from one that worked until someone opens the board days
 # later. Still returns 0 - visible, never fatal.
-move_plan_card() {
+move_plan_ticket() {
   local want="$1" plan="${2:-}" key
-  key=$(card_for_plan "$plan") \
-    || { logf "$want: no card for plan ${plan:-<none>}"
-         printf 'tracking: no card matches %s -- board not moved to %s\n' \
+  key=$(ticket_for_plan "$plan") \
+    || { logf "$want: no ticket for plan ${plan:-<none>}"
+         printf 'tracking: no ticket matches %s -- board not moved to %s\n' \
            "${plan:-<none>}" "$want" >&2
          return 0; }
   set_status "$key" "$want" && logf "$key -> $want (plan ${plan##*/})"
@@ -238,11 +239,11 @@ do_bind() {
   br=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
   proj=$(project_for "$PWD")
   printf '{"issue":"%s"}' "$key" > "$(session_file "$sid")" 2>/dev/null
-  # plan is what review/blocked/progress resolve a card by; it is the only
+  # plan is what review/blocked/progress resolve a ticket by; it is the only
   # identifier /iso-write holds at its own boundaries.
   ledger_put "$key" "$(jq -nc --arg r "$proj" --arg b "$br" --arg p "$proj" --arg o "$who" \
     --arg pl "$plan" '{repo:$r,branch:$b,project:$p,opened_by:$o,plan:$pl}')"
-  # Branch on the card, not only in the local ledger: the board should stay
+  # Branch on the ticket, not only in the local ledger: the board should stay
   # readable without the local ledger, and from another machine.
   if [ -n "$br" ]; then
     ensure_property Branch text \
@@ -251,7 +252,7 @@ do_bind() {
   fi
 
   # `bind` attaches a session to work already underway, so it promotes.
-  # `open` does not: /iso-plan leaves the card at todo and /iso-write owns the
+  # `open` does not: /iso-plan leaves the ticket at todo and /iso-write owns the
   # move to in_progress. Promoting here would write a status nobody asked for.
   if [ "$promote" = "1" ]; then
     st=$(tk_issue_get_status "$key")
@@ -262,13 +263,13 @@ do_bind() {
   return 0
 }
 
-# The card body a caller pipes in, plus the two resume blocks. Shared by `open`
-# and `replan` so a replanned card is shaped exactly like a fresh one - a card
-# whose footer depends on which verb last touched it is a card you have to read
+# The ticket body a caller pipes in, plus the two resume blocks. Shared by `open`
+# and `replan` so a replanned ticket is shaped exactly like a fresh one - a ticket
+# whose footer depends on which verb last touched it is a ticket you have to read
 # twice. $1 session id, $2 agent kind, $3 plan path (may be empty).
 # Body on stdin; prints the finished description.
-card_body() {
-  local sid="$1" agent="$2" plan="${3:-}" desc="" resume
+ticket_body() {
+  local sid="$1" agent="$2" plan="${3:-}" desc="" resume root
   [ -t 0 ] || desc=$(cat 2>/dev/null | redact | head -c 8000 || true)
   # Resume block, appended after redaction so the command is never mangled.
   # The script already knows the session id, so this cannot be forgotten - and
@@ -281,7 +282,10 @@ card_body() {
   # by itself to read the session back, and the invocation is what you paste
   # once you are in. The plan path is never retyped by hand either way.
   if [ "$agent" = "claude" ]; then
-    resume=$(printf '**Resume this session:**\n\n```bash\nclaude --resume %s --dangerously-skip-permissions\n```' "$sid")
+    # cd first: the ticket is read from anywhere, and `claude --resume` binds to
+    # the directory it starts in. One line so it stays a single copy-paste.
+    root=$(git rev-parse --show-toplevel 2>/dev/null || printf '.')
+    resume=$(printf '**Resume this session:**\n\n```bash\ncd %s && claude --resume %s --dangerously-skip-permissions\n```' "$root" "$sid")
     if [ -n "$plan" ]; then
       resume=$(printf '%s\n\n**Then implement the plan:**\n\n```\n/iso-write %s\n```' "$resume" "$plan")
     fi
@@ -291,14 +295,14 @@ card_body() {
   printf '%s' "$desc"
 }
 
-# The live card for the branch checked out right now, or nothing. "Live" excludes
+# The live ticket for the branch checked out right now, or nothing. "Live" excludes
 # done and cancelled: that work shipped, and a new plan against it is new work,
 # not a second attempt at the old one.
-card_for_branch() {
+ticket_for_branch() {
   local br key st
   br=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || return 1
   [ -n "$br" ] || return 1
-  key=$(card_for_plan "$br") || return 1
+  key=$(ticket_for_plan "$br") || return 1
   st=$(tk_issue_get_status "$key")
   case "$st" in done|cancelled) return 1 ;; esac
   printf '%s\t%s\n' "$key" "$st"
@@ -309,7 +313,7 @@ card_for_branch() {
 # would make the whole test file pass by printing nothing.
 (return 0 2>/dev/null) && return 0
 
-# Installed globally, so it runs in every directory Claude Code opens. Outside a
+# Installed globally, so it runs in every directory the agent opens. Outside a
 # repo there is no project to file against and no branch to reconcile, and a
 # project minted for ~/Downloads is noise nobody asked for. Placed after the
 # sourced-guard: the self-check sources this file and must not be gated.
@@ -343,8 +347,8 @@ case "${1:-}" in
   retro)
     state_dir
     plan="${2:-}"
-    key=$(card_for_plan "$plan") \
-      || { logf "retro: no card for plan ${plan:-<none>}"; exit 0; }
+    key=$(ticket_for_plan "$plan") \
+      || { logf "retro: no ticket for plan ${plan:-<none>}"; exit 0; }
     body=""
     [ -t 0 ] || body=$(cat 2>/dev/null | redact | head -c 4000 || true)
     if [ -n "$body" ]; then
@@ -355,21 +359,55 @@ case "${1:-}" in
     ledger_del "$key"
     ;;
 
-  # Is there a live card for the branch I am on? Prints "<KEY>\t<status>" or
-  # nothing. /iso-plan asks this before writing a card: on a base branch it is
-  # empty and a fresh card is opened, on a feature branch that already carries
-  # work it names the card to replan against.
-  card-for-branch)
+  # Is there a live ticket for the branch I am on? Prints "<KEY>\t<status>" or
+  # nothing. /iso-plan asks this before writing a ticket: on a base branch it is
+  # empty and a fresh ticket is opened, on a feature branch that already carries
+  # work it names the ticket to replan against.
+  ticket-for-branch)
     state_dir
-    card_for_branch || exit 0
+    ticket_for_branch || exit 0
     ;;
 
-  # A second plan for work already carded. The first attempt was wrong, or it
+  # The branch a ticket lives on changes after the ticket is opened: /iso-write
+  # cuts one from the plan filename, /iso-push rescues commits off a protected
+  # branch, /iso-commit gates before the commit lands. Both the ledger row and
+  # the board have to follow, and the ledger is the one that bites - it is the
+  # key ticket_for_branch resolves by, so a stale row makes the ticket
+  # unfindable from the branch the work is actually on.
+  # $2 identifies the ticket: a plan path, or the branch it is moving OFF.
+  # Resolve BEFORE the ledger write; afterwards the old identifier matches
+  # nothing and a second run would look like a miss.
+  # No ticket comment: a branch move is bookkeeping, and one comment per move
+  # buries the retro that actually matters.
+  rebranch)
+    state_dir
+    ident="${2:-}"; newbr="${3:-}"
+    [ -n "$ident" ] && [ -n "$newbr" ] \
+      || { logf "rebranch needs <identifier> <new-branch>"; exit 0; }
+    key=$(ticket_for_plan "$ident") \
+      || { logf "rebranch: no ticket for $ident"; exit 0; }
+    row=$(ledger_get "$key")
+    ledger_put "$key" "$(printf '%s' "$row" | jq -c --arg b "$newbr" '.branch=$b' 2>/dev/null)"
+    ensure_property Branch text \
+      && { tk_issue_property "$key" Branch "$newbr" \
+           || logf "rebranch: branch property set failed on $key"; }
+    logf "rebranch $key -> $newbr (from $ident)"
+    ;;
+
+  # The read half. /iso-commit needs the ticket's branch to offer a resume and
+  # holds no plan path, so it cannot reach the ledger any other way.
+  branch-of)
+    state_dir
+    key=$(ticket_for_plan "${2:-}") || exit 0
+    ledger_get "$key" | jq -r '.branch // empty' 2>/dev/null
+    ;;
+
+  # A second plan for work already ticketed. The first attempt was wrong, or it
   # came back from review needing a different approach - that is the same piece
-  # of work, so it is the same card. A second card would split one story across
+  # of work, so it is the same ticket. A second ticket would split one story across
   # two rows and leave the first sitting in_review for good.
   # Back to todo, because a new plan means nothing has been implemented yet.
-  # stdin: the new card body, same shape as `open`.
+  # stdin: the new ticket body, same shape as `open`.
   replan)
     state_dir
     sid="${2:-}"; plan=""; key=""; agent=claude
@@ -385,28 +423,28 @@ case "${1:-}" in
     if [ -z "$sid" ] || [ -z "$plan" ]; then
       logf "replan needs <session_id> --plan <path>"; exit 0
     fi
-    # An explicit --key wins: the caller was told which card by a human, and a
+    # An explicit --key wins: the caller was told which ticket by a human, and a
     # branch lookup that disagrees is the lookup being wrong, not the human.
     if [ -z "$key" ]; then
-      key=$(card_for_branch | cut -f1)
+      key=$(ticket_for_branch | cut -f1)
       if [ -z "$key" ]; then
-        logf "replan: no live card for this branch -- open a new one instead"
-        printf 'tracking: no live card to replan -- opening a new one\n' >&2
+        logf "replan: no live ticket for this branch -- open a new one instead"
+        printf 'tracking: no live ticket to replan -- opening a new one\n' >&2
         exit 0
       fi
     fi
     st=$(tk_issue_get_status "$key")
     case "$st" in
       done|cancelled)
-        logf "replan: $key is $st -- that work shipped, open a new card"
+        logf "replan: $key is $st -- that work shipped, open a new ticket"
         printf 'tracking: %s is %s, not replanning it\n' "$key" "$st" >&2
         exit 0 ;;
     esac
     was=$(jq -r --arg k "$key" '.[$k].plan // ""' "$LEDGER" 2>/dev/null)
-    # Description replaced, not appended: the card must describe the plan being
+    # Description replaced, not appended: the ticket must describe the plan being
     # worked now. The switch itself goes in a comment, which is where this
-    # card's history already lives.
-    desc=$(card_body "$sid" "$agent" "$plan")
+    # ticket's history already lives.
+    desc=$(ticket_body "$sid" "$agent" "$plan")
     if [ -n "$desc" ]; then
       printf '%s' "$desc" | tk_issue_describe "$key" \
         || logf "replan: description update failed on $key"
@@ -426,7 +464,7 @@ case "${1:-}" in
       review)   want=in_review ;;
       blocked)  want=blocked ;;
     esac
-    move_plan_card "$want" "${2:-}"
+    move_plan_ticket "$want" "${2:-}"
     ;;
 
   open)
@@ -465,7 +503,7 @@ case "${1:-}" in
 
     # Description arrives on stdin: multi-line, no arg-quoting, and it still
     # goes through redact because it is the same trust boundary as a comment.
-    desc=$(card_body "$sid" "$agent" "$plan")
+    desc=$(ticket_body "$sid" "$agent" "$plan")
 
     # --status todo, not in_progress: do_bind does the promotion, and that is
     # the path that passes --no-start.
@@ -527,7 +565,7 @@ case "${1:-}" in
       pr_url=$(printf '%s' "$prs" | jq -r --arg b "$br" \
         '[.[]? | select(.headRefName==$b) | .url] | first // empty' 2>/dev/null)
 
-      # Click-through from card to PR. Written before the merge check, because a
+      # Click-through from ticket to PR. Written before the merge check, because a
       # merged row is deleted from the ledger and would never get the link.
       # Recorded in the ledger so a quiet reconcile does not rewrite it each run.
       if [ -n "$pr_url" ] && [ "$pr_url" != "$(printf '%s' "$row" | jq -r '.pr // empty' 2>/dev/null)" ]; then

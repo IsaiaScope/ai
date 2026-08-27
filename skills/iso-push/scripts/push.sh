@@ -15,6 +15,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../iso-config/scripts/lib/sibling.sh"
 # shellcheck source=/dev/null
 . "$(iso_sibling iso-config scripts/lib/config.sh)"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/branch.sh)"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/track.sh)"
 
 die() { printf 'iso-push: %s\n' "$1" >&2; exit 1; }
 
@@ -23,19 +27,14 @@ die() { printf 'iso-push: %s\n' "$1" >&2; exit 1; }
 DEVELOPMENT=$(iso_config_get branches.development)
 TEST_BRANCH=$(iso_config_get branches.test)
 PRODUCTION=$(iso_config_get branches.production)
-PROTECTED=$(iso_config_get branches.protected)
 PR_BASE=$(iso_config_get branches.pr_base)
 
 cmd_development_branch() { printf '%s\n' "$DEVELOPMENT"; }
 
-# A flat membership test against branches.protected. push.sh's own gate is
-# role-specific (production refuses, development has a cascade exemption), so
-# this is for callers that only need "may I work here?".
-is_protected() {
-  local b
-  for b in $PROTECTED; do [ "$b" = "$1" ] && return 0; done
-  return 1
-}
+# Membership against branches.protected now lives in iso-config's branch.sh as
+# iso_is_protected — iso-write carried a second copy of the same loop, under a
+# different name. push.sh's own gates stay role-specific (production refuses,
+# development has a cascade exemption); this is the plain "may I work here?".
 
 # --------------------------------------------------------------------- base
 # The integration branch a feature PR targets. dev wins when both exist.
@@ -112,33 +111,10 @@ assert_no_own_work() {
 # name you did not choose is a name you do not argue with, and every branch in
 # the repo then sorts by type.
 branch_name_from() {   # <base> -> <type>/<slug>
-  local base="$1" subject type scope msg slug
-  subject=$(git log --format=%s --no-merges "origin/$base..HEAD" 2>/dev/null | tail -1)
+  local subject
+  subject=$(git log --format=%s --no-merges "origin/$1..HEAD" 2>/dev/null | tail -1)
   [ -n "$subject" ] || return 1
-
-  type=$(printf '%s' "$subject" | sed -n 's/^\([a-z][a-z]*\)[(!:].*/\1/p')
-  case "$type" in
-    feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert) ;;
-    # Not a conventional subject. chore is the honest answer: it is what the
-    # version bump would treat it as anyway, so the branch name agrees with what
-    # the release will do rather than guessing something prettier.
-    *) type=chore ;;
-  esac
-
-  scope=$(printf '%s' "$subject" | sed -n 's/^[a-z][a-z]*(\([^)]*\)).*/\1/p')
-  msg=$(printf '%s' "$subject" | sed 's/^[^:]*: *//')
-
-  slug=$(printf '%s-%s' "$scope" "$msg" | tr '[:upper:]' '[:lower:]' \
-         | sed 's/[^a-z0-9]\{1,\}/-/g; s/^-*//; s/-*$//')
-
-  # Cut at a word boundary, never mid-word: a branch ending in `destro` invites
-  # someone to wonder whether it was truncated or misspelled.
-  if [ ${#slug} -gt 48 ]; then
-    slug=$(printf '%s' "$slug" | cut -c1-48 | sed 's/-[^-]*$//')
-  fi
-  [ -n "$slug" ] || slug=work
-
-  printf '%s/%s\n' "$type" "$slug"
+  iso_branch_from_subject "$subject"
 }
 
 # Move commits off a protected branch onto a feature branch named after them.
@@ -176,8 +152,16 @@ rescue_to_branch() {   # <protected-branch> -> echoes the new branch name
   git branch "$new"                      # reachable from two refs before anything moves
   git reset --hard "origin/$prot" >&2
   git checkout "$new" >&2
+  # The ledger still names the protected branch here, which is exactly the
+  # identifier that resolves the ticket.
+  # Point the ticket at the branch the work was just moved to.
+  iso_track rebranch "$prot" "$new" >/dev/null 2>&1
   printf '%s\n' "$new"
 }
+
+# Seam for the self-check: rescue_to_branch runs inside larger flows and a test
+# needs a way in.
+cmd_rescue() { rescue_to_branch "$@"; }
 
 cmd_preflight() {
   local want_cascade= want_pr=
@@ -427,6 +411,40 @@ cmd_push() {
   esac
 }
 
+# ------------------------------------------------------------------- ticket
+# The tracker links a PR to its ticket by finding the identifier in the branch
+# name, the title or the body. Branch names come from the plan filename and the
+# title is what commitlint reads, so the body is the only place left.
+#
+# This must resolve BEFORE `integrate`: the retro that closes a ticket also
+# drops its ledger row, and there is nothing left to look up afterwards.
+#
+# Silent when iso-issue-tracking is not installed — a repo with no tracker has no
+# ticket to miss. One line on stderr when tracking answers but this branch has
+# no row, because an unlinked PR otherwise looks exactly like a ticketless one.
+ticket_key() {
+  local key
+  # No tracker installed is not a missing ticket, so it warns about nothing.
+  [ -n "$(iso_track_path)" ] || return 0
+  key=$(iso_track ticket-for-branch 2>/dev/null | cut -f1)
+  [ -n "$key" ] || {
+    printf 'iso-push: no ticket for this branch -- the PR stays unlinked\n' >&2
+    return 0
+  }
+  printf '%s\n' "$key"
+}
+
+# The pure half, and the only half that can be quietly wrong: which key, or
+# none. An empty key, or a body already naming it, comes back byte-identical so
+# the caller can compare instead of deciding again — `pr` reuses an open PR, so
+# this runs on every re-run.
+body_with_ticket() {
+  local body="$1" key="$2"
+  [ -n "$key" ] || { printf '%s' "$body"; return 0; }
+  case "$body" in *"$key"*) printf '%s' "$body"; return 0 ;; esac
+  printf '%s\n\nTicket: %s' "$body" "$key"
+}
+
 # ----------------------------------------------------------------------- pr
 # Find-or-create. Reuse matters: a re-run after a red build must not open a
 # second PR for the same branch. Echoes the PR number.
@@ -436,14 +454,32 @@ cmd_pr() {
   local msgfile="${3:?usage: push.sh pr <head> <base> <msgfile>}"
   [ -s "$msgfile" ] || die "message file is empty: $msgfile"
 
+  # Feature PRs only. A cascade hop's head is development or test, which carry
+  # no ticket of their own, and the tickets they ship were closed at their own
+  # merges — linking here would hang one ticket off two PRs.
+  local key=""
+  iso_is_protected "$head" || key=$(ticket_key)
+
   local n
   n=$(gh pr list --head "$head" --base "$base" --state open --json number --jq '.[0].number // empty')
-  if [ -n "$n" ]; then printf '%s\n' "$n"; return 0; fi
+  if [ -n "$n" ]; then
+    # The body is written once, at create. A ticket bound after that — or this
+    # very feature landing mid-flight — would never reach it. Append, never
+    # rewrite: the rest of that body is someone's prose.
+    if [ -n "$key" ]; then
+      local cur new
+      cur=$(gh pr view "$n" --json body --jq '.body // ""') || cur=""
+      new=$(body_with_ticket "$cur" "$key")
+      [ "$new" = "$cur" ] || gh pr edit "$n" --body "$new" >/dev/null
+    fi
+    printf '%s\n' "$n"; return 0
+  fi
 
   local title body
   title=$(head -1 "$msgfile")
   body=$(tail -n +2 "$msgfile" | sed '1{/^$/d;}')
-  gh pr create --base "$base" --head "$head" --title "$title" --body "$body" >/dev/null
+  gh pr create --base "$base" --head "$head" --title "$title" \
+    --body "$(body_with_ticket "$body" "$key")" >/dev/null
   gh pr list --head "$head" --base "$base" --state open --json number --jq '.[0].number'
 }
 
@@ -866,8 +902,13 @@ cmd_release() {
     "$version" "$(git rev-parse --short "$sha")" "$base" "${pr:-?}"
 }
 
+# Sourced by the self-check to exercise the pure helpers in isolation. Without
+# this the dispatch below runs and `die` kills the sourcing shell.
+(return 0 2>/dev/null) && return 0
+
 case "${1:-}" in
   preflight) shift; cmd_preflight "$@" ;;
+  rescue)    shift; cmd_rescue "$@" ;;
   base)      shift; cmd_base "$@" ;;
   development-branch) shift; cmd_development_branch "$@" ;;
   status)    shift; cmd_status "$@" ;;
@@ -880,5 +921,5 @@ case "${1:-}" in
   promote)   shift; cmd_promote "$@" ;;
   bump)      shift; cmd_bump "$@" ;;
   release)   shift; cmd_release "$@" ;;
-  *) die "usage: push.sh {preflight|base|development-branch|status|rebase|push|pr|checks|integrate|home|promote|bump|release} [args]" ;;
+  *) die "usage: push.sh {preflight|base|development-branch|status|rebase|push|pr|checks|integrate|home|promote|bump|release|rescue} [args]" ;;
 esac

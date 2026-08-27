@@ -102,7 +102,7 @@ case "$out" in *"node scripts/install.js"*) ok "the remedy names install.js" ;;
   *) bad "no remedy printed" ;; esac
 # The list doctor iterates and the list install.js writes must be one file, or
 # doctor can report ready while checking fewer hooks than exist.
-HOOKS_JSON="${LIB%/iso-config/scripts/lib/config.sh}/iso-tracking/scripts/hooks.json"
+HOOKS_JSON="${LIB%/iso-config/scripts/lib/config.sh}/iso-issue-tracking/scripts/hooks.json"
 if [ -f "$HOOKS_JSON" ]; then
   want=$(jq -r '.[] | "\(.event):\(.name)"' "$HOOKS_JSON")
   got=$(bash -c '. "'"$CFG"'"; iso_hooks')

@@ -35,7 +35,7 @@ tk_project_create() {
 
 # <project-id> <status> <title> <priority> [assignee]
 # Body on stdin (may be empty). Prints the created issue key.
-# One plan is one card, so there is no parent and no stage to pass.
+# One plan is one ticket, so there is no parent and no stage to pass.
 tk_issue_create() {
   local project="$1" status="$2" title="$3" priority="$4"
   local assignee="${5:-}" body args

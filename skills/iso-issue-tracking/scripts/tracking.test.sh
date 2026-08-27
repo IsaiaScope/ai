@@ -271,7 +271,7 @@ check "label cached" "$(jq -r '.be' "$S7/labels.json")" "label-id"
 grep -q 'label create' "$STUB_CALLS" && bad "unknown scope created a label" || ok "unknown scope creates no label"
 grep -q "unknown scope" "$S7/log" && ok "unknown scope logged" || bad "unknown scope not logged"
 
-echo "branch on the card"
+echo "branch on the ticket"
 # Fresh state dir: the opens above already cached the property definition, so
 # reusing S7 would assert against a warm cache and never see the create.
 S8=$(mktemp -d)
@@ -312,7 +312,7 @@ grep -q -- '--priority medium' "$STUB_CALLS" \
   && ok "invalid priority falls back to medium" || bad "invalid priority not handled"
 grep -q "unknown priority" "$S7/log" && ok "invalid priority logged" || bad "invalid priority not logged"
 
-# --parent is retired: one plan, one card. A stale flag left in a caller must be
+# --parent is retired: one plan, one ticket. A stale flag left in a caller must be
 # ignored, never forwarded to the board.
 : > "$STUB_CALLS"
 ( cd "$g" && MULTICA_STATE_DIR="$S7" PATH="$BIN7:$PATH" bash "$SH" \
@@ -334,6 +334,8 @@ echo "resume block"
     open r1 "t" --scope be ) >/dev/null 2>&1
 grep -q 'claude --resume r1 --dangerously-skip-permissions' "$STUB_DESC" \
   && ok "resume appended after prose" || bad "resume missing after prose"
+grep -qE '^cd /.* && claude --resume r1 ' "$STUB_DESC" \
+  && ok "resume cds into the repo first" || bad "resume missing repo path"
 grep -q 'context here' "$STUB_DESC" && ok "prose preserved alongside resume" || bad "prose lost"
 grep -q '^---$' "$STUB_DESC" && ok "separator between prose and resume" || bad "no separator"
 grep -c '```' "$STUB_DESC" | grep -q '^2$' && ok "resume is a fenced block" || bad "fence malformed"
@@ -363,7 +365,7 @@ echo "stage"
 ( cd "$g" && MULTICA_STATE_DIR="$S7" PATH="$BIN7:$PATH" bash "$SH" \
     open st1 "t" --stage 2 </dev/null ) >/dev/null 2>&1
 grep -q -- '--stage' "$STUB_CALLS" && bad "stale --stage forwarded" || ok "stale --stage ignored"
-check "a stale --stage still opens the card" "$(grep -c 'issue create' "$STUB_CALLS")" "1"
+check "a stale --stage still opens the ticket" "$(grep -c 'issue create' "$STUB_CALLS")" "1"
 rm -rf "$S7" "$BIN7" "$g"
 
 echo "retro (merge comment + close)"
@@ -391,15 +393,15 @@ MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-20 "{\"repo\":\"r
     '- 🐛 signature check widened to 5m' \
     | MULTICA_STATE_DIR="$S11" PATH="$BIN11:/usr/bin:/bin" bash "$SH" retro "$P11" ) >/dev/null 2>&1
 check "retro exits 0" "$?" "0"
-check "one comment, one card" "$(grep -c 'issue comment add' "$STUB_CALLS")" "1"
-grep -q '=== comment FIRE-20 ===' "$STUB_DESC" && ok "the card got a comment" || bad "the card got no comment"
+check "one comment, one ticket" "$(grep -c 'issue comment add' "$STUB_CALLS")" "1"
+grep -q '=== comment FIRE-20 ===' "$STUB_DESC" && ok "the ticket got a comment" || bad "the ticket got no comment"
 awk '/^=== comment FIRE-20 ===$/{p=1;next} /^=== comment /{p=0} p' "$STUB_DESC" | grep -q 'Landed' \
   && ok "comment carries the landing line" || bad "comment body wrong"
-# Every line of stdin lands on the one card - there is no block splitting left
+# Every line of stdin lands on the one ticket - there is no block splitting left
 # to drop the tail on the floor.
 awk '/^=== comment FIRE-20 ===$/{p=1;next} /^=== comment /{p=0} p' "$STUB_DESC" | grep -q 'signature check' \
-  && ok "the whole body reaches the card" || bad "body truncated at a separator"
-check "the card closed" "$(grep -c 'issue status FIRE-20 done --no-start' "$STUB_CALLS")" "1"
+  && ok "the whole body reaches the ticket" || bad "body truncated at a separator"
+check "the ticket closed" "$(grep -c 'issue status FIRE-20 done --no-start' "$STUB_CALLS")" "1"
 check "ledger row deleted" "$(jq -r 'has("FIRE-20")' "$S11/tracked.json")" "false"
 
 # Same trust boundary as every other outbound body.
@@ -419,7 +421,7 @@ grep -q 'issue status' "$STUB_CALLS" && bad "unknown plan still closed something
 MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-40 "{\"repo\":\"r\",\"branch\":\"feat/by-branch\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"\"}"'
 ( cd "$g11" && printf 'landed' | MULTICA_STATE_DIR="$S11" PATH="$BIN11:/usr/bin:/bin" bash "$SH" retro feat/by-branch ) >/dev/null 2>&1
 grep -q 'issue status FIRE-40 done --no-start' "$STUB_CALLS" \
-  && ok "a branch resolves the card too" || bad "branch did not resolve a card"
+  && ok "a branch resolves the ticket too" || bad "branch did not resolve a ticket"
 
 : > "$STUB_CALLS"
 MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-41 "{\"repo\":\"r\",\"branch\":\"feat/moving\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"\"}"'
@@ -428,7 +430,7 @@ grep -q 'issue status FIRE-41 in_progress --no-start' "$STUB_CALLS" \
   && ok "progress resolves by branch as well" || bad "progress cannot resolve by branch"
 rm -rf "$S11" "$BIN11" "$g11"
 
-echo "replan: a second plan lands on the same card"
+echo "replan: a second plan lands on the same ticket"
 S12=$(mktemp -d); BIN12=$(mktemp -d)
 cat > "$BIN12/multica" <<'STUB'
 #!/usr/bin/env bash
@@ -451,16 +453,16 @@ P_OLD='docs/superpowers/plans/2026-04-01-feat-first-try.md'
 P_NEW='docs/superpowers/plans/2026-04-09-feat-second-try.md'
 MULTICA_STATE_DIR="$S12" bash -c '. "'"$SH"'"; ledger_put FIRE-50 "{\"repo\":\"r\",\"branch\":\"feat/redo\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"'"$P_OLD"'\"}"'
 
-# card-for-branch names the live card so /iso-plan can choose replan over open.
+# ticket-for-branch names the live ticket so /iso-plan can choose replan over open.
 echo in_review > "$STUB_ST"
-got=$( cd "$g12" && MULTICA_STATE_DIR="$S12" PATH="$BIN12:$PATH" bash "$SH" card-for-branch )
-check "card-for-branch reports key and status" "$got" "$(printf 'FIRE-50\tin_review')"
+got=$( cd "$g12" && MULTICA_STATE_DIR="$S12" PATH="$BIN12:$PATH" bash "$SH" ticket-for-branch )
+check "ticket-for-branch reports key and status" "$got" "$(printf 'FIRE-50\tin_review')"
 
 : > "$STUB_CALLS"; : > "$STUB_DESC"
 got=$( cd "$g12" && printf 'Second attempt. The first plan mis-modelled the queue.\n' \
   | MULTICA_STATE_DIR="$S12" PATH="$BIN12:$PATH" bash "$SH" replan s50 --plan "$P_NEW" )
-check "replan returns the same card" "$got" "FIRE-50"
-check "replan sends the card back to todo" \
+check "replan returns the same ticket" "$got" "FIRE-50"
+check "replan sends the ticket back to todo" \
   "$(grep -c 'issue status FIRE-50 todo --no-start' "$STUB_CALLS")" "1"
 grep -q '=== desc FIRE-50 ===' "$STUB_DESC" \
   && ok "the description is replaced, not appended" || bad "description not rewritten"
@@ -479,18 +481,18 @@ for dead in done cancelled; do
   echo "$dead" > "$STUB_ST"; : > "$STUB_CALLS"
   ( cd "$g12" && printf 'x' | MULTICA_STATE_DIR="$S12" PATH="$BIN12:$PATH" \
       bash "$SH" replan s51 --plan "$P_NEW" ) >/dev/null 2>&1
-  check "replan refuses a $dead card" "$(grep -c 'issue status' "$STUB_CALLS")" "0"
-  got=$( cd "$g12" && MULTICA_STATE_DIR="$S12" PATH="$BIN12:$PATH" bash "$SH" card-for-branch )
-  check "card-for-branch hides a $dead card" "$got" ""
+  check "replan refuses a $dead ticket" "$(grep -c 'issue status' "$STUB_CALLS")" "0"
+  got=$( cd "$g12" && MULTICA_STATE_DIR="$S12" PATH="$BIN12:$PATH" bash "$SH" ticket-for-branch )
+  check "ticket-for-branch hides a $dead ticket" "$got" ""
 done
 
-# No card for this branch: say so on stderr and exit 0, so /iso-plan opens one.
+# No ticket for this branch: say so on stderr and exit 0, so /iso-plan opens one.
 echo in_review > "$STUB_ST"
 gx=$(mktemp -d); ( cd "$gx" && git init -q -b dev . && git commit -q --allow-empty -m x )
 err=$( cd "$gx" && printf 'x' | MULTICA_STATE_DIR="$S12" PATH="$BIN12:$PATH" \
        bash "$SH" replan s52 --plan "$P_NEW" 2>&1 >/dev/null )
-case "$err" in *"no live card"*) ok "replan with no card warns and yields" ;;
-  *) bad "replan was silent with no card" ;; esac
+case "$err" in *"no live ticket"*) ok "replan with no ticket warns and yields" ;;
+  *) bad "replan was silent with no ticket" ;; esac
 
 # An explicit --key wins over the branch lookup.
 : > "$STUB_CALLS"
@@ -526,8 +528,8 @@ g10=$(mktemp -d); ( cd "$g10" && git init -q -b main . && git commit -q --allow-
 P10='docs/superpowers/plans/2026-02-02-feat-wiki.md'
 
 : > "$STUB_CALLS"; : > "$STUB_DESC"; : > "$STUB_N"
-# One plan, one card. A rich multi-section body is still one card, and every
-# line of it lands on that card - the block separator that used to fan out to
+# One plan, one ticket. A rich multi-section body is still one ticket, and every
+# line of it lands on that ticket - the block separator that used to fan out to
 # sub-issues is gone, so a literal `---` in a body is now just a rule.
 got=$( cd "$g10" && printf '%s\n' \
   'The wiki moves to explicit ingest. The nightly crawl was implicit and' \
@@ -537,18 +539,18 @@ got=$( cd "$g10" && printf '%s\n' \
   '**Why**' '- the crawl skipped every page created after midnight' \
   | MULTICA_STATE_DIR="$S10" PATH="$BIN10:$PATH" bash "$SH" \
       open w1 "wiki ingest" --scope be --scope doc --plan "$P10" )
-check "open returns the card identifier" "$got" "FIRE-1"
-check "one plan opens exactly one card" "$(cat "$STUB_N")" "1"
-grep -q -- '--parent' "$STUB_CALLS" && bad "open sent a --parent" || ok "no --parent: there is one card"
-check "each scope labelled on the one card" "$(grep -c 'issue label add FIRE-1 label-id' "$STUB_CALLS")" "2"
+check "open returns the ticket identifier" "$got" "FIRE-1"
+check "one plan opens exactly one ticket" "$(cat "$STUB_N")" "1"
+grep -q -- '--parent' "$STUB_CALLS" && bad "open sent a --parent" || ok "no --parent: there is one ticket"
+check "each scope labelled on the one ticket" "$(grep -c 'issue label add FIRE-1 label-id' "$STUB_CALLS")" "2"
 
 check "plan path recorded in the ledger row" \
   "$(jq -r '."FIRE-1".plan' "$S10/tracked.json")" "$P10"
 
 grep -q 'stayed invisible' "$STUB_DESC" \
-  && ok "multi-sentence prose reaches the card whole" || bad "prose truncated"
+  && ok "multi-sentence prose reaches the ticket whole" || bad "prose truncated"
 grep -q '| ingest | implicit | explicit |' "$STUB_DESC" \
-  && ok "a Markdown table survives to the card" || bad "table mangled"
+  && ok "a Markdown table survives to the ticket" || bad "table mangled"
 grep -q 'the crawl skipped every page' "$STUB_DESC" \
   && ok "the tail of a long body is not dropped" || bad "body truncated mid-way"
 
@@ -566,13 +568,13 @@ grep -qF -- 'skip-permissions "/iso-write' "$STUB_DESC" \
 
 # /iso-plan opens at todo; only /iso-write moves it on.
 grep -q 'issue status FIRE-1 in_progress' "$STUB_CALLS" \
-  && bad "open promoted the card past todo" || ok "open leaves the card at todo"
+  && bad "open promoted the ticket past todo" || ok "open leaves the ticket at todo"
 
-# --sub is retired: it must be ignored, not silently mint a second card.
+# --sub is retired: it must be ignored, not silently mint a second ticket.
 : > "$STUB_CALLS"; : > "$STUB_DESC"; : > "$STUB_N"
 ( cd "$g10" && MULTICA_STATE_DIR="$S10" PATH="$BIN10:$PATH" bash "$SH" \
     open w3 "t" --sub be </dev/null ) >/dev/null 2>&1
-check "a stale --sub creates no second card" "$(cat "$STUB_N")" "1"
+check "a stale --sub creates no second ticket" "$(cat "$STUB_N")" "1"
 
 # bind still promotes: attaching a session to existing work means work resumed.
 : > "$STUB_CALLS"
@@ -604,7 +606,7 @@ for verb in progress review blocked; do
   ( cd "$gp" && MULTICA_STATE_DIR="$S9" PATH="$BIN9:/usr/bin:/bin" bash "$SH" "$verb" "$PLAN" ) >/dev/null 2>&1
   check "$verb exits 0" "$?" "0"
   grep -q "issue status FIRE-10 $want --no-start" "$STUB_CALLS" \
-    && ok "$verb moves the card to $want" || bad "$verb did not move the card to $want"
+    && ok "$verb moves the ticket to $want" || bad "$verb did not move the ticket to $want"
   check "$verb writes exactly one status" \
     "$(grep -c 'issue status' "$STUB_CALLS")" "1"
 done
@@ -614,16 +616,16 @@ done
 : > "$STUB_CALLS"
 err=$( cd "$gp" && MULTICA_STATE_DIR="$S9" PATH="$BIN9:/usr/bin:/bin" \
        bash "$SH" review docs/superpowers/plans/nope.md 2>&1 >/dev/null )
-case "$err" in *"no card matches"*) ok "a missed transition warns on stderr" ;;
+case "$err" in *"no ticket matches"*) ok "a missed transition warns on stderr" ;;
   *) bad "a missed transition was silent" ;; esac
 
 # A plan path that matches nothing must be silent, not a status write on the
-# wrong card and not a non-zero exit into a hook.
+# wrong ticket and not a non-zero exit into a hook.
 : > "$STUB_CALLS"
 ( cd "$gp" && MULTICA_STATE_DIR="$S9" PATH="$BIN9:/usr/bin:/bin" bash "$SH" review docs/plans/nope.md ) >/dev/null 2>&1
 check "unknown plan path exits 0" "$?" "0"
 grep -q "issue status" "$STUB_CALLS" && bad "unknown plan still wrote a status" || ok "unknown plan path is a no-op"
-grep -q "no card for plan" "$S9/log" && ok "unresolved plan logged" || bad "unresolved plan not logged"
+grep -q "no ticket for plan" "$S9/log" && ok "unresolved plan logged" || bad "unresolved plan not logged"
 
 ( cd "$gp" && MULTICA_STATE_DIR="$S9" PATH="$BIN9:/usr/bin:/bin" bash "$SH" progress ) >/dev/null 2>&1
 check "progress with no plan path exits 0" "$?" "0"
@@ -632,8 +634,82 @@ check "progress with no plan path exits 0" "$?" "0"
 : > "$STUB_CALLS"
 ( cd "$gp" && MULTICA_STATE_DIR="$S9" PATH="$BIN9:/usr/bin:/bin" bash "$SH" progress "/somewhere/else/$PLAN" ) >/dev/null 2>&1
 grep -q "issue status FIRE-10 in_progress" "$STUB_CALLS" \
-  && ok "absolute plan path resolves the same card" || bad "absolute plan path missed the card"
+  && ok "absolute plan path resolves the same ticket" || bad "absolute plan path missed the ticket"
 rm -rf "$S9" "$BIN9" "$gp"
+
+echo "rebranch"
+# Self-contained fixture: $g and $BIN7 are torn down much earlier in this file.
+S13=$(mktemp -d); BIN13=$(mktemp -d)
+cat > "$BIN13/multica" <<'STUB'
+#!/usr/bin/env bash
+echo "$@" >> "$STUB_CALLS"
+case "$1 $2" in
+  "project list")   echo '[{"id":"proj-id","title":"ai-agent"}]'; exit 0 ;;
+  "label list")     echo '[]'; exit 0 ;;
+  "label create")   echo '{"id":"label-id"}'; exit 0 ;;
+  "issue create")   cat > "$STUB_DESC"; echo '{"identifier":"FIRE-9"}'; exit 0 ;;
+  "issue get")      echo '{"status":"todo"}'; exit 0 ;;
+  "auth status")    printf 'User:    Test User (t@e.com)\n' >&2; exit 0 ;;
+  "property list")  echo '[]'; exit 0 ;;
+esac
+exit 0
+STUB
+chmod +x "$BIN13/multica"
+export STUB_CALLS="$S13/calls" STUB_DESC="$S13/desc"
+: > "$STUB_CALLS"; : > "$STUB_DESC"
+g13=$(mktemp -d); ( cd "$g13" && git init -q -b main . && git commit -q --allow-empty -m x \
+    && git remote add origin https://github.com/IsaiaScope/ai-agent.git )
+P13=docs/superpowers/plans/2026-08-27-feat-rb.md
+
+( cd "$g13" && MULTICA_STATE_DIR="$S13" PATH="$BIN13:$PATH" bash "$SH" \
+    open rb1 "t" --plan "$P13" --scope be </dev/null ) >/dev/null 2>&1
+check "fixture ticket opened on the base branch" \
+  "$(jq -r '.["FIRE-9"].branch' "$S13/tracked.json")" "main"
+
+: > "$STUB_CALLS"
+( cd "$g13" && MULTICA_STATE_DIR="$S13" PATH="$BIN13:$PATH" bash "$SH" \
+    rebranch "$P13" feat/rb ) >/dev/null 2>&1
+check "resolves by plan path" "$(jq -r '.["FIRE-9"].branch' "$S13/tracked.json")" "feat/rb"
+grep -q -- 'issue property set FIRE-9 --name Branch --value feat/rb' "$STUB_CALLS" \
+  && ok "board follows the ledger" || bad "Branch property not rewritten"
+check "the plan key survives the move" "$(jq -r '.["FIRE-9"].plan' "$S13/tracked.json")" "$P13"
+check "other row fields survive" "$(jq -r '.["FIRE-9"].opened_by' "$S13/tracked.json")" "claude"
+
+# iso-push holds a branch and never a plan path, so the old branch must resolve.
+: > "$STUB_CALLS"
+( cd "$g13" && MULTICA_STATE_DIR="$S13" PATH="$BIN13:$PATH" bash "$SH" \
+    rebranch feat/rb feat/rb2 ) >/dev/null 2>&1
+check "resolves by old branch name" "$(jq -r '.["FIRE-9"].branch' "$S13/tracked.json")" "feat/rb2"
+
+# Re-running a skill must not be a state change.
+( cd "$g13" && MULTICA_STATE_DIR="$S13" PATH="$BIN13:$PATH" bash "$SH" \
+    rebranch feat/rb2 feat/rb2 ) >/dev/null 2>&1
+check "idempotent" "$(jq -r '.["FIRE-9"].branch' "$S13/tracked.json")" "feat/rb2"
+
+# A miss is normal: a repo with no ticket for this work still has to run.
+: > "$STUB_CALLS"
+( cd "$g13" && MULTICA_STATE_DIR="$S13" PATH="$BIN13:$PATH" bash "$SH" \
+    rebranch nothing/here feat/x ) >/dev/null 2>&1
+check "miss exits 0" "$?" "0"
+grep -q 'property set' "$STUB_CALLS" && bad "wrote to the board on a miss" \
+                                     || ok "miss writes nothing"
+grep -q 'rebranch: no ticket' "$S13/log" && ok "miss is logged" || bad "miss not logged"
+
+: > "$STUB_CALLS"
+( cd "$g13" && MULTICA_STATE_DIR="$S13" PATH="$BIN13:$PATH" bash "$SH" \
+    rebranch "$P13" ) >/dev/null 2>&1
+check "missing new-branch argument exits 0" "$?" "0"
+grep -q 'property set' "$STUB_CALLS" && bad "wrote with no new branch" \
+                                     || ok "missing argument writes nothing"
+
+echo "branch-of"
+check "reads back by plan path" \
+  "$( cd "$g13" && MULTICA_STATE_DIR="$S13" PATH="$BIN13:$PATH" bash "$SH" branch-of "$P13" )" "feat/rb2"
+check "reads back by branch name" \
+  "$( cd "$g13" && MULTICA_STATE_DIR="$S13" PATH="$BIN13:$PATH" bash "$SH" branch-of feat/rb2 )" "feat/rb2"
+check "miss prints nothing" \
+  "$( cd "$g13" && MULTICA_STATE_DIR="$S13" PATH="$BIN13:$PATH" bash "$SH" branch-of nothing/here )" ""
+rm -rf "$S13" "$BIN13" "$g13"
 
 rm -rf "$tmp" "$r"
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

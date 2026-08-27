@@ -287,6 +287,9 @@ a branch tip that a PR and CI have already passed.
    head/base instead of opening a second one, so a re-run after a red build is
    safe. Echoes the PR number.
 
+   It also appends the branch's ticket to the body, and patches the body of a
+   PR it reused when the line is missing — do not write that line by hand.
+
 6. **Integrate the feature PR** — skip when `--no-merge`. Run
    `push.sh checks <n>`. Green or no CI configured → `push.sh integrate <branch> <base>`.
    Red → report the failing job, print `gh run view --log-failed`, and stop the
@@ -296,7 +299,7 @@ a branch tip that a PR and CI have already passed.
    work around: go back to step 3, rebase, and re-run. The branch is never
    deleted.
 
-   **Then write the retro and close the card.** This is the one moment where
+   **Then write the retro and close the ticket.** This is the one moment where
    "it shipped" and "someone still remembers why" overlap: commits carry the
    decisions, but the transcript carries the problems, and it is gone by the
    time the reconciler next runs. Guarded, and never allowed to fail the push:
@@ -308,7 +311,7 @@ a branch tip that a PR and CI have already passed.
    _sib="$(dirname "${BASH_SOURCE[0]:-$0}")/../../iso-config/scripts/lib/sibling.sh"
    # shellcheck source=/dev/null
    [ -f "$_sib" ] && . "$_sib"
-   S=$(iso_sibling iso-tracking scripts/tracking.sh 2>/dev/null) || S=""
+   S=$(iso_sibling iso-issue-tracking scripts/tracking.sh 2>/dev/null) || S=""
    [ -x "$S" ] && printf '%s\n' \
      '🏁 **Landed** · PR [#42](url)' \
      'Swapped the polling loop for a webhook receiver.' \
@@ -318,11 +321,11 @@ a branch tip that a PR and CI have already passed.
      | "$S" retro "<branch>"
    ```
 
-   `retro` posts stdin as one comment on the card and then sets it `done`. It
-   resolves the card from the branch, so nothing here needs the plan path.
+   `retro` posts stdin as one comment on the ticket and then sets it `done`. It
+   resolves the ticket from the branch, so nothing here needs the plan path.
 
    **Format.** A line only for something that actually happened. A clean run is
-   two lines and no list at all. Cap it at ~6 lines or 60 words — the card is
+   two lines and no list at all. Cap it at ~6 lines or 60 words — the ticket is
    not a work log. The emoji marks the kind:
 
    | emoji | means |
@@ -575,6 +578,9 @@ across the branch's commits wins**: a branch holding a feature and a fix is
 
 The lede is at most 3 lines and answers *should I care*. The dots answer *what
 changed*, one per change, `-` never `*`, wrapped at 72.
+
+A last line reading `Ticket: FIRE-9` may follow. `push.sh pr` writes it — that
+string is what the tracker scans for to link the PR to its ticket.
 
 **Shape rule.** Every dot — and the lede — names something concrete in the
 diff: a file, function, endpoint, flag, behavior, error. Anything that cannot

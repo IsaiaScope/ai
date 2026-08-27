@@ -25,8 +25,44 @@ Mechanics live in `skills/iso-commit/scripts/commit.sh`. Run it by absolute path
 2. **Read the change** — `git diff HEAD` (or `git diff --cached` with `--staged`), plus `git log --oneline -10` to match the repo's existing subject style.
 3. **Stage** — `commit.sh stage [--staged]`. Runs the credential guard first and exits 2 without touching the index if it trips. On exit 2, print the blocked paths and stop; do not work around it.
 4. **Write the message** to a temp file, following the format below.
-5. **Commit** — `commit.sh commit <msgfile>`. Hooks run on purpose (commitlint gates the subject, version-bump reads it). If a hook rejects the commit, fix the message and retry — never `--no-verify`.
-6. **Report** — print the message and the short SHA the script echoed. Add one line: `wrong? git commit --amend`.
+5. **Branch gate** — `commit.sh gate "<subject>"`, then `commit.sh land <action> <branch>`. See below.
+6. **Commit** — `commit.sh commit <msgfile>`. Hooks run on purpose (commitlint gates the subject, version-bump reads it). If a hook rejects the commit, fix the message and retry — never `--no-verify`.
+7. **Report** — print the message and the short SHA the script echoed. Add one line: `wrong? git commit --amend`.
+
+### Step 5 — the branch gate
+
+`dev`, `test` and `prod` are promoted **into**, never worked **on**: a commit
+made while standing on one is stranded, invisible to the cascade, and reachable
+only by a `git reset --hard` typed by hand. The gate catches that before the
+commit exists, rather than after.
+
+It sits after the message and not in preflight because it names the branch from
+the subject, and the subject does not exist until step 4.
+
+```bash
+commit.sh gate "feat(auth): add token refresh"
+# action=create
+# branch=feat/auth-add-token-refresh
+commit.sh land create feat/auth-add-token-refresh
+```
+
+| verdict | what to do |
+|---|---|
+| `stay` | `land stay <branch>` and carry on — you are already on a feature branch |
+| `create` | show the user the branch name, then `land create <branch>` |
+| `checkout` | the ticket's own branch already exists — say so, then `land checkout <branch>` |
+| `ask` | nothing to derive a name from. **Ask the user for one**, then `land create <their-name>` |
+
+`ask` is the only verdict that stops for a human. Everything else the config
+already answers, so do not turn `create` into a question.
+
+Staged work survives the move — the index carries across both checkout forms,
+and git refuses outright if it cannot, which is the right answer. The ticket's
+`Branch` follows automatically; never write it by hand.
+
+The verdicts come from `iso_branch_gate` in `iso-config/scripts/lib/branch.sh`,
+shared with `/iso-write` and `/iso-push`. See **Branch policy** in
+`iso-config/SKILL.md`.
 
 ## Format
 

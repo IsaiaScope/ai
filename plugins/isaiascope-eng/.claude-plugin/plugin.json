@@ -11,7 +11,7 @@
     "./skills/iso-review",
     "./skills/iso-spawn",
     "./skills/iso-todo",
-    "./skills/iso-tracking",
+    "./skills/iso-issue-tracking",
     "./skills/iso-write"
   ]
 }

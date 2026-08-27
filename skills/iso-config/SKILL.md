@@ -41,6 +41,76 @@ wrong under the rest.
     . "$(iso_sibling iso-config scripts/lib/config.sh)"
     development=$(iso_config_get branches.development)
 
+## Branch policy
+
+No `iso-*` skill reads `branches.protected` directly. Source `branch.sh` beside
+`config.sh` and use what it exports — before it existed, `iso-write` and
+`iso-push` each carried their own copy of the membership test and of the
+name-derivation logic, under different names.
+
+    . "$(iso_sibling iso-config scripts/lib/branch.sh)"
+
+    iso_is_protected        <branch>                          # "" (detached) counts as protected
+    iso_branch_from_plan    <plan-path>                       # YYYY-MM-DD-<type>-<slug>.md -> <type>/<slug>
+    iso_branch_from_subject <commit-subject>                  # "feat(scope): msg"          -> feat/scope-msg
+    iso_branch_gate         <current> <ticket-branch> <proposed>
+
+`iso_branch_gate` answers "where should this work live?" and prints exactly two
+lines — `action=stay|checkout|create|ask` and `branch=<name>`, empty for `ask`:
+
+| on | ticket branch | proposed | verdict |
+|---|---|---|---|
+| a feature branch | anything | — | `stay` on the current branch |
+| protected | a feature branch that exists | anything | `checkout` it |
+| protected | a feature branch that does not exist | anything | `create` it |
+| protected | empty, or a protected branch | a name that exists | `checkout` it |
+| protected | empty, or a protected branch | a name that does not exist | `create` it |
+| protected | empty, or a protected branch | empty | `ask` |
+
+A ticket still naming a protected branch is ignored rather than followed, which
+is what stops a stale row sending someone back to `dev`.
+
+**The gate is pure, and it is deliberately blind to the tracker.**
+`iso-issue-tracking` sources `iso-config`, so a call back the other way would be
+a dependency cycle. The caller resolves the ticket with whatever identifier it
+already holds — a plan path for `/iso-write`, the current branch for
+`/iso-commit` — and passes the answer in as `<ticket-branch>`.
+
+**`ask` is the only verdict that stops for a human,** and the prompt is rendered
+by the calling `SKILL.md`. A script cannot ask a question, so the gate returns a
+verdict and never blocks.
+
+## Reaching the tracker
+
+No `iso-*` skill resolves `tracking.sh` for itself. Source `track.sh` beside
+`config.sh`. Before it existed, seven call sites hand-rolled the same resolve,
+test, run, swallow sequence, and had drifted apart on all three of the details
+that matter.
+
+    . "$(iso_sibling iso-config scripts/lib/track.sh)"
+
+    iso_track <verb> [args...]   # the verb's stdout; ALWAYS exits 0
+    iso_track_path               # the runnable tracker, or nothing
+
+`iso_track` can never fail a run. No tracker installed, no git repo, or a verb
+that errors all come back as exit 0 and empty stdout — a caller that needs to
+know it got nothing reads the stdout, never the status. It does not silence
+stderr; a caller that wants silence redirects at the call site, which is the
+only place the choice differs between callers.
+
+`iso_track_path` exists because "no tracker here" and "a tracker that knows
+nothing about this branch" are different answers when the caller reports to a
+human: the first deserves silence, the second a warning. `iso-push` uses it to
+decide whether an unlinked PR is worth mentioning.
+
+`ISO_TRACKING_SH` overrides resolution. That is the seam every self-check uses,
+and it now works from every skill instead of two.
+
+It lives in `iso-config` rather than in `iso-issue-tracking` on purpose: a
+caller must be able to source it *without* knowing whether the tracker is
+installed, and `iso-config` is the one skill that is always present.
+
+
 ## Prerequisites
 
 Classified by what can be done when one is absent, in `scripts/prereq.sh`:

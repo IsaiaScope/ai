@@ -1,9 +1,9 @@
 ---
-name: iso-tracking
-description: Record Claude Code work on the work tracker every iso-* skill files against. The iso-* chain drives the card at its own boundaries — /iso-plan opens it, /iso-write moves it, /iso-push closes it with a retro — and you open or bind rows by hand for work with no plan behind it. Use when a request changes something durable inside a git repo. Inert outside a repo.
+name: iso-issue-tracking
+description: Record agent work on the work tracker every iso-* skill files against. The iso-* chain drives the ticket at its own boundaries — /iso-plan opens it, /iso-write moves it, /iso-push closes it with a retro — and you open or bind rows by hand for work with no plan behind it. Use when a request changes something durable inside a git repo. Inert outside a repo.
 ---
 
-# iso-tracking
+# iso-issue-tracking
 
 ## Adapters
 
@@ -29,7 +29,7 @@ Redaction stays in `tracking.sh`, deliberately: an adapter is the file most
 likely to be written quickly against an unfamiliar API, and it is the last
 place a `[redacted]` should depend on.
 
-`scripts/tracking.sh` is called by the Claude Code hooks for `reconcile`
+`scripts/tracking.sh` is called by the Claude Code session hooks for `reconcile`
 and `end`. The `iso-*` skills call it at their own boundaries, and you call it
 for the work that never went through a plan.
 
@@ -51,36 +51,36 @@ reaches and already announces; nothing infers intent from a prompt.
 claim about attention, not about GitHub. A PR can be open on work still in
 progress, and work can be ready to read with no PR at all.
 
-The four plan-driven writes, each resolving the card from a plan path **or** a
+The four plan-driven writes, each resolving the ticket from a plan path **or** a
 branch — whichever the calling skill happens to hold. One plan resolves to
-exactly one card, so each is a single status write:
+exactly one ticket, so each is a single status write:
 
 | command | effect |
 |---|---|
-| `progress <plan-or-branch>` | card → `in_progress` |
-| `blocked <plan-or-branch>` | card → `blocked` |
-| `review <plan-or-branch>` | card → `in_review` |
-| `retro <plan-or-branch>` | stdin becomes one comment, then card → `done` |
+| `progress <plan-or-branch>` | ticket → `in_progress` |
+| `blocked <plan-or-branch>` | ticket → `blocked` |
+| `review <plan-or-branch>` | ticket → `in_review` |
+| `retro <plan-or-branch>` | stdin becomes one comment, then ticket → `done` |
 
-**A card can outlive its plan.** When the first attempt was wrong, or came back
+**A ticket can outlive its plan.** When the first attempt was wrong, or came back
 from review needing a different approach, the second plan is the same piece of
-work and belongs on the same card. A second card would split one story across
+work and belongs on the same ticket. A second ticket would split one story across
 two rows and leave the first sitting in `in_review` for good.
 
 | command | effect |
 |---|---|
-| `card-for-branch` | prints `<KEY>\t<status>` for this branch's live card, or nothing |
-| `replan <session_id> --plan <path> [--key KEY]` | rewrites the description, comments what it superseded, card → `todo` |
+| `ticket-for-branch` | prints `<KEY>\t<status>` for this branch's live ticket, or nothing |
+| `replan <session_id> --plan <path> [--key KEY]` | rewrites the description, comments what it superseded, ticket → `todo` |
 
-`card-for-branch` is the question `/iso-plan` asks before writing anything:
-empty means open a fresh card, a key means replan against that one. It hides
-`done` and `cancelled` cards, because a new plan against shipped work is new
+`ticket-for-branch` is the question `/iso-plan` asks before writing anything:
+empty means open a fresh ticket, a key means replan against that one. It hides
+`done` and `cancelled` tickets, because a new plan against shipped work is new
 work — and `replan` refuses them for the same reason.
 
 `todo`, not `in_progress`: a new plan means nothing has been implemented yet,
 and `/iso-write` still owns the promotion. The description is **replaced** so
-the card describes the plan being worked now; the switch itself goes in a
-comment, which is where this card's history already lives.
+the ticket describes the plan being worked now; the switch itself goes in a
+comment, which is where this ticket's history already lives.
 
 And the ones you still call by hand, for work with no plan behind it:
 
@@ -92,7 +92,7 @@ And the ones you still call by hand, for work with no plan behind it:
 
 ## Writing the row
 
-The board is a kanban Iso scans, not a log he reads. Someone glancing at a card
+The board is a kanban Iso scans, not a log he reads. Someone glancing at a ticket
 a week from now should understand what is going on without opening it.
 
 ```bash
@@ -101,7 +101,7 @@ printf '%s\n' \
   'retry wrapper treats the batch as one unit, so a partial failure discards' \
   'the rows that did land. Nothing surfaces it: the job exits 0 and the count' \
   'is only wrong the next morning.' \
-  | ~/.claude/skills/iso-tracking/scripts/tracking.sh \
+  | "$(iso_sibling iso-issue-tracking scripts/tracking.sh)" \
       open "$SESSION_ID" "🐛 Uploader drops a whole batch when S3 returns 5xx" \
       --scope be,data --priority high
 ```
@@ -116,8 +116,8 @@ a wrong icon is worse than none, because the board is skimmed by shape.
 | 🐛 bug fix | ✨ feature | ♻️ refactor | 📝 plan, spec, docs |
 | 🚀 deploy, release | ⚙️ config, infra | 🔒 security | 🧪 tests |
 
-**One plan, one card.** There are no sub-issues and no `--parent`. A plan that
-touches three scopes is still one card carrying three scope labels — splitting
+**One plan, one ticket.** There are no sub-issues and no `--parent`. A plan that
+touches three scopes is still one ticket carrying three scope labels — splitting
 it produced rows nobody moved independently and a status that had to be written
 four times to mean one thing.
 
@@ -125,7 +125,7 @@ four times to mean one thing.
 order.
 
 **Part one — three or four sentences of prose.** Not one. One line leaves the
-reader with a title and a link, which is what the card exists to spare them.
+reader with a title and a link, which is what the ticket exists to spare them.
 Four sentences is enough to say what changes, what it replaces, why the old
 thing was wrong, and what it means going forward — and short enough that
 someone skimming the board actually reads it.
@@ -175,7 +175,7 @@ two blocks below the body, after a `---` rule:
 **Resume this session:**
 
 ```bash
-claude --resume <session-id> --dangerously-skip-permissions
+cd /path/to/repo && claude --resume <session-id> --dangerously-skip-permissions
 ```
 
 **Then implement the plan:**
@@ -196,7 +196,7 @@ cannot reach.
 
 **A big change repeats the pattern per topic.** When the work spans genuinely
 different parts of the app, do not flatten it into one blurred paragraph and do
-not split it into more cards. Give each topic a `##` heading, then the same
+not split it into more tickets. Give each topic a `##` heading, then the same
 shape underneath: three or four sentences, then whatever makes it concrete.
 
 ```markdown
@@ -222,7 +222,7 @@ This is what sub-issues used to do, minus four rows nobody moved.
 **Length: roughly 40 lines per topic.** The limit is not brevity for its own
 sake — it is that past that you are re-typing the plan file, which `--plan`
 already links. Prose gets the room it needs; step-by-step detail does not. A
-card is a briefing plus one retro comment at the merge; that is the whole
+ticket is a briefing plus one retro comment at the merge; that is the whole
 record.
 
 Pipe the whole thing on stdin: multi-line safe, no quoting. Same redaction as
@@ -240,10 +240,10 @@ parts findable at a glance:
 - `>` blockquote for a quoted error or log line
 - nested bullets only one level deep
 
-Do not paste diffs, full stack traces, or whole functions. The card is a
+Do not paste diffs, full stack traces, or whole functions. The ticket is a
 pointer to the work, not a copy of it.
 
-**Never restate what already has its own field.** The card carries the branch,
+**Never restate what already has its own field.** The ticket carries the branch,
 the PR, the scope, the priority and the assignee as structured fields — writing
 them into the description too just creates a second copy that goes stale:
 
@@ -259,9 +259,10 @@ them into the description too just creates a second copy that goes stale:
 The description is for what the fields cannot say: what is going on and why.
 
 **The resume block is automatic, when Claude is doing the work.** `open` appends
-a fenced `claude --resume <session_id> --dangerously-skip-permissions` to the
-description, so the work can be picked back up from the card. Do not write it
-yourself.
+a fenced `cd <repo_root> && claude --resume <session_id>
+--dangerously-skip-permissions` to the description, so the work can be picked
+back up from the ticket anywhere — the `cd` is what makes it runnable from a
+reader's shell, not just from inside the repo. Do not write it yourself.
 
 Pass **`--agent codex`** when the implementation runs in Codex instead — as
 `/iso-todo --impl-agent codex` and `/iso-write` do — and the block is omitted
@@ -270,7 +271,7 @@ resumes nothing is worse than none: it reads as an offer. Default is `claude`,
 so omitting the flag keeps the block.
 
 **Small emoji in the body, to reinforce a point** — not decoration. One or two
-per card, always attached to a specific claim, never at the start of every
+per ticket, always attached to a specific claim, never at the start of every
 bullet:
 
 | | | | |
@@ -278,7 +279,7 @@ bullet:
 | ⚠️ risk, gotcha | ✅ verified, works | ❌ broken, wrong | 🔁 retry, loop |
 | 🔒 security-sensitive | 🐌 slow, perf cost | 🚧 in progress, partial | 📌 the key fact |
 
-If a card ends up with an emoji on every line, remove them all — the signal only
+If a ticket ends up with an emoji on every line, remove them all — the signal only
 works while it is rare.
 
 **One trap:** redaction removes any bare hex run of 32 characters or more, which
@@ -329,10 +330,44 @@ consequence to leaving the row alone.
 **Assignee is automatic** — every row is assigned to the authenticated user, so
 the board never shows unowned work.
 
+## The branch on the ticket
+
+`open` records the branch you were standing on when the ticket was written —
+usually a base branch, because planning happens before the work has a branch of
+its own. Two verbs keep it honest afterwards.
+
+```bash
+tracking.sh rebranch <identifier> <new-branch>   # point the ticket at where the work moved
+tracking.sh branch-of <identifier>               # read it back; prints nothing on a miss
+```
+
+`<identifier>` is **either a plan path or the branch the work is moving off** —
+`ticket_for_plan` matches both, so a caller passes whichever it already holds.
+`/iso-write` has the plan path. `/iso-push` and `/iso-commit` have only a branch.
+
+`rebranch` rewrites two things: the ledger row's `branch`, and the ticket's
+`Branch` property. **The ledger is the one that matters.** It is the key
+`ticket-for-branch` resolves by, so a stale row makes the ticket unfindable from
+the branch the work is actually on — which is what silently unlinks pull
+requests and leaves the `PR` property unwritten, since `reconcile` matches PRs
+on `headRefName` against that same field.
+
+It is idempotent, and a miss is normal: no ticket for this work still has to
+exit 0, like every other write here. It posts **no comment** — a branch move is
+bookkeeping, and one comment per move buries the retro that matters.
+
+Who calls it:
+
+| skill | when |
+|---|---|
+| `/iso-write` | after it resolves a workspace, in every mode |
+| `/iso-commit` | after its branch gate lands |
+| `/iso-push` | inside `rescue_to_branch`, once the commits have moved |
+
 ## Breaking up larger work
 
-**Open a second card, never a child.** There is no hierarchy: multi-part work
-becomes one card per unit Iso would want to see move on its own, each with its
+**Open a second ticket, never a child.** There is no hierarchy: multi-part work
+becomes one ticket per unit Iso would want to see move on its own, each with its
 own scope and priority.
 
 ```bash
@@ -343,12 +378,12 @@ own scope and priority.
 
 A parent whose status was only ever the sum of its children was a row that had
 to be moved four times to say one thing, and the ordering it encoded lived in
-the plan file anyway. When sequence matters, say so in the card body under
+the plan file anyway. When sequence matters, say so in the ticket body under
 **Watch out**.
 
 Split when the parts have different scopes, land in different branches, or
 would each be worth reading about separately. Do not split a one-afternoon task
-into four cards; a board of trivia is as unreadable as a board of vagueness.
+into four tickets; a board of trivia is as unreadable as a board of vagueness.
 
 **Match before creating.** Run `multica issue search <words from the request>`
 first — it searches titles, descriptions and comment bodies, so a conclusion

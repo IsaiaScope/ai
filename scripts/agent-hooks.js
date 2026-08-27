@@ -14,7 +14,7 @@
 const { readFileSync } = require("fs");
 const { join } = require("path");
 
-const SKILL_REL = ".claude/skills/iso-tracking/scripts/tracking.sh";
+const SKILL_REL = ".claude/skills/iso-issue-tracking/scripts/tracking.sh";
 
 // The list lives with the skill it wires up, in a file both readers can reach:
 // this module resolves it from the repo, and iso-config's `doctor` resolves the
@@ -22,7 +22,7 @@ const SKILL_REL = ".claude/skills/iso-tracking/scripts/tracking.sh";
 // It is data, not config - nobody varies it per machine - but a hardcoded copy
 // on each side would let `doctor` silently check fewer hooks than install writes,
 // which is the same silent-under-checking this whole module exists to prevent.
-const HOOKS_JSON = join(__dirname, "..", "skills", "iso-tracking", "scripts", "hooks.json");
+const HOOKS_JSON = join(__dirname, "..", "skills", "iso-issue-tracking", "scripts", "hooks.json");
 
 const loadHooks = (path = HOOKS_JSON) => JSON.parse(readFileSync(path, "utf8"));
 
@@ -31,7 +31,7 @@ const loadHooks = (path = HOOKS_JSON) => JSON.parse(readFileSync(path, "utf8"));
 // Never consulted to decide whether a hook is stale.
 const LEGACY_PATHS = [
   "iso-multica-tracking/scripts/multica-session.sh",
-  "iso-tracking/scripts/tracking.sh",
+  "iso-issue-tracking/scripts/tracking.sh",
 ];
 
 const marker = (name) => `# iso-hook:${name}`;

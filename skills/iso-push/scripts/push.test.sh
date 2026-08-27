@@ -656,5 +656,55 @@ check "overlay renames development" "$out" "trunk"
 out=$( cd "$cfgrepo" && rm -f docs/iso/config.json && ISO_GLOBAL_CONFIG=/nonexistent bash "$SH" development-branch )
 check "default when no overlay" "$out" "dev"
 
+# ------------------------------------------------------------------ ticket
+# The tracker links a PR to its ticket by finding the identifier in the body.
+# `pr` is find-or-create, so this decision is re-taken on every re-run: what
+# must hold is that a second run never appends a second line, and that a body
+# naming some OTHER ticket still gets its own.
+. "$SH" >/dev/null 2>&1 || true
+set +e   # push.sh runs under `set -e`; sourcing it must not abort the suite
+
+echo "ticket line"
+check "no ticket, body untouched" "$(body_with_ticket 'a lede' '')" "a lede"
+check "a ticket appends one line" \
+  "$(body_with_ticket 'a lede' 'FIRE-9')" "$(printf 'a lede\n\nTicket: FIRE-9')"
+check "a body already naming it is left alone" \
+  "$(body_with_ticket "$(printf 'a lede\n\nTicket: FIRE-9')" 'FIRE-9')" \
+  "$(printf 'a lede\n\nTicket: FIRE-9')"
+check "another ticket in the prose is not a link" \
+  "$(body_with_ticket 'supersedes FIRE-3' 'FIRE-9')" \
+  "$(printf 'supersedes FIRE-3\n\nTicket: FIRE-9')"
+
+# The cascade gate: a hop's head is development or test, and those carry no
+# ticket. cmd_pr skips the lookup entirely for them.
+iso_is_protected dev && ok "development is protected, so a cascade hop skips it" \
+  || bad "development not protected: cascade hops would resolve a ticket"
+
+
+echo "rescue rebinds the ticket"
+export ISO_TRACKER_STATE_DIR; ISO_TRACKER_STATE_DIR=$(mktemp -d)
+r=$(newrepo)
+git -C "$r" checkout -q -b dev
+git -C "$r" push -q origin dev
+git -C "$r" commit -q --allow-empty -m "feat(auth): add token refresh"
+
+# Record what rescue asks the tracker to do, without a real tracker.
+BINR=$(mktemp -d)
+cat > "$BINR/tracking.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "$@" >> "$TRACK_CALLS"
+STUB
+chmod +x "$BINR/tracking.sh"
+# Outside the repo: a file inside it is a dirty tree, which rescue refuses.
+export TRACK_CALLS="$BINR/calls"; : > "$TRACK_CALLS"
+
+new=$( cd "$r" && ISO_TRACKING_SH="$BINR/tracking.sh" bash "$SH" rescue dev )
+check "named from the commit subject" "$new" "feat/auth-add-token-refresh"
+check "landed on it" "$(git -C "$r" branch --show-current)" "feat/auth-add-token-refresh"
+check "dev reset back to origin" \
+  "$(git -C "$r" rev-parse dev)" "$(git -C "$r" rev-parse origin/dev)"
+grep -q 'rebranch dev feat/auth-add-token-refresh' "$TRACK_CALLS" \
+  && ok "ticket rebound off dev" || bad "rescue did not rebind the ticket"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
