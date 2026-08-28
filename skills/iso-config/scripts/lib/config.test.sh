@@ -22,8 +22,17 @@ cd "$tmp" || exit 1
 check "development default"  "$(iso_config_get branches.development)" "dev"
 check "plans path default"   "$(iso_config_get paths.plans)"          "docs/superpowers/plans"
 check "tracker default"      "$(iso_config_get tracker.kind)"         "multica"
+# The editor is a third swappable external tool, alongside tracker and terminal.
+# Global scope only: a binary path describes a machine, and the repo overlay
+# accepts branches/paths/test and nothing else.
+check "editor default"       "$(iso_config_get editor.kind)"          "borumi"
+case "$(iso_config_get editor.bin)" in
+  */Borumi.app/*) ok "editor.bin points at the Borumi binary" ;;
+  *) bad "editor.bin points at the Borumi binary" ;;
+esac
 check "array joins on space" "$(iso_config_get branches.protected)"   "dev develop test prod main master"
 check "unknown key is empty" "$(iso_config_get branches.nope)"        ""
+check "no test command by default" "$(iso_config_get test.command)"   ""
 
 echo "global scope"
 ISO_GLOBAL_CONFIG="$tmp/global.json"
@@ -57,6 +66,21 @@ check "valid overlay accepted" "$?" "0"
 rm -f "$repo/docs/iso/config.json"
 iso_config_validate_overlay "$repo/docs/iso/config.json" >/dev/null 2>&1
 check "absent overlay is valid" "$?" "0"
+
+echo "test command"
+# The phase gate iso-review runs between phases. Overlay, not global: a test
+# command is a property of one repository, and a machine-wide one would run
+# some other repo's suite against this repo's changes.
+printf '%s\n' '{"test":{"command":"bash run-tests.sh"}}' > "$repo/docs/iso/config.json"
+# The read below hits the same overlay PATH as every read above it, and the
+# memo is keyed on paths, not content — without this flush it answers with the
+# document from the top of this file.
+iso_config_flush
+check "overlay sets the test command" "$(iso_config_get test.command)" "bash run-tests.sh"
+printf '%s\n' '{"test":{"cmd":"nope"}}' > "$repo/docs/iso/config.json"
+iso_config_validate_overlay "$repo/docs/iso/config.json" >/dev/null 2>&1
+check "a misspelled test key is still rejected" "$?" "1"
+rm -f "$repo/docs/iso/config.json"; iso_config_flush
 
 echo "readiness stamp"
 cd "$tmp" || exit 1
@@ -114,6 +138,18 @@ else
 fi
 
 rm -rf "$HD"
+
+echo "package manager"
+# Detection by what is on PATH, not by uname: a Linux box with Homebrew and a
+# mac with only MacPorts both exist, and the question is which command will
+# actually run.
+pm=$(mktemp -d)
+printf '#!/bin/sh\n' > "$pm/apt-get"; chmod +x "$pm/apt-get"
+check "apt-get is found"      "$(PATH="$pm" iso_pkg_install)" "sudo apt-get install -y"  # portability-ok
+printf '#!/bin/sh\n' > "$pm/brew"; chmod +x "$pm/brew"
+check "brew wins when present" "$(PATH="$pm" iso_pkg_install)" "brew install"  # portability-ok
+check "no manager degrades"    "$(PATH=/nonexistent iso_pkg_install)" "install"
+rm -rf "$pm"
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
