@@ -1,5 +1,7 @@
 # Implementation tab is reused as the review fix tab in iso-todo
 
+> **Superseded by [ADR 0005](0005-refine-phases-run-headless.md).** `iso-todo` and `iso-review` are both deleted; there are no tabs to reuse.
+
 In an `iso-todo` development cycle the codex implementation tab finishes `iso-write`, stays alive, and is reused to apply accepted review fixes. `iso-review` still remains runnable standalone: by default it spawns its own fix tab, but callers can pass an existing implementation `TERM` to apply fixes in that tab. `iso-todo` also kills the short-lived reviewer tabs after their findings are saved, keeping the visible tab set small.
 
 ## Considered Options

@@ -1,8 +1,7 @@
 {
   "name": "isaiascope-social",
   "skills": [
-    "./skills/social-new-notebooklm-project",
     "./skills/social-new-video",
-    "./skills/social-notebooklm-artifacts"
+    "./skills/social-notebooklm"
   ]
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# iso-plan mechanics. The pipeline order and the summary card stay in SKILL.md;
+# iso-plan mechanics. The pipeline order and the summary ticket stay in SKILL.md;
 # only the checks with one right answer live here.
 set -euo pipefail
 
@@ -8,6 +8,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../iso-config/scripts/lib/sibling.sh"
 # shellcheck source=/dev/null
 . "$(iso_sibling iso-config scripts/lib/config.sh)"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/track.sh)"
 
 die() { printf 'iso-plan: %s\n' "$1" >&2; exit 1; }
 
@@ -24,10 +26,10 @@ cmd_newest() {
   ls -t "$dir"/*.md 2>/dev/null | head -1 || true
 }
 
-# The tracking script's path, or nothing. Printing an empty string on failure
-# is deliberate: every call site guards with [ -x "$S" ], so "not found" and
-# "not applicable" collapse into the same silent no-op.
-cmd_tracker() { iso_sibling iso-tracking scripts/tracking.sh 2>/dev/null || true; }
+# The runnable tracking script's path, or nothing. iso_track_path applies the
+# -x test itself, so the call site guards on emptiness alone: "not installed"
+# and "present but not runnable" collapse into the same silent no-op.
+cmd_tracker() { iso_track_path; }
 
 case "${1:-}" in
   gate)     cmd_gate ;;

@@ -16,7 +16,8 @@ set -euo pipefail
 #    ON (installs the caveman-shrink binary our wrapped entries need); --with-init
 #    stays OFF. Run from $HOME so any stray cwd-relative write cannot land in the
 #    target repo.
-CAVEMAN_MARK="$HOME/.claude/hooks/caveman-config.js"
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+CAVEMAN_MARK="$CLAUDE_DIR/hooks/caveman-config.js"
 if [ -f "$CAVEMAN_MARK" ] || [ -f "$HOME/.config/caveman/config.json" ]; then
     echo "caveman: already installed globally, skipping installer"
 else
@@ -53,12 +54,13 @@ echo "caveman: ultra mode set globally at ~/.config/caveman/config.json"
 #      - already ours      -> nothing to do
 #      - caveman's own      -> overwrite with ours (ULTRA suffix preserved)
 #      - foreign/user's own -> respect it, leave as-is (never clobber a real custom bar)
-mkdir -p ~/.claude
-cp "$(dirname "$0")/statusline.sh" ~/.claude/statusline-command.sh
-chmod +x ~/.claude/statusline-command.sh
-node -e '
-const fs=require("fs"),os=require("os"),path=require("path");
-const p=path.join(os.homedir(),".claude","settings.json");
+mkdir -p "$CLAUDE_DIR"
+cp "$(dirname "$0")/statusline.sh" "$CLAUDE_DIR/statusline-command.sh"
+chmod +x "$CLAUDE_DIR/statusline-command.sh"
+CLAUDE_DIR="$CLAUDE_DIR" node -e '
+const fs=require("fs"),path=require("path");
+const dir=process.env.CLAUDE_DIR;
+const p=path.join(dir,"settings.json");
 let d={}; try{ d=JSON.parse(fs.readFileSync(p,"utf8")); }catch{}
 const cur=d.statusLine;
 const curCmd = cur && typeof cur.command==="string" ? cur.command : "";
@@ -67,9 +69,9 @@ const isCaveman = /caveman.*statusline|statusline.*caveman/i.test(curCmd);
 if (isOurs){ console.log("caveman: statusLine already ours — no change"); process.exit(0); }
 if (cur && !isCaveman){ console.log("caveman: a custom statusLine is set (not ours, not caveman'"'"'s) — left as-is"); process.exit(0); }
 if(fs.existsSync(p)){ const ts=new Date().toISOString().replace(/[:.]/g,"-"); fs.copyFileSync(p,p+".bak."+ts); }
-d.statusLine={type:"command",command:"bash ~/.claude/statusline-command.sh"};
+d.statusLine={type:"command",command:"bash "+path.join(dir,"statusline-command.sh")};
 fs.writeFileSync(p, JSON.stringify(d,null,2));
 console.log(isCaveman
   ? "caveman: replaced caveman'"'"'s minimal statusLine with rich statusline-command.sh (ULTRA suffix preserved)"
-  : "caveman: statusLine wired into ~/.claude/settings.json");
+  : "caveman: statusLine wired into "+p);
 '

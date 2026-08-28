@@ -6,15 +6,38 @@
 
 ISO_GLOBAL_CONFIG="${ISO_GLOBAL_CONFIG:-$HOME/.config/iso/iso.json}"
 
+# The package manager to name in an install hint. Homebrew is not a given:
+# these skills run wherever the agent is installed, and `brew install jq` on a
+# Debian box is advice the reader cannot follow.
+#
+# Names the MANAGER and the tool, and stops there. Package names do differ
+# between managers, but a per-distro name table is a thing that goes stale
+# without anyone noticing, and a reader who has been handed the right manager
+# can reconcile a renamed package in seconds.
+iso_pkg_install() {
+  if   command -v brew    >/dev/null 2>&1; then printf 'brew install'
+  elif command -v apt-get >/dev/null 2>&1; then printf 'sudo apt-get install -y'
+  elif command -v dnf     >/dev/null 2>&1; then printf 'sudo dnf install -y'
+  elif command -v pacman  >/dev/null 2>&1; then printf 'sudo pacman -S'
+  elif command -v apk     >/dev/null 2>&1; then printf 'sudo apk add'
+  else printf 'install'
+  fi
+}
+
 # Every read below goes through jq, and this library is the first thing any
 # skill sources. Check here so a missing jq is one sentence, not
 # `jq: command not found` surfacing from the middle of an unrelated skill.
 command -v jq >/dev/null 2>&1 || {
-  printf 'iso-config: jq is required -- brew install jq\n' >&2
+  printf 'iso-config: jq is required -- %s jq\n' "$(iso_pkg_install)" >&2
   return 1 2>/dev/null || exit 1
 }
 
 # Today's hardcoded values, so a machine with no config behaves as it does now.
+#
+# portability-ok: the `~/.claude` and `~/.codex` paths below are DEFAULTS, and
+# every one is overridable in docs/iso/config.json. They are stored tildified
+# rather than expanded so a committed config file stays portable between the
+# machines that read it — the expansion happens at read time, per machine.
 # branches.default is null on purpose: it FOLLOWS branches.development unless a
 # scope sets it. A concrete "dev" here would mean renaming the development
 # branch silently left GitHub's default pointing at a branch that no longer
@@ -35,9 +58,12 @@ iso_defaults() {
     "specs": "docs/superpowers/specs",
     "artifacts": "docs/iso/logs"
   },
+  "test": {
+    "command": null
+  },
   "tracker":  { "kind": "multica", "ledger": "~/.claude/multica" },
   "terminal": { "kind": "herdr" },
-  "identity": { "org": "IsaiaScope", "marketplace": "marketonfire" },
+  "editor":   { "kind": "borumi", "bin": "/Applications/Borumi.app/Contents/MacOS/borumi" },
   "agents": {
     "codex":  { "sessions": "~/.codex/sessions",  "full_access": "--dangerously-bypass-approvals-and-sandbox" },
     "claude": { "sessions": "~/.claude/projects", "full_access": "--dangerously-skip-permissions" }
@@ -60,7 +86,7 @@ _iso_json_or_empty() { [ -f "$1" ] && printf '%s' "$(<"$1")" || printf '{}'; }
 # repository silently redirects where your work gets filed.
 ISO_OVERLAY_KEYS='branches.development branches.test branches.production
 branches.default branches.pr_base branches.protected
-paths.plans paths.specs paths.artifacts'
+paths.plans paths.specs paths.artifacts test.command'
 
 iso_config_validate_overlay() {
   local f="$1" found bad

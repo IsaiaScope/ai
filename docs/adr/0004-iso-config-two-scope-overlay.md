@@ -15,6 +15,12 @@ at any size, and it may carry `branches` and `paths` only.
 
 An unknown or misspelled key in the overlay is a hard error naming the key.
 
+**Amended by 0005.** The overlay now also carries `test`, the command the refine
+phase gate runs. It is admitted on the same test as the original two — it
+describes the repository, not the person, and no clone of it can redirect where
+work is filed. The list below records what was chosen at the time; the current
+allowlist lives in `ISO_OVERLAY_KEYS` in `iso-config/scripts/lib/config.sh`.
+
 ## Considered Options
 
 - **Defaults everywhere, config purely additive** (rejected) — a fresh
@@ -144,7 +150,8 @@ the last place a `[redacted]` should depend on.
 - **Agent kinds stay a closed set.** Per-kind data becomes configurable —
   transcript directory, permission flag, tab label, all currently hardcoded in
   `agentkind.sh`. The set itself does not open. `codex` and `claude` are
-  branched on throughout `iso-spawn`, `iso-review` and `iso-todo`; admitting a
+  branched on throughout `iso-spawn` (and, when this was written, `iso-review`
+  and `iso-todo`, since replaced by `iso-refine`, now `iso-review`); admitting a
   third kind by configuration alone would require every one of those branches
   to have a tested fallback for an agent nobody has run.
 

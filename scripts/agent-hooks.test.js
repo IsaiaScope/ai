@@ -65,7 +65,7 @@ test("a pre-marker hook at the CURRENT path is adopted too", () => {
       SessionEnd: [{
         hooks: [{
           type: "command",
-          command: 'S="$HOME/.claude/skills/iso-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" end; exit 0',
+          command: 'S="$HOME/.claude/skills/iso-issue-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" end; exit 0',
         }],
       }],
     },
@@ -81,8 +81,8 @@ test("a pre-marker hook at the CURRENT path is adopted too", () => {
 test("legacy adoption does not cross the two hooks over", () => {
   const both = {
     hooks: {
-      SessionStart: [{ hooks: [{ type: "command", command: 'S="$HOME/.claude/skills/iso-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" reconcile; exit 0' }] }],
-      SessionEnd: [{ hooks: [{ type: "command", command: 'S="$HOME/.claude/skills/iso-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" end; exit 0' }] }],
+      SessionStart: [{ hooks: [{ type: "command", command: 'S="$HOME/.claude/skills/iso-issue-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" reconcile; exit 0' }] }],
+      SessionEnd: [{ hooks: [{ type: "command", command: 'S="$HOME/.claude/skills/iso-issue-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" end; exit 0' }] }],
     },
   };
   const { settings } = syncAgentHooks(both);
@@ -121,7 +121,7 @@ test("the marker sits after exit 0, never at the front", () => {
 // about which hooks exist. A hardcoded list on either side would let install
 // write three hooks while doctor checks two and still reports ready.
 test("the hook list comes from the file iso-config also reads", () => {
-  assert.match(HOOKS_JSON, /skills[/\\]iso-tracking[/\\]scripts[/\\]hooks\.json$/);
+  assert.match(HOOKS_JSON, /skills[/\\]iso-issue-tracking[/\\]scripts[/\\]hooks\.json$/);
   const onDisk = JSON.parse(readFileSync(HOOKS_JSON, "utf8"));
   assert.deepStrictEqual(loadHooks(), onDisk);
   for (const h of onDisk) {

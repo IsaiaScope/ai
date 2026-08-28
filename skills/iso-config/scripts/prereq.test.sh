@@ -20,8 +20,17 @@ check "herdr is hardcut"  "$(iso_prereq_class herdr)"  "hardcut"
 check "unlisted"          "$(iso_prereq_class nope)"   "unknown"
 
 echo "hints"
-contains "brew install jq" "$(iso_prereq_hint jq)" && ok "jq hint is runnable" || bad "jq hint is runnable"
-contains "login"           "$(iso_prereq_hint codex)" && ok "codex hint mentions auth" || bad "codex hint mentions auth"
+# The hint composes the machine's package manager with the tool name. Stub the
+# manager and assert the composition: asserting "brew install jq" would pass
+# here and fail on any Linux box, which is the portability bug it was meant to
+# be testing for.
+iso_pkg_install() { printf 'PKG'; }
+check "jq hint uses the local manager" "$(iso_prereq_hint jq)" "PKG jq"
+contains "login" "$(iso_prereq_hint codex)" && ok "codex hint mentions auth" || bad "codex hint mentions auth"
+# gh is special-cased: no Linux manager installs it by bare name, so off
+# Homebrew the only honest hint is where the real steps live.
+contains "cli/cli" "$(PATH=/nonexistent iso_prereq_hint gh)" \
+  && ok "gh hint points at install steps off brew" || bad "gh hint points at install steps off brew"
 
 echo "sweep"
 bin=$(mktemp -d)

@@ -6,6 +6,16 @@
 # Bump when the list below changes. A bump invalidates every readiness stamp in
 # the field, so adding a prerequisite re-triggers the sweep without anyone
 # remembering to.
+# iso_prereq_hint composes iso_pkg_install, which lives next door in
+# lib/config.sh. Sourced here rather than assumed: the CLI happens to load
+# config.sh on the line above this one today, and a `command -v || stub`
+# fallback for the day it does not would quietly degrade every hint to a bare
+# `install jq` — a wrong answer that reads exactly like a right one. Sourcing
+# twice costs a jq check and some function redefinitions.
+PREREQ_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$PREREQ_HERE/lib/config.sh"
+
 ISO_PREREQ_VERSION=1
 
 # bin:class — auto (installable unattended), manual (auth-gated, print steps),
@@ -22,7 +32,14 @@ iso_prereq_class() {
 
 iso_prereq_hint() {
   case "$1" in
-    git|jq|gh|multica) printf 'brew install %s' "$1" ;;
+    gh)
+      # The one prerequisite that cannot be installed by name off Homebrew:
+      # every Linux manager wants GitHub's repo added first, so a bare
+      # `apt-get install gh` fails or installs something else entirely.
+      if command -v brew >/dev/null 2>&1; then printf 'brew install gh'  # portability-ok: guarded above
+      else printf 'see https://github.com/cli/cli#installation'
+      fi ;;
+    git|jq|multica) printf '%s %s' "$(iso_pkg_install)" "$1" ;;
     codex)  printf 'npm install -g @openai/codex, then: codex login' ;;
     claude) printf 'npm install -g @anthropic-ai/claude-code, then run: claude' ;;
     herdr)  printf 'no package exists — build it and put it on PATH' ;;
@@ -36,7 +53,11 @@ iso_prereq_hint() {
 iso_prereq_sweep() {
   local e b cls rc=0
   for e in $ISO_PREREQS; do
-    b="${e%%:*}"; cls="${e##*:}"
+    # Through iso_prereq_class, not a second inline "${e##*:}": that left the
+    # function with test callers and no production ones, so the encoding of
+    # ISO_PREREQS had two decoders and only one of them was exercised by the
+    # code that ships.
+    b="${e%%:*}"; cls=$(iso_prereq_class "$b")
     if command -v "$b" >/dev/null 2>&1; then
       printf 'ok %s\n' "$b"
     else

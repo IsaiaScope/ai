@@ -64,7 +64,7 @@ codex plugin add isaiascope-ai@marketonfire
 - **Original workflow skills** for planning, implementation, review, README polish, repo setup, and AI-tooling setup.
 - **One-command installer** that keeps Claude Code and Codex global instructions plus shared skills in sync.
 - **Graph-aware defaults** so codebase questions prefer the local knowledge graph before broad source search.
-- **Composable cycle** from `/iso-plan` to `/iso-write` to `/iso-review`, with `/iso-todo` as the umbrella path.
+- **Composable cycle** from `/iso-plan` to `/iso-write` to `/iso-review`, each usable on its own.
 
 ---
 
@@ -107,13 +107,8 @@ codex plugin add isaiascope-ai@marketonfire
       <td nowrap><code>/iso‑spawn</code></td>
     </tr>
     <tr>
-      <td nowrap>🧵 <a href="skills/iso-todo/">iso‑todo</a></td>
-      <td>Plan → write → review in one hands-off development cycle</td>
-      <td nowrap><code>/iso‑todo</code></td>
-    </tr>
-    <tr>
       <td nowrap>🔍 <a href="skills/iso-review/">iso‑review</a></td>
-      <td>Review your uncommitted diff — Codex-only or codex + claude, fixes applied</td>
+      <td>Reshape, simplify and review the branch's changes — three phases, gated on your tests</td>
       <td nowrap><code>/iso‑review</code></td>
     </tr>
     <tr>
@@ -126,7 +121,7 @@ codex plugin add isaiascope-ai@marketonfire
 
 **Upstream packs** — installed globally by `install.js`: [caveman](#-caveman) · [graphify](#-graphify) · [karpathy-guidelines](#-karpathy-guidelines) · [mattpocock/skills](https://github.com/mattpocock/skills) · [intent-layer](#-intent-layer).
 
-A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → **`iso-review`** double-checks the diff with single-agent or dual-agent review → you commit → **`iso-init-repo`** governs how it ships. **`iso-todo`** runs the plan/write/review sequence as one orchestrated cycle and still commits nothing.
+A natural workflow chains them: **`iso-plan`** writes the plan → **`iso-write`** builds it on a branch → **`iso-review`** reshapes, simplifies and reviews what landed → you commit → **`iso-init-repo`** governs how it ships. Nothing in that chain commits for you.
 
 ---
 
@@ -236,40 +231,23 @@ Spawn a `codex` or `claude` agent in its own [herdr](https://herdr.dev) tab — 
 
 ---
 
-### 🧵 iso-todo *(original)*
-
-Run a full development cycle — plan, implement in a spawned agent tab (claude by default), review with single-agent or dual-agent review, and apply accepted fixes back in the implementation tab. **Never commits.**
-
-- 🧭 **Plan first** — delegates to `iso-plan` and stops if no new plan appears
-- ✍️ **Write in a live tab** — runs `iso-write` on a fresh `feat/<slug>` branch
-- 🔍 **Review after write** — runs `iso-review` with reviewer-tab cleanup and implementation-tab reuse
-
-```
-/iso-todo
-```
-
-→ [Full documentation](skills/iso-todo/README.md)
-
-**Dependencies:** [`iso‑plan`](skills/iso-plan/) · [`iso‑write`](skills/iso-write/) · [`iso‑review`](skills/iso-review/) · [`iso‑spawn`](skills/iso-spawn/) · `git`
-
----
-
 ### 🔍 iso-review *(original)*
 
-Review your uncommitted working tree with one agent or with codex `/review` + claude `/code-review` — then apply every fix worth keeping and verify, all without committing.
+Take the work sitting on your branch and make it better, then check it — three phases, each undone if it breaks your tests. **Never commits.**
 
-- 👥 **Reviewer tabs** — both codex and claude on the diff by default; `--agent codex|claude` runs just one
-- 🔀 **Merged, de-duplicated, filtered** — keeps everything except net-negative fixes
-- 🧪 **Applies + self-verifies** — a fix tab (the chosen agent, claude when both ran) runs the repo's tests + type-check and reports
+- 🏗 **Architecture, then simplify, then review** — is this the right shape, can it read plainer, is it wrong
+- 📦 **Everything staged first** — `git diff --cached` is your work, `git diff` is the skill's, so the output reads as a plain diff
+- 🧪 **Gated on your tests** — a phase whose edits turn `test.command` red is undone, and the run carries on
+- 🔁 **Rebases a stale local branch**, refuses a stale published one
 - 🛑 **Never commits** — leaves the working tree for your final read
 
 ```
-/iso-review [--agent codex|claude] [--claude-review-effort medium|high|max]
+/iso-review [--no-architecture] [--no-simplify] [--no-review]
 ```
 
-→ [Full documentation](skills/iso-review/README.md)
+→ [Full documentation](skills/iso-review/SKILL.md)
 
-**Dependencies:** [`iso‑spawn`](skills/iso-spawn/) (spawn/drive engine) · [`herdr`](https://herdr.dev) · `codex` / `claude` CLIs · `git`
+**Dependencies:** [`iso‑config`](skills/iso-config/) (`test.command`) · [`iso‑push`](skills/iso-push/) (rebase seam) · `improve‑codebase‑architecture` · `simplify` · `review` · `git`
 
 ---
 

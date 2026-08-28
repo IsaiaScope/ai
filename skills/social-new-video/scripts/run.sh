@@ -3,43 +3,51 @@
 # social-new-video — thin launcher.
 #
 # Spawns ONE agent tab (codex|claude) that runs the full new-video chain inside
-# itself: social-new-notebooklm-project (research → you pick the title) →
-# social-notebooklm-artifacts (scaletta + 4 infographics). Fire-and-focus: async
+# itself: social-notebooklm (research → you pick the title) →
+# through to the Scaletta. Fire-and-focus: async
 # spawn with --focus, no --kill — you own the tab afterward.
 
 set -uo pipefail
 
 AGENT="codex"                 # default agent for the spawned tab
-ARTIFACT_FLAGS=""             # --script-only | --images-only (forwarded to artifacts)
-NOTEBOOK_ARGS=()              # topic / youtube-url / --bounded / extra-sources
+NOTEBOOK_ARGS=()              # free-form input / --fast / extra-sources
 
 fail() { echo "social-new-video: $1" >&2; exit 1; }
 
 usage() {
   cat >&2 <<'EOF'
-Usage: run.sh <topic | youtube-url...> [--agent codex|claude] [--bounded]
-              [--script-only | --images-only] [extra-source ...]
+Usage: run.sh <topic | youtube-url...> [--agent codex|claude] [--fast]
+              [extra-source ...]
 
-  <topic|youtube-url...>     forwarded to social-new-notebooklm-project (required)
+  <topic|youtube-url...>     forwarded to social-notebooklm (required)
   --agent codex|claude       agent the spawned tab runs (default: codex)
-  --bounded                  smaller research pass (forwarded)
-  --script-only|--images-only restrict the artifact step (forwarded)
+  --fast                  fast research mode instead of deep (forwarded)
   [extra-source ...]         files/URLs added to the notebook (forwarded)
 EOF
 }
 
 # --- locate iso-spawn's spawn.sh (sibling skill) -------------------------------
+# The same upward walk iso-config's sibling.sh does, inlined rather than sourced:
+# that library lives in the isaiascope-eng plugin and this skill ships in
+# isaiascope-social, so sourcing it would turn a missing eng plugin into a hard
+# crash instead of the "install iso-spawn" message below.
+#
+# Walking beats a $HOME candidate list, which is right in exactly one of the
+# install topologies: repo checkout, ~/.claude|~/.codex symlink, ~/.agents pack.
+# The marketplace clone puts the two plugins in separate trees, so it needs the
+# explicit glob.
 resolve_spawn() {
-  local here
+  local here candidate
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"   # real dir of this script
-  local candidates=(
-    "$here/../../iso-spawn/scripts/spawn.sh"                # sibling in same skills dir
-    "$HOME/.claude/skills/iso-spawn/scripts/spawn.sh"
-    "$HOME/.codex/skills/iso-spawn/scripts/spawn.sh"
-  )
-  local c
-  for c in "${candidates[@]}"; do
-    [ -f "$c" ] && { printf '%s\n' "$(cd "$(dirname "$c")" && pwd -P)/$(basename "$c")"; return 0; }
+  while [ "$here" != "/" ]; do
+    candidate="$here/../iso-spawn/scripts/spawn.sh"
+    [ -f "$candidate" ] \
+      && { printf '%s\n' "$(cd "$(dirname "$candidate")" && pwd -P)/spawn.sh"; return 0; }
+    here="$(dirname "$here")"
+  done
+  for candidate in "$HOME"/.claude/plugins/marketplaces/*/skills/iso-spawn/scripts/spawn.sh; do
+    [ -f "$candidate" ] \
+      && { printf '%s\n' "$(cd "$(dirname "$candidate")" && pwd -P)/spawn.sh"; return 0; }
   done
   return 1
 }
@@ -52,10 +60,7 @@ parse_args() {
         AGENT="$2"; shift ;;
       --agent=*)
         AGENT="${1#--agent=}" ;;
-      --script-only|--images-only)
-        [ -n "$ARTIFACT_FLAGS" ] && fail "choose only one of --script-only or --images-only."
-        ARTIFACT_FLAGS="$1" ;;
-      --bounded)
+      --fast)
         NOTEBOOK_ARGS+=("$1") ;;        # forwarded verbatim
       -h|--help)
         usage; exit 0 ;;
@@ -79,21 +84,22 @@ main() {
   spawn="$(resolve_spawn)" || fail "could not find iso-spawn/scripts/spawn.sh (is the iso-spawn skill installed?)."
 
   local notebook_args_str="${NOTEBOOK_ARGS[*]}"
-  local artifact_clause="con le impostazioni predefinite (scaletta long+short E le 4 infografiche)"
-  [ -n "$ARTIFACT_FLAGS" ] && artifact_clause="con il flag $ARTIFACT_FLAGS"
 
   # Prompt injected + auto-run in the spawned tab. The agent runs both skills in
   # sequence and STOPS for the interactive title pick (the user drives it here).
   local prompt
   prompt=$(cat <<EOF
-Esegui in sequenza due skill per preparare un nuovo video YouTube in italiano. Lavoro tutto in questo tab.
+Prepara un nuovo video YouTube in italiano. Lavoro tutto in questo tab.
 
-STEP 1 — Invoca la skill "social-new-notebooklm-project" con questi argomenti: ${notebook_args_str}
-Seguila per intero: ricerca, presenta le 6 opzioni di titolo in italiano e FERMATI per farmi scegliere il titolo (rispondo io qui con un numero 1-6 o un titolo mio). Poi crea il notebook e aggiungi tutte le fonti. NON saltare la scelta del titolo.
+Invoca la skill "social-notebooklm" con questi argomenti: ${notebook_args_str}
 
-STEP 2 — Solo dopo che il notebook è creato e popolato, invoca la skill "social-notebooklm-artifacts" ${artifact_clause} per generare gli asset dal notebook appena creato. Il notebook dello step 1 è quello attivo, quindi NON serve passare un id/titolo. Le infografiche sono a consumo di quota: lascia che lo script gestisca pacing e budget.
+Seguila per intero. Fa tutto da sola: crea il notebook, aggiunge le fonti dagli URL, lancia la deep research nativa, propone cinque titoli e genera le scalette long e short, già umanizzate e verificate contro la bozza (il lint controlla che la riscrittura non abbia perso una spiegazione).
 
-Riporta alla fine il percorso della cartella con scaletta e immagini.
+Due cose richiedono me:
+1. La scelta del titolo fra i cinque proposti — fermati e chiedimelo qui.
+2. Un eventuale fallimento del lint della Scala: se un HOOK apre su un termine tecnico nudo, riscrivilo e rilancia.
+
+Riporta alla fine il percorso della cartella con le scalette.
 EOF
 )
 

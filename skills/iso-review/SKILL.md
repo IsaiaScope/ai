@@ -1,47 +1,217 @@
----
-name: iso-review
-description: Review the uncommitted working tree. By default spawns both codex /review and claude /code-review in visible herdr tabs; --agent codex|claude runs just that one reviewer. Merges and de-duplicates findings in the main session, applies every fix except the net-negative ones via a fix tab (the chosen agent, claude when both ran, or an existing tab via --fix-term) that then runs the project's tests and type-check — leaving all changes uncommitted. Use when invoked as /iso-review [--agent codex|claude] [--claude-review-effort medium|high|max] [--fix-term TERM] [--kill-tabs], or asked to review-and-fix the current uncommitted changes.
----
-
 # iso-review
 
-Review the **uncommitted working-tree diff**, keep the fixes that help, apply them, verify, and stop — uncommitted — for your final read.
+Take the work sitting on this branch and make it better, then check it. Three
+phases, in one order:
 
-Invocation: `/iso-review [--agent codex|claude] [--claude-review-effort medium|high|max] [--fix-term TERM] [--kill-review-tabs] [--kill-fix-tab] [--kill-tabs]`.
+| # | phase | what it asks | runs |
+|---|---|---|---|
+| 1 | architecture | is this the right shape? | here, in this session |
+| 2 | simplify | can this read plainer? | here, in this session |
+| 3 | review | is this wrong? | a subagent |
 
-| flag | effect |
-|------|--------|
-| `--agent codex\|claude` | run only that reviewer; **omit → both** codex `/review` and claude `/code-review`. The chosen agent also applies the fixes; when both run, the fixer defaults to claude |
-| `--claude-review-effort medium\|high\|max` | effort level for the claude `/code-review` reviewer; default `medium` |
-| `--fix-term TERM` | reuse an existing live agent tab to apply accepted fixes instead of spawning a fresh fix tab; overrides the `--agent`-derived fixer |
-| `--kill-review-tabs` | tear down the review tabs once their findings are saved to disk (Step 2) |
-| `--kill-fix-tab` | tear down the fix tab once its test/type report is captured (Step 7) |
-| `--kill-tabs` | shorthand for both `--kill-review-tabs` and `--kill-fix-tab` |
+Invocation: `/iso-review [--no-architecture] [--no-simplify] [--no-review]`.
+All three run by default.
 
-By default both **reviewers** run — codex `/review` + claude `/code-review`; `--agent codex` or `--agent claude` narrows to one (e.g. when Claude tokens are unavailable, or for a single-agent lifecycle test). Only the claude reviewer's effort is tunable (codex `/review` is pinned to the uncommitted preset, no effort knob). The **fixer** follows `--agent`: a single named agent reviews *and* fixes; with both reviewers the fixer falls back to the house default, claude — unless `--fix-term` reuses an existing tab. Teardown is **opt-in**: by default every tab is left alive for live inspection. The kill flags make cleanup systematic — each tab is killed only *after* its output has been persisted, so a kill reclaims the process without losing anything you read. Map the invocation flags onto the orchestrator calls: pass `--agent <agent>` / `--claude-review-effort <level>` / `--kill-review-tabs` (or `--kill-tabs`) to `reviews`, and `--fix-term <TERM>` / `--kill-fix-tab` (or `--kill-tabs`) to `apply` (whose fixer otherwise derives from `--agent`).
+Mechanics live in `skills/iso-review/scripts/review.sh`. Run it by absolute
+path. It gives you six verbs and no orchestration — the order below is the
+orchestration.
 
-Orchestrator: `skills/iso-review/scripts/review.sh`. Run it with its absolute path. Reviewer behavior lives in one `Reviewer` module, `scripts/lib/reviewer.sh`, with Agent kind (`codex`|`claude`) as the seam: `reviewer_dispatch <kind> <pane> <level>` owns per-kind dispatch (Codex `/review` preset-menu nav, Claude `/code-review`), and `reviewer_normalize <kind> <raw> <out>` shares one parser+writer, branching only the output shape. A third kind is one new `case` arm, not a new file. Use `review.sh run ...` for the full scripted path, or the lower-level subcommands below when the main session needs to inspect and decide each phase manually.
+| verb | does |
+|---|---|
+| `preflight` | stage, resolve the base, deal with staleness. Prints `index=` and `base=` |
+| `scope [base]` | print what a run would act on, without acting and without spending a token. Without `base` it re-runs preflight, so it stages, and prints `index=` too |
+| `skill-check <name>...` | is each phase's skill invocable by a model? Non-zero if any is blocked |
+| `snapshot` | print a tree sha for the current working tree. One phase's undo point |
+| `gate <name> [snap]` | run the repo's tests; on red, undo back to `<snap>`. Prints one `phase=` line |
+| `report` | summary on stdin: echo it, and post it as one ticket comment |
 
-## Flow (the main session drives this)
+## The run
 
-1. **Pre-flight** — `review.sh preflight`. If it exits non-zero, print its message and stop.
-2. **Reviews** — `review.sh reviews [--agent codex|claude] [--claude-review-effort medium|high|max] [--kill-review-tabs]`. Wipes `docs/iso/logs/review` clean first (so no prior run's `accepted-fixes.md`/transcripts/`.spawned-terms` can leak in), then spawns the reviewer tabs, drives them, waits for them to truly finish, and writes `docs/iso/logs/review/review-codex.txt` and `docs/iso/logs/review/review-claude.txt`. With `--agent codex` (or `claude`), the unselected reviewer's file is an empty/`[]` placeholder so downstream merge logic stays stable. Read both files. With `--kill-review-tabs`, reviewer tabs are torn down right after those files are written (their findings are already on disk). (One review at a time per working tree; for parallel reviews use separate git worktrees — each gets its own cwd-local `docs/iso/logs/review`.)
-3. **Extract** — pull every finding into `{ file, line, problem, fix, source }`. Both reviewers emit JSON, so prefer parsing it; fall back to reading prose if a file isn't JSON.
-   - codex: `{ "findings": [ { "title", "body", "priority", "code_location": { "absolute_file_path", "line_range" } } ] }`
-   - claude: `[ { "file", "line", "summary", "failure_scenario" } ]`
-   - If a file is empty, that reviewer produced nothing — continue with the other. If both are empty, stop: "no findings".
-4. **Merge + dedup** — fold findings that hit the same file + overlapping lines + same underlying problem into one (note both reviewers raised it).
-5. **Filter (keep almost everything)** — accept every merged finding **except** ones that make the code worse or overcomplicated: unwarranted abstraction, over-engineering, speculative "consider…" notes, readability churn that fixes nothing, anything adding coupling/length without real gain. Conflicting fixes for one spot → take the simpler; if ambiguous, skip. Drop nothing else.
-6. **Ledger** — print the accepted list and the dropped list (each drop with a one-line reason) so the decisions are visible.
-7. **Apply + self-verify** — write the accepted fixes as an itemised instruction list to `docs/iso/logs/review/accepted-fixes.md`, then `review.sh apply docs/iso/logs/review/accepted-fixes.md [--fix-agent codex|claude | --fix-term TERM] [--kill-fix-tab]` (the `/iso-review` flow derives `--fix-agent` from `--agent`, so you rarely pass it by hand). **If the accepted list is empty (every finding was dropped), do not call `apply` — `review.sh apply` returns 3 and spawns no fix tab; report "no fixes to apply" and skip to close-out.** When there are fixes, this either spawns the fix tab (the `--agent` agent, or claude when both reviewers ran) or reuses the caller-provided `--fix-term` tab. The fix tab implements the fixes **and then runs the repo's tests + type-check and reports**. Read its report. With `--kill-fix-tab`, the tab is torn down right after the report is captured.
-8. **Close-out (no commit, no extra tab)** — leave every change in the working tree. By default the review and fix tabs stay alive for inspection (kill them yourself, or pass the kill flags on Steps 2/7 for systematic teardown). Print the final summary (accepted/dropped ledger + the fix tab's test/type report) and stop. The user reviews and commits. **Never commit, never open a PR, never spawn a re-review tab.**
+**Preflight.** `review.sh preflight`. Non-zero: print its message and stop.
+Keep the `index=` and `base=` lines — they open the report.
 
-Scripted helper:
+**Skill gate.** `review.sh skill-check improve-codebase-architecture simplify review`.
 
-```bash
-skills/iso-review/scripts/review.sh run --kill-review-tabs --fix-term "$TERM_IMPL"
-# Single reviewer (codex only; use --agent claude for claude only):
-skills/iso-review/scripts/review.sh run --agent codex --kill-review-tabs --fix-term "$TERM_IMPL"
+A phase **is** its skill, so this asks whether each one can actually be
+invoked by a model. It reports one line per name:
+
+| state | means | do |
+|---|---|---|
+| `ok` | one copy on disk, invocable | carry on |
+| `ok copies=N` | several copies, all invocable | carry on; N>1 is worth a glance, since you cannot tell which one answers |
+| `builtin` | no file on disk | carry on — the harness ships skills with no `SKILL.md`. **Also how a mistyped phase name looks**, so read it |
+| `blocked` | every copy carries `disable-model-invocation: true` | stop and fix, below |
+| `split` | copies **disagree** — some blocked, some not | stop. Which one answers decides whether the phase runs at all, and nothing here can predict the resolution order |
+
+`blocked` and `split` exit non-zero. So does finding *no* file for any name when
+several were asked for — that is a broken search, not five clean passes.
+
+**Stop there.** Do not work around it by following the skill from memory: that
+produces a phase which reports a result without having run the thing it names,
+and it is not a hypothetical — this skill once reported three green phases, not
+one of which invoked a skill. The `phase=` line looked identical either way,
+which is exactly why the gate is mechanical and not a reminder.
+
+The fix is one line. Remove `disable-model-invocation: true` from the file the
+check names — for `split`, that is the one listed after `blocked=` — keep a
+`.bak` beside it, re-run the check, then carry on. That edits a file outside the
+repository, so say plainly what you changed and where.
+
+Two things about the `.bak`. It still carries the flag, which is the point, and
+it sits in the directory the check searches — so it must not be named to match
+`<name>.md`. And a plugin **cache** is not permanent: `/plugin update` or a
+version bump restores the original, flag included. The check is what notices.
+
+What the check reads is the filesystem: `<name>/SKILL.md` and `<name>.md`,
+across the skills dir and the plugin cache. That is a guess about where the
+harness keeps things, which is why "found nothing anywhere" is an error rather
+than a pass.
+
+**Scope.** `review.sh scope <base>`, using the base preflight just printed.
+That file list is what every phase works against, and it does not move for the
+rest of the run. Read it once.
+
+**Each phase, in the table's order**, skipping any the user turned off:
+
+1. `snap=$(review.sh snapshot)` — before touching anything.
+2. Do the phase's work **across the whole scope** — every file the list names,
+   not the hot spots and not the files you happen to have context on. A scope
+   too large for one pass gets worked in batches until all of them are done; it
+   does not get sampled.
+3. `review.sh gate <name> "$snap"` — keep the `phase=` line it prints.
+
+`snap` is optional, and omitting it changes what a red gate does: with a
+snapshot the phase is restored to that tree, without one the revert falls back
+to `git checkout -- :/`, which undoes *every* unstaged change in the tree — the
+earlier phases' output included. Pass it.
+
+"Do the phase's work" means **invoke that phase's skill with the Skill tool** —
+`improve-codebase-architecture`, then `simplify`, then `review`. Not read them,
+not approximate them, not do what you remember them doing. The skill is the
+phase; anything else is your own judgement wearing the phase's name.
+
+Architecture and simplify run **here, in this session**: you have the branch's
+context already, and a fresh reader would spend its first minutes re-deriving
+what you know.
+
+Review runs in a **subagent**, which wants the opposite — the session that just
+wrote the code is the worst possible reader of it, and the whole value of a
+review phase is eyes with no stake in the choices being reviewed. Pass it the
+scope and let it invoke `review` itself.
+
+**Report.** Collect the preflight lines and every `phase=` line, in order, and
+pipe them to `review.sh report`.
+
+A phase that fails outright **stops the ones after it** — a phase hands its
+tree to the next one, and a broken tree turns one failure into three. A phase
+whose *gate* went red is not a failure: it ran, its edits were undone, and the
+run continues.
+
+## The staging contract
+
+This is the part to understand before reading a diff this skill produced.
+
+Preflight runs `git add -A` **before the first phase**. From then on:
+
+| | holds |
+|---|---|
+| `git diff --cached` | your work, exactly as it was when you invoked the skill |
+| `git diff` | everything the three phases changed |
+
+So reviewing the skill's output is `git diff`, and throwing it away is
+`git checkout -- :/`. No stash, no snapshot file, nothing to leak if the run
+dies halfway.
+
+Preflight prints `index=<sha>` first, before it stages anything. That sha is a
+real tree object, and it is there for one case: you had a *deliberate* partial
+stage, and `git add -A` flattened it. `git read-tree <sha>` puts it back. After
+the run nothing else can tell "was staged" from "just got staged".
+
+The skill's own output is never staged. That is the point.
+
+## The phase gate
+
+`gate` runs `iso_config_get test.command` — the shell command that proves this
+repository still works. Set it in `docs/iso/config.json`:
+
+```json
+{ "test": { "command": "npm test" } }
 ```
 
-This runs preflight, reviewer dispatch, normalized finding collection, accepted-fix file creation, and apply. The main-session `/iso-review` flow may still use the lower-level subcommands above when human judgment is needed for the merge/filter ledger.
+A phase whose edits turn that command red is **undone**: the working tree goes
+back to how that phase found it, and the files it created are removed.
+
+Undone means *that phase*, not the run — which is why every phase takes its own
+`snapshot` first. The index cannot serve as the undo point: it is the pre-*run*
+snapshot, so reverting to it would throw away every phase that already passed.
+(`snapshot` needs `git restore --worktree`, so git 2.23 or newer.)
+
+`gate` exits 0 on both outcomes. Read the `phase=` line, not the status.
+
+With `test.command` unset there is no gate. Phases still run, nothing checks
+them, and each phase's line says `(no gate configured)` rather than claiming a
+pass it did not earn. That is a real mode, not a broken one.
+
+## Scope
+
+The scope is **the staged diff against the base** — every file this branch
+changed, listed by `review.sh scope <base>`. Every phase covers all of it.
+
+The list is fixed for the whole run, and the staging contract is what fixes it:
+preflight is the last thing that ever stages, so the phases churn the worktree
+while `git diff --cached <base>` goes on answering with the branch's own work.
+
+Pass the base. Without it, `scope` re-runs preflight — and preflight's
+`git add -A` would swallow the earlier phases' output into the index, staging
+exactly what this skill promises to leave unstaged for you.
+
+Two things the list does not cover, both by construction:
+
+- A phase sees the **worktree** as the phase before it left it. The scope names
+  the same files throughout, but their contents move, so simplify reads the
+  architecture phase's fresh output as if it were hand-written code.
+- A file a phase **creates** is not in the list, because the list is the staged
+  diff and nothing new is ever staged. Later phases still see it on disk; it
+  just is not named.
+
+`files=N` on a phase line counts the files that phase **changed**. It is not a
+coverage number. A small `files=` against a large scope means the phase sampled
+rather than covered, and that is the failure this section exists to prevent.
+
+## Staleness
+
+If the branch is behind the development branch, the base every phase measures
+against is wrong, so preflight deals with it first:
+
+| branch | what happens |
+|---|---|
+| local (no upstream) | rebased automatically, then the run continues |
+| published (has an upstream) | **refused** — rebase it yourself and re-run |
+
+A rebase conflict exits **2** and leaves the rebase in progress, so
+`git rebase --continue` or `--abort` are both still available.
+
+The rebase itself is delegated, today to `iso-push`. When `iso-rebase` exists <!-- skill-refs-ok: names a skill that does not exist yet, on purpose -->
+this points at it and nothing else here changes. Two known weaknesses live at
+that seam and are documented in the script: a branch pushed without `-u` reads
+as local, and `iso-push` rebases onto `origin/<base>` while the staleness check
+measures against the local one.
+
+## Reading the result
+
+```
+index=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+base=e83c5163316f89bfbde7d9ab23ca2e25604af290
+phase=architecture result=pass files=3
+phase=simplify result=revert files=0 (gate red, phase undone)
+phase=review result=pass files=1
+```
+
+The same summary is posted as one comment on this branch's ticket, when there
+is one, capped at 8000 characters. No ticket means the terminal is the whole
+report.
+
+## Never commits
+
+Like the rest of the chain. The run ends with a working tree for you to read.
+`/iso-commit` is the only thing that commits, and only when you ask it to.
