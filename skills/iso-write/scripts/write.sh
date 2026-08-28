@@ -9,35 +9,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../iso-config/scripts/lib/sibling.sh"
 # shellcheck source=/dev/null
 . "$(iso_sibling iso-config scripts/lib/config.sh)"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/branch.sh)"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/track.sh)"
 
 die() { printf 'iso-write: %s\n' "$1" >&2; exit 1; }
 
-KNOWN_TYPES='feat fix chore refactor docs test perf'
-
-# YYYY-MM-DD-<type>-<slug>.md -> <type>/<slug>. An unrecognised second token is
-# part of the slug and the type defaults to feat.
+# Branch naming and the base-branch test both live in iso-config's branch.sh now:
+# iso-push carried its own copy of each, under different names.
 cmd_branch_for() {
-  local base rest type slug t
-  base=${1##*/}; base=${base%.md}
-  rest=${base#[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-}
-  [ "$rest" = "$base" ] && die "plan filename lacks a YYYY-MM-DD- prefix: $1"
-  type=feat; slug="$rest"
-  for t in $KNOWN_TYPES; do
-    if [ "${rest%%-*}" = "$t" ]; then type="$t"; slug="${rest#*-}"; break; fi
-  done
-  [ -n "$slug" ] || die "empty slug after type prefix"
-  printf '%s/%s\n' "$type" "$slug"
-}
-
-# A place work is promoted TO, never worked ON. Detached HEAD counts, so the
-# work gets a ref to live on.
-is_base_branch() {
-  local b
-  [ -z "$1" ] && return 0
-  for b in $(iso_config_get branches.protected); do
-    [ "$b" = "$1" ] && return 0
-  done
-  return 1
+  iso_branch_from_plan "$1" \
+    || die "plan filename lacks a YYYY-MM-DD- prefix, or has an empty slug: $1"
 }
 
 # Carry uncommitted work across a checkout. Echoes the stash label, and only
@@ -59,7 +42,7 @@ stash_pop() {
 
 cmd_resolve() {
   local plan="${1:?usage: write.sh resolve <plan> [flag]}"; shift
-  local flag="" arg branch current mode label
+  local flag="" arg branch current mode label proposed tb gate action
   for arg in "$@"; do
     case "$arg" in
       --no-branch|--worktree|--branch=*)
@@ -87,32 +70,46 @@ cmd_resolve() {
       # SKILL.md hands off to superpowers:using-git-worktrees from here.
       branch=$(cmd_branch_for "$plan"); mode=worktree ;;
     "")
-      if is_base_branch "$current"; then
-        branch=$(cmd_branch_for "$plan")
-        git rev-parse --verify "$branch" >/dev/null 2>&1 \
-          && die "branch $branch already exists — delete it, rename the plan, or pass --branch=$branch"
-        label=$(stash_carry "$branch") || true
-        git checkout -q -b "$branch"
-        stash_pop "${label:-}"
-        mode=fresh-branch
-      else
-        # A branch with no commits isolates nothing: same worktree, same index.
-        # Cutting another one buys the bookkeeping and none of the separation.
-        branch="$current"; mode=current-branch
-      fi ;;
+      proposed=$(cmd_branch_for "$plan")
+      # The ticket's branch, so a resume beats cutting a near-duplicate. Empty
+      # when there is no tracker, no ticket, or nothing recorded - all normal.
+      tb=$(iso_track branch-of "$plan" 2>/dev/null)
+      gate=$(iso_branch_gate "$current" "$tb" "$proposed")
+      action=$(printf '%s' "$gate" | sed -n 's/^action=//p')
+      branch=$(printf '%s' "$gate" | sed -n 's/^branch=//p')
+      case "$action" in
+        stay)
+          # A branch with no commits isolates nothing: same worktree, same index.
+          # Cutting another one buys the bookkeeping and none of the separation.
+          branch="$current"; mode=current-branch ;;
+        checkout)
+          label=$(stash_carry "$branch") || true
+          git checkout -q "$branch"
+          stash_pop "${label:-}"
+          mode=resumed-branch ;;
+        create)
+          label=$(stash_carry "$branch") || true
+          git checkout -q -b "$branch"
+          stash_pop "${label:-}"
+          mode=fresh-branch ;;
+        *)
+          # `ask` is unreachable here: cmd_branch_for always yields a name or dies.
+          die "cannot decide a branch for $plan" ;;
+      esac ;;
   esac
+  # Point the ticket at the branch this run actually landed on. Called in every
+  # mode, including current-branch: that is the case where the ticket is most
+  # likely already wrong, because the user moved themselves.
+  iso_track rebranch "$plan" "$branch" >/dev/null 2>&1
   printf 'mode=%s\nbranch=%s\n' "$mode" "$branch"
 }
 
-# Tracking must never be able to fail a write run.
+# Tracking must never be able to fail a write run — iso_track guarantees that
+# for every caller, so nothing here needs its own guard.
 cmd_track() {
-  local s
-  s=$(iso_sibling iso-tracking scripts/tracking.sh) || return 0
-  # stderr is deliberately not swallowed: tracking never fails the run, but a
-  # transition that matched no card must be visible, not silent.
-  [ -x "$s" ] && git rev-parse --show-toplevel >/dev/null 2>&1 \
-    && "$s" "$1" "$2" >/dev/null
-  return 0
+  # stderr is deliberately not silenced: tracking never fails the run, but a
+  # transition that matched no ticket must be visible, not silent.
+  iso_track "$1" "$2" >/dev/null
 }
 
 case "${1:-}" in

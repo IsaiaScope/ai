@@ -221,4 +221,4 @@ message is authored in `SKILL.md`.
 |---|---|
 | `iso-commit` | writes the commits this pushes |
 | `iso-init-repo` | creates `dev`/`test`/`prod`, the branch gate, and the pre-push guard |
-| `iso-review` | reviews the diff before any of it leaves your machine |
+| `iso-review` | improves and reviews the diff before any of it leaves your machine |

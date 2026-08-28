@@ -581,7 +581,10 @@ d=$(newrepo)
 
 # `push` is reachable without preflight — a retry, a caller that skips a step.
 # The refusal has to live at the write, not only in the check that precedes it.
-for b in dev develop test prod; do
+# main and master are in the list because the guard reads branches.protected now.
+# A literal `dev|develop|test|prod` here waved them through, so a repo whose base
+# is `main` could be pushed to directly by a `push` that skipped preflight.
+for b in dev develop test prod main master; do
   d=$(newrepo); mkbranch "$d" dev
   git -C "$d" checkout -q -B "$b"
   git -C "$d" commit -q --allow-empty -m "work on a protected branch"
@@ -655,6 +658,73 @@ check "overlay renames development" "$out" "trunk"
 
 out=$( cd "$cfgrepo" && rm -f docs/iso/config.json && ISO_GLOBAL_CONFIG=/nonexistent bash "$SH" development-branch )
 check "default when no overlay" "$out" "dev"
+
+# ------------------------------------------------------------------ ticket
+# The tracker links a PR to its ticket by finding the identifier in the title.
+# `pr` is find-or-create, so this decision is re-taken on every re-run: what
+# must hold is that a second run never prepends a second copy, and that a title
+# naming some OTHER ticket still gets its own.
+. "$SH" >/dev/null 2>&1 || true
+set +e   # push.sh runs under `set -e`; sourcing it must not abort the suite
+
+echo "the body is left alone"
+# The body carried `Closes <key>` until the title took the job over. Asserted as
+# an absence because a helper that quietly comes back is invisible otherwise:
+# a second link to the same ticket, and one that would also flip merge-to-Done
+# back on without anyone choosing it.
+type body_with_ticket >/dev/null 2>&1 \
+  && bad "body_with_ticket is back — the body must carry no ticket line" \
+  || ok "nothing writes a ticket line into the body"
+# Anchored at `^[^#]*` so the match must begin before any comment marker on the
+# line: the comments in push.sh explain the close intent at length and would
+# otherwise fail their own assertion.
+grep -qE "^[^#]*(printf|--body)[^#]*Closes" "$SH" \
+  && bad "push.sh emits a close intent again" \
+  || ok "no close intent is emitted"
+
+echo "ticket in the title"
+check "no ticket, title untouched" "$(title_with_ticket 'feat: a thing' '')" "feat: a thing"
+check "a ticket is prefixed" \
+  "$(title_with_ticket 'feat: a thing' 'FIRE-9')" "FIRE-9 feat: a thing"
+check "a title already naming it is left alone" \
+  "$(title_with_ticket 'FIRE-9 feat: a thing' 'FIRE-9')" "FIRE-9 feat: a thing"
+# Anywhere in the title links, so anywhere satisfies the check - prefixing a
+# second copy would be noise, not a fix.
+check "the key mid-title also counts" \
+  "$(title_with_ticket 'revert FIRE-9 changes' 'FIRE-9')" "revert FIRE-9 changes"
+check "another ticket in the title is not this link" \
+  "$(title_with_ticket 'supersedes FIRE-3' 'FIRE-9')" "FIRE-9 supersedes FIRE-3"
+
+# The cascade gate: a hop's head is development or test, and those carry no
+# ticket. cmd_pr skips the lookup entirely for them.
+iso_is_protected dev && ok "development is protected, so a cascade hop skips it" \
+  || bad "development not protected: cascade hops would resolve a ticket"
+
+
+echo "rescue rebinds the ticket"
+export ISO_TRACKER_STATE_DIR; ISO_TRACKER_STATE_DIR=$(mktemp -d)
+r=$(newrepo)
+git -C "$r" checkout -q -b dev
+git -C "$r" push -q origin dev
+git -C "$r" commit -q --allow-empty -m "feat(auth): add token refresh"
+
+# Record what rescue asks the tracker to do, without a real tracker.
+BINR=$(mktemp -d)
+cat > "$BINR/tracking.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "$@" >> "$TRACK_CALLS"
+STUB
+chmod +x "$BINR/tracking.sh"
+# Outside the repo: a file inside it is a dirty tree, which rescue refuses.
+export TRACK_CALLS="$BINR/calls"; : > "$TRACK_CALLS"
+
+new=$( cd "$r" && ISO_TRACKING_SH="$BINR/tracking.sh" bash "$SH" rescue dev )
+check "named from the commit subject" "$new" "feat/auth-add-token-refresh"
+check "landed on it" "$(git -C "$r" branch --show-current)" "feat/auth-add-token-refresh"
+check "dev reset back to origin" \
+  "$(git -C "$r" rev-parse dev)" "$(git -C "$r" rev-parse origin/dev)"
+grep -q 'rebranch dev feat/auth-add-token-refresh' "$TRACK_CALLS" \
+  && ok "ticket rebound off dev" || bad "rescue did not rebind the ticket"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

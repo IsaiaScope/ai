@@ -5,6 +5,16 @@ set -euo pipefail
 
 die() { printf 'iso-commit: %s\n' "$1" >&2; exit 1; }
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$HERE/../../iso-config/scripts/lib/sibling.sh"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/config.sh)"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/branch.sh)"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/track.sh)"
+
 # Files that must never be swept in by `git add -A`.
 # ponytail: filename patterns only — no content scanning. Catches the common
 # accident (committing a real .env / private key), not a determined mistake.
@@ -67,6 +77,39 @@ cmd_stage() {
   git diff --cached --name-only
 }
 
+# ----------------------------------------------------------------------- gate
+# Where should this commit land? Prints the verdict; SKILL.md renders the
+# prompt, because a script cannot ask a question. It runs after the message is
+# drafted, not in preflight: the branch name comes from the subject, and the
+# subject does not exist yet at preflight time.
+cmd_gate() {
+  local subject="${1:-}" cur tb proposed=""
+  cur=$(git symbolic-ref --short HEAD 2>/dev/null) || cur=""
+  tb=$(iso_track branch-of "$cur" 2>/dev/null)
+  [ -n "$subject" ] && proposed=$(iso_branch_from_subject "$subject")
+  iso_branch_gate "$cur" "$tb" "$proposed"
+}
+
+# ----------------------------------------------------------------------- land
+# Carry out the gate's verdict, then point the ticket at where we ended up.
+# The index survives both checkout forms, so the commit that follows still has
+# its staged work; git refuses the checkout outright if it cannot carry it, and
+# that refusal is the right answer.
+cmd_land() {
+  local action="${1:?usage: commit.sh land <action> <branch>}"
+  local target="${2:?usage: commit.sh land <action> <branch>}"
+  local cur
+  cur=$(git symbolic-ref --short HEAD 2>/dev/null) || cur=""
+  case "$action" in
+    stay)     ;;
+    checkout) git checkout -q "$target" ;;
+    create)   git checkout -q -b "$target" ;;
+    *) die "unknown gate action: $action" ;;
+  esac
+  [ "$cur" = "$target" ] || iso_track rebranch "$cur" "$target" >/dev/null 2>&1
+  printf '%s\n' "$target"
+}
+
 # ---------------------------------------------------------------------- commit
 # Message comes from a file so multi-line bodies survive verbatim.
 # Hooks run on purpose: commitlint must gate the subject, version-bump must fire.
@@ -75,6 +118,30 @@ cmd_commit() {
   [ -n "$msgfile" ] && [ -f "$msgfile" ] || die "usage: commit.sh commit <message-file>"
   [ -s "$msgfile" ] || die "message file is empty"
   git commit -F "$msgfile"
+
+  # SKILL.md states the no-attribution rule and the message is written to obey
+  # it -- but the message file is not the last word on what lands. A
+  # `prepare-commit-msg` hook, a `commit.template`, or `trailer.*` config can
+  # all append to it, and `--no-verify` does not stop prepare-commit-msg. So
+  # the rule is checked against the COMMIT, which is the thing that ships.
+  #
+  # Anchored to trailer shapes on purpose: a commit that legitimately says
+  # "fix the claude parser" in its body is not a violation.
+  # One pattern, two greps. Spelling it twice let the test and the report drift:
+  # tighten one copy and the guard fires while the "offending line" print finds
+  # nothing to show.
+  local landed attr_re='^co-authored-by:.*claude|^generated with .*claude|noreply@anthropic\.com|🤖'
+  landed=$(git --no-pager log -1 --format=%B)
+  if printf '%s\n' "$landed" | grep -qiE "$attr_re"; then
+    printf 'commit.sh: attribution was added to the message after it was written\n' >&2
+    printf '%s\n' "$landed" | grep -inE "$attr_re" >&2
+    # NOT a bare `git commit --amend`: amend re-runs prepare-commit-msg, which
+    # is the injector this guard exists for, so the obvious advice loops --
+    # amend, hook re-appends, still dirty. Disabling the hook path is what
+    # actually clears it.
+    die "these are your commits. fix with: git -c core.hooksPath=/dev/null commit --amend"
+  fi
+
   git --no-pager log -1 --format='%h %s'
 }
 
@@ -83,6 +150,8 @@ case "${1:-}" in
   candidates) shift; cmd_candidates "$@" ;;
   guard)      shift; cmd_guard "$@" ;;
   stage)      shift; cmd_stage "$@" ;;
+  gate)       shift; cmd_gate "$@" ;;
+  land)       shift; cmd_land "$@" ;;
   commit)     shift; cmd_commit "$@" ;;
-  *) die "usage: commit.sh {preflight|candidates|guard|stage|commit} [--staged|<msgfile>]" ;;
+  *) die "usage: commit.sh {preflight|candidates|guard|stage|gate|land|commit} [args]" ;;
 esac

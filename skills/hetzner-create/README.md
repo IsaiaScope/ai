@@ -57,15 +57,17 @@ So cloning the repo gets you the tooling, never the access.
 
 ## Install
 
+From the repo root:
+
 ```bash
 for s in hetzner-ssh hetzner-create hetzner-delete; do
-  ln -s /Volumes/Crucial-4T/repo/ai/skills/$s ~/.claude/skills/$s
+  ln -s "$PWD/skills/$s" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/$s"
 done
 ```
 
 Each symlink name must equal the `name:` in that skill's frontmatter, or the slash command
-will not resolve. The repo lives on an external drive — unmount it and the skills vanish.
-That is the intended failure mode; they report it rather than half-working.
+will not resolve. If the repo lives on a removable volume, unmounting it makes the skills
+vanish. That is the intended failure mode; they report it rather than half-working.
 
 ---
 

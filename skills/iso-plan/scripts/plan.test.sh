@@ -30,7 +30,7 @@ touch "$t/planning/2026-03-03-feat-c.md"
 check "overlay moves the plans dir" "$( cd "$t" && bash "$SH" newest )" "planning/2026-03-03-feat-c.md"
 rm -f "$t/docs/iso/config.json"
 
-echo "sub-gate is retired: one plan, one card"
+echo "sub-gate is retired: one plan, one ticket"
 bash "$SH" sub-gate 8 3 >/dev/null 2>&1; check "sub-gate no longer dispatches" "$?" "1"
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"

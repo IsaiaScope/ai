@@ -1,0 +1,14 @@
+[
+  {
+    "name": "reconcile",
+    "event": "SessionStart",
+    "verb": "reconcile",
+    "why": "close tickets whose branch has since merged or disappeared"
+  },
+  {
+    "name": "end",
+    "event": "SessionEnd",
+    "verb": "end",
+    "why": "flush the session row so a resumed session rebinds cleanly"
+  }
+]
