@@ -30,6 +30,23 @@ iso_is_protected() {
   return 1
 }
 
+# The names that may be the integration branch, in preference order.
+#
+# Callers RESOLVE them differently and must keep doing so: iso-push asks origin
+# and dies when neither exists, the tracker reads local refs and falls back to
+# origin/HEAD. But WHICH names to try is one fact, and it was written out twice
+# — so renaming branches.development moved one of them and not the other.
+#
+# `develop` stays a literal here: it is the alternative spelling of the same
+# role, not a second configured value, and both call sites already hardcoded it
+# beside their own read of the configured one.
+iso_integration_candidates() {
+  local dev
+  dev=$(iso_config_get branches.development)
+  [ -n "$dev" ] && printf '%s\n' "$dev"
+  [ "$dev" = develop ] || printf 'develop\n'
+}
+
 # YYYY-MM-DD-<type>-<slug>.md -> <type>/<slug>. An unrecognised second token is
 # part of the slug and the type defaults to feat.
 iso_branch_from_plan() {

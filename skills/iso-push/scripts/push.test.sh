@@ -581,7 +581,10 @@ d=$(newrepo)
 
 # `push` is reachable without preflight — a retry, a caller that skips a step.
 # The refusal has to live at the write, not only in the check that precedes it.
-for b in dev develop test prod; do
+# main and master are in the list because the guard reads branches.protected now.
+# A literal `dev|develop|test|prod` here waved them through, so a repo whose base
+# is `main` could be pushed to directly by a `push` that skipped preflight.
+for b in dev develop test prod main master; do
   d=$(newrepo); mkbranch "$d" dev
   git -C "$d" checkout -q -B "$b"
   git -C "$d" commit -q --allow-empty -m "work on a protected branch"
@@ -657,23 +660,40 @@ out=$( cd "$cfgrepo" && rm -f docs/iso/config.json && ISO_GLOBAL_CONFIG=/nonexis
 check "default when no overlay" "$out" "dev"
 
 # ------------------------------------------------------------------ ticket
-# The tracker links a PR to its ticket by finding the identifier in the body.
+# The tracker links a PR to its ticket by finding the identifier in the title.
 # `pr` is find-or-create, so this decision is re-taken on every re-run: what
-# must hold is that a second run never appends a second line, and that a body
+# must hold is that a second run never prepends a second copy, and that a title
 # naming some OTHER ticket still gets its own.
 . "$SH" >/dev/null 2>&1 || true
 set +e   # push.sh runs under `set -e`; sourcing it must not abort the suite
 
-echo "ticket line"
-check "no ticket, body untouched" "$(body_with_ticket 'a lede' '')" "a lede"
-check "a ticket appends one line" \
-  "$(body_with_ticket 'a lede' 'FIRE-9')" "$(printf 'a lede\n\nTicket: FIRE-9')"
-check "a body already naming it is left alone" \
-  "$(body_with_ticket "$(printf 'a lede\n\nTicket: FIRE-9')" 'FIRE-9')" \
-  "$(printf 'a lede\n\nTicket: FIRE-9')"
-check "another ticket in the prose is not a link" \
-  "$(body_with_ticket 'supersedes FIRE-3' 'FIRE-9')" \
-  "$(printf 'supersedes FIRE-3\n\nTicket: FIRE-9')"
+echo "the body is left alone"
+# The body carried `Closes <key>` until the title took the job over. Asserted as
+# an absence because a helper that quietly comes back is invisible otherwise:
+# a second link to the same ticket, and one that would also flip merge-to-Done
+# back on without anyone choosing it.
+type body_with_ticket >/dev/null 2>&1 \
+  && bad "body_with_ticket is back — the body must carry no ticket line" \
+  || ok "nothing writes a ticket line into the body"
+# Anchored at `^[^#]*` so the match must begin before any comment marker on the
+# line: the comments in push.sh explain the close intent at length and would
+# otherwise fail their own assertion.
+grep -qE "^[^#]*(printf|--body)[^#]*Closes" "$SH" \
+  && bad "push.sh emits a close intent again" \
+  || ok "no close intent is emitted"
+
+echo "ticket in the title"
+check "no ticket, title untouched" "$(title_with_ticket 'feat: a thing' '')" "feat: a thing"
+check "a ticket is prefixed" \
+  "$(title_with_ticket 'feat: a thing' 'FIRE-9')" "FIRE-9 feat: a thing"
+check "a title already naming it is left alone" \
+  "$(title_with_ticket 'FIRE-9 feat: a thing' 'FIRE-9')" "FIRE-9 feat: a thing"
+# Anywhere in the title links, so anywhere satisfies the check - prefixing a
+# second copy would be noise, not a fix.
+check "the key mid-title also counts" \
+  "$(title_with_ticket 'revert FIRE-9 changes' 'FIRE-9')" "revert FIRE-9 changes"
+check "another ticket in the title is not this link" \
+  "$(title_with_ticket 'supersedes FIRE-3' 'FIRE-9')" "FIRE-9 supersedes FIRE-3"
 
 # The cascade gate: a hop's head is development or test, and those carry no
 # ticket. cmd_pr skips the lookup entirely for them.

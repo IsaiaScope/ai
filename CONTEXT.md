@@ -16,27 +16,15 @@ Glossary of canonical terms for this repo. Definitions only — no implementatio
 
 **Tab** — a herdr pane running one agent, visible next to the caller. Visibility (watching work happen) is the reason to use a tab over a headless subprocess.
 
-**Review scope** — the **uncommitted working-tree diff** (staged + unstaged) of the current branch. The change set `iso-review` reviews. Chosen so both reviewers see the identical diff and to match the `iso-write` handoff, which leaves implemented work uncommitted for review.
+**Review scope** — the staged diff against the branch's merge-base with the integration branch: every file the branch changed, listed once when a review run starts and fixed for its duration. The change set `iso-review` acts on. Staged rather than staged-and-unstaged because preflight is the last thing that ever stages, so a phase's own edits never enter the scope the next phase is measured against. _Avoid_: refine scope, working-tree diff, uncommitted changes.
 
-**Reviewer** — an agent running its native review command over the review scope: codex (`/review`, "uncommitted changes" preset) or claude (`/code-review`). A reviewer only reports; it does not edit.
+**Review run** — one execution of `iso-review` over a review scope: three phases in fixed order, no question asked, nothing committed, nothing staged. Its whole output is readable as `git diff`, because the index holds the state the run started from. _Avoid_: refine run, pass, cycle.
 
-**Review run** — one execution of `iso-review` over a review scope. It may use multiple reviewers now or later, but it owns dispatch, completion, recovery, finding merge, and optional teardown as one lifecycle.
+**Review phase** — one of exactly three stages of a review run — **architecture**, **simplify**, **review** — each carrying its own revert boundary, recorded as a tree object before the phase starts. Architecture and simplify run in the calling session; review runs in a subagent, because the session that wrote the code is the worst reader of it. The order is fixed and review is last, so it sees on disk what the other two changed, while the scope it is handed names the same files throughout. _Avoid_: step, stage, pass.
 
-**Reviewer adapter** — the code that knows how to dispatch one reviewer, recover its raw output, and normalize that output into findings. The default adapters are fixed in code as codex and claude.
+**Phase gate** — the check deciding whether a review phase's edits survive: the configured test command runs after the phase, and a failure restores that phase from the tree object recorded before it ran — not from the index, which holds the state the whole run started from and would undo the phases that already passed. No configured command means no gate, which is reported rather than assumed. _Avoid_: test gate, verification step, guard.
 
-**Finding** — a single issue raised by a reviewer: a location, a problem, and a proposed fix. Findings from both reviewers that point at the same location/issue are folded into one.
-
-**Accepted fix** — a finding kept after the filter: applied automatically. Default for every merged finding except the net-negative ones.
-
-**Dropped finding** — a finding excluded by the filter because applying it would make the code worse or overcomplicated (unwarranted abstraction, over-engineering, speculative refactor, churn). Carries a one-line reason.
-
-**Fix tab** — the agent tab that applies accepted review fixes. In standalone `iso-review`, this is usually a fresh codex or claude tab. In a full `iso-todo` development cycle, the implementation tab is reused as the fix tab so review fixes land in the same agent context that wrote the implementation.
-
-**Implementation tab** — the agent tab `iso-todo` spawns to run `iso-write`, executing the plan on a fresh `feat/<slug>` branch. It stays alive for the whole development cycle and is reused to apply accepted review fixes.
-
-**Development cycle** — the end-to-end run `iso-todo` orchestrates: plan → write → review, each phase delegating to the matching skill (`iso-plan`, `iso-write`, `iso-review`). After the plan phase completes, the write phase starts automatically. Produces one uncommitted diff; commits nothing.
-
-**Phase** — one stage of a development cycle: **plan**, **write**, or **review**. Plan and review run in the parent session; write runs in the implementation tab.
+**Finding** — one problem a review phase identified, at a location. Applied rather than reported, so findings are read in the diff and never collected into a ledger. _Avoid_: issue, suggestion, comment.
 
 **Init run** — one execution of `iso-ai-init`. It is deterministic orchestration over independently addable or removable init steps.
 
@@ -54,7 +42,7 @@ Glossary of canonical terms for this repo. Definitions only — no implementatio
 
 **Iso config** — the merged view of the two configuration scopes that every `iso-*` skill reads. Not either file on its own: a value has no meaning until both scopes have been consulted. Carries no secrets. _Avoid_: the config file (singular), iso.json, settings.
 
-**Config scope** — one of the two layers the Iso config is merged from: **global** (`~/.config/iso/iso.json`) describes the person and their machine; **repo** describes one repository. Repo wins per key, never per file. A repo scope may only carry `branches` and `paths` — letting it name the tracker or the identity would mean cloning a repository silently redirects where work is filed. _Avoid_: local config, user config, level.
+**Config scope** — one of the two layers the Iso config is merged from: **global** (`~/.config/iso/iso.json`) describes the person and their machine; **repo** describes one repository. Repo wins per key, never per file. A repo scope may only carry `branches`, `paths` and `test` — the three things that are genuinely properties of the repository. Letting it name the tracker or the identity would mean cloning a repository silently redirects where work is filed. _Avoid_: local config, user config, level.
 
 **Overlay** — the repo config scope: a sparse document holding only the keys that differ from global, and a complete valid document at any size. An unknown or misspelled key is a hard error, never a silent fall-through to global. _Avoid_: partial config, patch, fragment.
 
@@ -62,4 +50,4 @@ Glossary of canonical terms for this repo. Definitions only — no implementatio
 
 **Readiness stamp** — the record in the global config that the prerequisite sweep passed, carrying the time it ran and the prerequisite-list version it ran against. Skills trust the stamp instead of re-probing; a version bump invalidates it, so adding a prerequisite re-triggers the check without anyone remembering to. _Avoid_: ready flag, health check, cache.
 
-**Run artifact** — per-run output written under `docs/iso/logs/`: review transcripts, spawn sidecars, blocked markers. Distinct from config in lifetime and in ownership — a run writes it, no human edits it. _Avoid_: log, output, temp file.
+**Run artifact** — per-run output written under `docs/iso/logs/`: spawn sidecars, blocked markers. Distinct from config in lifetime and in ownership — a run writes it, no human edits it. _Avoid_: log, output, temp file.

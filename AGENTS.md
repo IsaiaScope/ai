@@ -9,7 +9,7 @@ in this repository. `CLAUDE.md` is a symlink to this file — edit here.
 node scripts/install.js
 ```
 
-Copies `config/CLAUDE.md` → `~/CLAUDE.md` and `config/AGENTS.md` → `~/.codex/AGENTS.md`, installs upstream skill packs via `npx skills@latest`, symlinks the local `IsaiaScope/ai` skills directly into both supported agents' skills dirs (Claude-side → `~/.claude/skills/`, Codex-side → `~/.codex/skills/`), and owns the tracker's two hooks in `~/.claude/settings.json` (see `scripts/agent-hooks.js`). No build step, no package.json. Tests are ad hoc: `node --test scripts/*.test.js` for the JS, `bash <skill>/scripts/*.test.sh` for the shell.
+Copies `config/CLAUDE.md` → `~/CLAUDE.md` and `config/AGENTS.md` → `~/.codex/AGENTS.md`, installs upstream skill packs via `npx skills@latest`, symlinks the local `IsaiaScope/ai` skills directly into both supported agents' skills dirs (Claude-side → `~/.claude/skills/`, Codex-side → `~/.codex/skills/`), and owns the tracker's two hooks in `~/.claude/settings.json` (see `scripts/agent-hooks.js`). No build step, no package.json. The whole suite is one command, and it lives in `docs/iso/config.json` under `test.command` — that is the command `/iso-review`'s phase gate runs, so running anything else locally checks less than CI does. It covers `node --test scripts/*.test.js`, every `*.test.sh` under `scripts/` and `skills/*/scripts/{,lib/,adapters/}`, and every `skills/*/scripts/test_*.py`.
 
 ## Architecture
 
@@ -26,15 +26,18 @@ skills/                            — prefix routes each skill to a marketplace
   iso-init-repo/SKILL.md           — initialize repo governance (branches, CI, hooks)
   iso-plan/SKILL.md                — planning pipeline orchestrator
   iso-write/SKILL.md               — TDD plan executor on a feature branch, no commits
-  iso-review/SKILL.md              — review + fix the uncommitted working tree
+  iso-review/SKILL.md              — three phases over the branch: architecture, simplify, review
   iso-spawn/SKILL.md               — spawn a codex/claude agent in a herdr tab
-  iso-todo/SKILL.md                — full dev cycle: iso-plan → iso-write → iso-review (no commit)
   iso-readme/SKILL.md              — write/refine READMEs in house style, commit + push
-  social-new-notebooklm-project/SKILL.md — research-first NotebookLM prep for a new video
+  social-notebooklm/SKILL.md       — research-first NotebookLM notebook + scaletta for a video
+  social-new-video/SKILL.md        — one-shot launcher: spawns a tab that runs social-notebooklm
 scripts/
   install.js                        — deploys config files + installs skill packs globally
   agent-hooks.js                    — writes the tracker hooks into ~/.claude/settings.json (list: skills/iso-issue-tracking/scripts/hooks.json)
+  skills-manifest.js                — filesystem → skill catalog: discovery, prefix routing (PLUGINS), manifest projection
   dispatch-integrity.test.sh        — every verb a script dispatches must resolve to a defined function
+  portability.test.sh               — no skill may carry the machine it was written on (paths, package manager, agent config dir)
+  skill-refs.test.sh                — every skill name referenced in live prose has a directory (survives a rename's blind spots)
 .claude-plugin/
   marketplace.json                  — Claude marketplace catalog (2 plugins → ./plugins/<name>)
 .agents/plugins/

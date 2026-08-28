@@ -62,7 +62,7 @@ fi
 #    ANTHROPIC_BASE_URL to the local proxy, and enables persistent memory.
 #    Gate on headroom's own settings.json marker so a second /iso-ai-init stays
 #    quiet. Run from $HOME so nothing lands in a repo.
-CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+CLAUDE_SETTINGS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
 if [ -f "$CLAUDE_SETTINGS" ] && grep -q "headroom-init-claude" "$CLAUDE_SETTINGS" 2>/dev/null; then
     echo "headroom: Claude Code already wired, skipping"
 else
@@ -73,8 +73,9 @@ fi
 
 # 3. Wire headroom into Codex GLOBALLY (durable hooks + provider routing).
 #    Marker: a "headroom" reference in the global Codex config. Re-runnable either way.
-if { [ -f "$HOME/.codex/config.toml" ] && grep -qi "headroom" "$HOME/.codex/config.toml" 2>/dev/null; } \
-   || { [ -f "$HOME/.codex/AGENTS.md" ] && grep -qi "headroom" "$HOME/.codex/AGENTS.md" 2>/dev/null; }; then
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+if { [ -f "$CODEX_DIR/config.toml" ] && grep -qi "headroom" "$CODEX_DIR/config.toml" 2>/dev/null; } \
+   || { [ -f "$CODEX_DIR/AGENTS.md" ] && grep -qi "headroom" "$CODEX_DIR/AGENTS.md" 2>/dev/null; }; then
     echo "headroom: Codex already wired, skipping"
 else
     ( cd "$HOME" && headroom init --global --memory codex ) \

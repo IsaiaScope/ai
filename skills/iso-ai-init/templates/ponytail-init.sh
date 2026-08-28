@@ -22,7 +22,7 @@ fi
 # 2. Claude Code plugin: marketplace add + install (user scope).
 #    Gate on a "ponytail" marker in settings.json so re-runs stay quiet.
 #    Run from $HOME so nothing lands in a repo.
-CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+CLAUDE_SETTINGS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
 if [ -f "$CLAUDE_SETTINGS" ] && grep -qi "ponytail" "$CLAUDE_SETTINGS" 2>/dev/null; then
     echo "ponytail: Claude Code plugin already installed, skipping"
 elif command -v claude >/dev/null 2>&1; then
@@ -43,7 +43,7 @@ fi
 #    The cache dir is what `codex plugin list` itself reads — dir present ==
 #    installed — so it's the deterministic, cwd/env/TTY-proof marker (mirrors how
 #    caveman gates on an installed artifact, not command output).
-CODEX_PONYTAIL_DIR="$HOME/.codex/plugins/cache/ponytail"
+CODEX_PONYTAIL_DIR="${CODEX_HOME:-$HOME/.codex}/plugins/cache/ponytail"
 if ! command -v codex >/dev/null 2>&1; then
     echo "ponytail: codex CLI not found, skipping Codex wiring" >&2
 elif [ -d "$CODEX_PONYTAIL_DIR" ]; then

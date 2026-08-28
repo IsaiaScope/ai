@@ -121,7 +121,7 @@ if [ -x "$TSH" ]; then
   ISO_TRACKER_STATE_DIR=$(mktemp -d)
   r=$(newrepo dev)
   PL=docs/superpowers/plans/2026-05-26-feat-thing.md
-  printf '{"WRT-1":{"repo":"r","branch":"dev","project":"p","opened_by":"iso","plan":"%s"}}\n' \
+  printf '{"WRT-1":{"repo":"scratch","branch":"dev","project":"p","opened_by":"iso","plan":"%s"}}\n' \
     "$PL" > "$ISO_TRACKER_STATE_DIR/tracked.json"
   # No multica on PATH: the ledger write must still happen, because the board
   # write is best-effort and must not gate it.

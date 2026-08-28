@@ -43,7 +43,7 @@ scripts/plan.sh gate     # -> no-repo | setup-done | setup-missing
    Run /setup-matt-pocock-skills first, then re-run /iso-plan.
    ```
 
-   No plan file is produced, so `iso-todo` stops cleanly on its own.
+   No plan file is produced, so the chain stops cleanly on its own.
 
 3. **prototype** (conditional) — the agent decides autonomously whether it's needed; **do not ask for approval**. Run `prototype` only when grilling left a question that can't be settled by talking (UI feel, viability of a state machine / data model). Otherwise skip it. Its learnings carry forward into writing.
 
@@ -213,6 +213,6 @@ Render a summary ticket (do not just print the path). Use a left-rule style — 
 
 Keep it scannable — truncate long titles to one line. If a plan is flat (no phases), list tasks directly under **Breakdown** instead of the phase tree. Omit a section entirely (e.g. **Files**) if the plan doesn't specify it rather than printing it empty — but **Covers** and **Next** always render.
 
-**Next** carries the real plan path, not a placeholder — the user should be able to copy the line as-is. It is a suggestion only: print it and stop. Never invoke `iso-write` yourself, and never offer to; iso-plan implements nothing. (When `iso-todo` drives this chain it reads the plan path itself and spawns its own implementation tab, so the line is inert there.)
+**Next** carries the real plan path, not a placeholder — the user should be able to copy the line as-is. It is a suggestion only: print it and stop. Never invoke `iso-write` yourself, and never offer to; iso-plan implements nothing.
 
 Then halt.

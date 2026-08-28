@@ -26,6 +26,10 @@ iso_is_protected feat/thing && bad "feature branch treated as protected" \
 iso_is_protected ""         && ok "detached HEAD counts as protected" \
                             || bad "detached HEAD not protected"
 
+echo "iso_integration_candidates"
+check "configured development branch first, develop second" \
+  "$(iso_integration_candidates | tr '\n' ' ')" "dev develop "
+
 echo "iso_branch_from_plan"
 check "known type"    "$(iso_branch_from_plan 2026-05-26-feat-health-check.md)" "feat/health-check"
 check "refactor type" "$(iso_branch_from_plan 2026-08-21-refactor-iso-config.md)" "refactor/iso-config"

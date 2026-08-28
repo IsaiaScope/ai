@@ -52,10 +52,10 @@ check "dev wins"     "$(integration_branch "$r")" "dev"
 check "develop next" "$(integration_branch "$r")" "develop"
 
 echo "ledger"
-ledger_put WOR-1 '{"repo":"r","branch":"b","project":"p","opened_by":"claude"}'
+ledger_put WOR-1 '{"repo":"scratch","branch":"b","project":"p","opened_by":"claude"}'
 check "put then get"          "$(ledger_get WOR-1 | jq -r .branch)" "b"
 check "opened_by round-trips" "$(ledger_get WOR-1 | jq -r .opened_by)" "claude"
-ledger_put WOR-2 '{"repo":"r","branch":"c","project":"p","opened_by":"iso"}'
+ledger_put WOR-2 '{"repo":"scratch","branch":"c","project":"p","opened_by":"iso"}'
 check "two rows"              "$(jq -r 'keys|length' "$LEDGER")" "2"
 ledger_del WOR-1
 check "del removes one"       "$(jq -r 'keys|length' "$LEDGER")" "1"
@@ -113,8 +113,8 @@ rm -rf "$S3"
 echo "reconcile guards"
 S4=$(mktemp -d); rr=$(mktemp -d)
 ( cd "$rr" && git init -q -b main . && git commit -q --allow-empty -m x && git branch dev )
-MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-100 "{\"repo\":\"r\",\"branch\":\"ghost\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
-MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-101 "{\"repo\":\"r\",\"branch\":\"ghost\",\"project\":\"p\",\"opened_by\":\"iso\"}"'
+MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-100 "{\"repo\":\"scratch\",\"branch\":\"ghost\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
+MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-101 "{\"repo\":\"scratch\",\"branch\":\"ghost\",\"project\":\"p\",\"opened_by\":\"iso\"}"'
 check "two ledger rows seeded" "$(jq -r 'keys|length' "$S4/tracked.json")" "2"
 
 ( cd "$rr" && MULTICA_STATE_DIR="$S4" PATH=/usr/bin:/bin bash "$SH" reconcile ) >/dev/null 2>&1
@@ -126,7 +126,7 @@ check "iso-owned row survives"              "$(jq -r '."WOR-101".opened_by' "$S4
 grep -q "not cancelling" "$S4/log" && ok "deferral was logged per row" || bad "deferral not logged"
 
 # A row whose branch IS the integration branch must never be touched.
-MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-102 "{\"repo\":\"r\",\"branch\":\"dev\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
+MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-102 "{\"repo\":\"scratch\",\"branch\":\"dev\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
 ( cd "$rr" && MULTICA_STATE_DIR="$S4" PATH=/usr/bin:/bin bash "$SH" reconcile ) >/dev/null 2>&1
 check "integration-branch row skipped" "$(jq -r 'has("WOR-102")' "$S4/tracked.json")" "true"
 
@@ -137,7 +137,7 @@ check "integration-branch row skipped" "$(jq -r 'has("WOR-102")' "$S4/tracked.js
 MB=$(mktemp -d)
 printf '#!/usr/bin/env bash\nexit 0\n' > "$MB/multica"; chmod +x "$MB/multica"
 ( cd "$rr" && git branch feat/empty )   # same tip as dev — nothing committed on it
-MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-103 "{\"repo\":\"r\",\"branch\":\"feat/empty\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
+MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-103 "{\"repo\":\"scratch\",\"branch\":\"feat/empty\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
 ( cd "$rr" && MULTICA_STATE_DIR="$S4" PATH="$MB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
 check "commitless branch not closed" "$(jq -r 'has("WOR-103")' "$S4/tracked.json")" "true"
 grep -q 'WOR-103 -> done' "$S4/log" && bad "closed a branch with no commits" || ok "no done for a commitless branch"
@@ -145,7 +145,7 @@ grep -q 'WOR-103 -> done' "$S4/log" && bad "closed a branch with no commits" || 
 # The other half: a branch that really did land must still close.
 ( cd "$rr" && git checkout -q -b feat/landed dev && git commit -q --allow-empty -m shipped \
     && git checkout -q dev && git merge -q --no-ff -m merge feat/landed )
-MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-104 "{\"repo\":\"r\",\"branch\":\"feat/landed\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
+MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-104 "{\"repo\":\"scratch\",\"branch\":\"feat/landed\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
 ( cd "$rr" && MULTICA_STATE_DIR="$S4" PATH="$MB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
 check "genuinely merged branch still closes" "$(jq -r 'has("WOR-104")' "$S4/tracked.json")" "false"
 rm -rf "$MB"
@@ -166,7 +166,37 @@ grep -q "gh unavailable" "$S5/log" 2>/dev/null \
   && bad "empty ledger still probed gh" || ok "empty ledger short-circuits before gh"
 rm -rf "$S5"
 
-rm -rf "$S4" "$rr"
+rm -rf "$S4"
+
+echo "one ledger, many repos"
+# The ledger is a single file shared by every checkout on the machine, so every
+# row is offered to every reconcile run. A foreign row's branch does not exist
+# here, which the cancellation rule reads as "gone" - that is how a session
+# start in one repo cancelled a live ticket in another, and how an unscoped
+# branch lookup wrote one repo's branch name onto the other repo's ticket.
+# Both stubs are required: with no gh there is no cancellation to guard against,
+# and with no multica set_status fails and the row survives for the wrong reason.
+S6=$(mktemp -d); GB=$(mktemp -d)
+printf '#!/usr/bin/env bash\nprintf "[]"\n' > "$GB/gh";      chmod +x "$GB/gh"
+printf '#!/usr/bin/env bash\nexit 0\n'      > "$GB/multica"; chmod +x "$GB/multica"
+# Same branch name in both rows, because that is the real collision: every repo
+# has a dev, and a row parked on one matched whoever asked first.
+MULTICA_STATE_DIR="$S6" bash -c '. "'"$SH"'"; ledger_put FAR-1 "{\"repo\":\"elsewhere\",\"branch\":\"feat/shared\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
+MULTICA_STATE_DIR="$S6" bash -c '. "'"$SH"'"; ledger_put NEAR-1 "{\"repo\":\"scratch\",\"branch\":\"feat/shared\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
+
+check "a shared branch name resolves to this repo's ticket" \
+  "$( cd "$rr" && MULTICA_STATE_DIR="$S6" bash -c '. "'"$SH"'"; ticket_for feat/shared' )" "NEAR-1"
+check "a branch only another repo holds resolves to nothing" \
+  "$( cd "$rr" && MULTICA_STATE_DIR="$S6" bash -c '. "'"$SH"'"; ledger_put FAR-2 "{\"repo\":\"elsewhere\",\"branch\":\"feat/lonely\",\"project\":\"p\",\"opened_by\":\"claude\"}"; ticket_for feat/lonely' )" ""
+
+( cd "$rr" && MULTICA_STATE_DIR="$S6" PATH="$GB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
+check "another repo's row survives"   "$(jq -r 'has("FAR-1")'  "$S6/tracked.json")" "true"
+# The control. Without it the first assertion also passes when cancellation is
+# simply broken, which is not what is being fixed.
+check "this repo's own row still cancels" "$(jq -r 'has("NEAR-1")' "$S6/tracked.json")" "false"
+rm -rf "$S6" "$GB"
+
+rm -rf "$rr"
 
 echo "scope colours"
 n_scopes=$(printf '%s' "$SCOPES" | wc -w | tr -d ' ')
@@ -385,7 +415,7 @@ chmod +x "$BIN11/multica"
 export STUB_CALLS="$S11/calls" STUB_DESC="$S11/desc"
 g11=$(mktemp -d); ( cd "$g11" && git init -q -b main . && git commit -q --allow-empty -m x )
 P11='docs/superpowers/plans/2026-03-03-feat-retro.md'
-MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-20 "{\"repo\":\"r\",\"branch\":\"b\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"'"$P11"'\"}"'
+MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-20 "{\"repo\":\"scratch\",\"branch\":\"b\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"'"$P11"'\"}"'
 
 : > "$STUB_CALLS"; : > "$STUB_DESC"
 ( cd "$g11" && printf '%s\n' \
@@ -406,7 +436,7 @@ check "ledger row deleted" "$(jq -r 'has("FIRE-20")' "$S11/tracked.json")" "fals
 
 # Same trust boundary as every other outbound body.
 : > "$STUB_CALLS"; : > "$STUB_DESC"
-MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-30 "{\"repo\":\"r\",\"branch\":\"b\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"'"$P11"'\"}"'
+MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-30 "{\"repo\":\"scratch\",\"branch\":\"b\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"'"$P11"'\"}"'
 ( cd "$g11" && printf 'landed with mul_aaaaaaaaaaaaaaaaaaaa inside' \
     | MULTICA_STATE_DIR="$S11" PATH="$BIN11:/usr/bin:/bin" bash "$SH" retro "$P11" ) >/dev/null 2>&1
 grep -q 'mul_aaaaaaaaaaaaaaaaaaaa' "$STUB_DESC" && bad "SECRET REACHED A RETRO COMMENT" || ok "retro body is redacted"
@@ -418,13 +448,13 @@ grep -q 'issue status' "$STUB_CALLS" && bad "unknown plan still closed something
 
 # /iso-push holds a branch, not a plan path, so the same resolver answers both.
 : > "$STUB_CALLS"; : > "$STUB_DESC"
-MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-40 "{\"repo\":\"r\",\"branch\":\"feat/by-branch\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"\"}"'
+MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-40 "{\"repo\":\"scratch\",\"branch\":\"feat/by-branch\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"\"}"'
 ( cd "$g11" && printf 'landed' | MULTICA_STATE_DIR="$S11" PATH="$BIN11:/usr/bin:/bin" bash "$SH" retro feat/by-branch ) >/dev/null 2>&1
 grep -q 'issue status FIRE-40 done --no-start' "$STUB_CALLS" \
   && ok "a branch resolves the ticket too" || bad "branch did not resolve a ticket"
 
 : > "$STUB_CALLS"
-MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-41 "{\"repo\":\"r\",\"branch\":\"feat/moving\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"\"}"'
+MULTICA_STATE_DIR="$S11" bash -c '. "'"$SH"'"; ledger_put FIRE-41 "{\"repo\":\"scratch\",\"branch\":\"feat/moving\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"\"}"'
 ( cd "$g11" && MULTICA_STATE_DIR="$S11" PATH="$BIN11:/usr/bin:/bin" bash "$SH" progress feat/moving ) >/dev/null 2>&1
 grep -q 'issue status FIRE-41 in_progress --no-start' "$STUB_CALLS" \
   && ok "progress resolves by branch as well" || bad "progress cannot resolve by branch"
@@ -451,7 +481,7 @@ g12=$(mktemp -d)
     && git checkout -q -b feat/redo )
 P_OLD='docs/superpowers/plans/2026-04-01-feat-first-try.md'
 P_NEW='docs/superpowers/plans/2026-04-09-feat-second-try.md'
-MULTICA_STATE_DIR="$S12" bash -c '. "'"$SH"'"; ledger_put FIRE-50 "{\"repo\":\"r\",\"branch\":\"feat/redo\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"'"$P_OLD"'\"}"'
+MULTICA_STATE_DIR="$S12" bash -c '. "'"$SH"'"; ledger_put FIRE-50 "{\"repo\":\"scratch\",\"branch\":\"feat/redo\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"'"$P_OLD"'\"}"'
 
 # ticket-for-branch names the live ticket so /iso-plan can choose replan over open.
 echo in_review > "$STUB_ST"
@@ -594,7 +624,7 @@ chmod +x "$BIN9/multica"
 export STUB_CALLS="$S9/calls"
 gp=$(mktemp -d); ( cd "$gp" && git init -q -b main . && git commit -q --allow-empty -m x )
 PLAN='docs/superpowers/plans/2026-01-01-feat-x.md'
-MULTICA_STATE_DIR="$S9" bash -c '. "'"$SH"'"; ledger_put FIRE-10 "{\"repo\":\"r\",\"branch\":\"b\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"'"$PLAN"'\"}"'
+MULTICA_STATE_DIR="$S9" bash -c '. "'"$SH"'"; ledger_put FIRE-10 "{\"repo\":\"scratch\",\"branch\":\"b\",\"project\":\"p\",\"opened_by\":\"claude\",\"plan\":\"'"$PLAN"'\"}"'
 
 for verb in progress review blocked; do
   case "$verb" in
@@ -710,6 +740,44 @@ check "reads back by branch name" \
 check "miss prints nothing" \
   "$( cd "$g13" && MULTICA_STATE_DIR="$S13" PATH="$BIN13:$PATH" bash "$SH" branch-of nothing/here )" ""
 rm -rf "$S13" "$BIN13" "$g13"
+
+echo "comment (say something, close nothing)"
+S14=$(mktemp -d); BIN14=$(mktemp -d)
+cat > "$BIN14/multica" <<'STUB'
+#!/usr/bin/env bash
+echo "$@" >> "$STUB_CALLS"
+if [ "$1 $2 $3" = "issue comment add" ]; then cat >> "$STUB_DESC"; fi
+exit 0
+STUB
+chmod +x "$BIN14/multica"
+export STUB_CALLS="$S14/calls" STUB_DESC="$S14/desc"
+: > "$STUB_CALLS"; : > "$STUB_DESC"
+MULTICA_STATE_DIR="$S14" bash -c '. "'"$SH"'"; ledger_put FIRE-30 "{\"repo\":\"scratch\",\"branch\":\"feat/c\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
+
+printf 'summary line\ntoken mul_abcdefghijklmnop1234\n' \
+  | ( MULTICA_STATE_DIR="$S14" PATH="$BIN14:/usr/bin:/bin" bash "$SH" comment FIRE-30 ) >/dev/null 2>&1
+check "comment exits 0" "$?" "0"
+grep -q 'issue comment add FIRE-30' "$STUB_CALLS" \
+  && ok "comment reached the board" || bad "comment never reached the board"
+grep -q 'summary line' "$STUB_DESC" \
+  && ok "the body arrived" || bad "the body did not arrive"
+# The reason this goes through redact: a phase transcript can quote anything the
+# working tree holds, and the board is read by other people.
+grep -q 'mul_abcdefghijklmnop1234' "$STUB_DESC" \
+  && bad "a token reached the board unredacted" || ok "the body was redacted"
+# The one thing that separates comment from retro, which is otherwise the same
+# shape: retro closes the ticket and drops the row, comment must do neither.
+check "the ticket is still tracked" \
+  "$(MULTICA_STATE_DIR="$S14" bash -c '. "'"$SH"'"; ledger_get FIRE-30' | jq -r '.branch // ""')" "feat/c"
+[ "$(grep -c 'status' "$STUB_CALLS")" = "0" ] \
+  && ok "no status transition was attempted" || bad "comment moved the ticket"
+
+: > "$STUB_CALLS"
+printf 'x\n' | ( MULTICA_STATE_DIR="$S14" PATH="$BIN14:/usr/bin:/bin" bash "$SH" comment ) >/dev/null 2>&1
+check "a missing key exits 0" "$?" "0"
+[ -s "$STUB_CALLS" ] && bad "a missing key still called the board" \
+  || ok "a missing key writes nothing"
+rm -rf "$S14" "$BIN14"
 
 rm -rf "$tmp" "$r"
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

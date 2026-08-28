@@ -72,5 +72,5 @@ Deterministic steps live in the script so they behave identically every run; onl
 ## Related
 
 - [`iso-write`](../iso-write/) — builds a plan, leaves everything uncommitted for this to close out
-- [`iso-review`](../iso-review/) — reviews the uncommitted tree before you commit it
+- [`iso-review`](../iso-review/) — improves, simplifies and reviews the uncommitted tree before you commit it
 - [`iso-init-repo`](../iso-init-repo/) — installs the commitlint + version-bump hooks this format feeds

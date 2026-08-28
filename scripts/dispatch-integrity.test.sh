@@ -15,7 +15,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 pass=0; fail=0
 ok()  { pass=$((pass+1)); printf '  ok   %s\n' "$1"; }
-bad() { fail=$((fail+1)); printf '  FAIL %s\n' "$1"; }
+bad() { fail=$((fail+1)); printf '  FAIL %s\n' "$1"
+        if [ $# -gt 1 ]; then printf '       %s\n' "$2"; fi; }
 
 # `  verb) shift; cmd_thing "$@" ;;` -> `verb cmd_thing`
 verbs_of() {
@@ -56,9 +57,12 @@ while IFS= read -r f; do
     # A case arm may list alternatives (`a|b)`); each one needs documenting.
     # Delimiters are explicit rather than grep -w so that `pr` does not match
     # inside `preflight`, and `development-branch` matches as one word.
-    for v in $(printf '%s' "$verb" | tr '|' ' '); do
-      printf '%s' "$usage" | grep -qE "(^|[^a-z0-9_-])$v([^a-z0-9_-]|\$)" \
-        || undoc="$undoc $v"
+      # Builtins, not `tr` and `grep`: both operands are already in shell
+      # variables, and the forked form cost ~4 processes per verb across 45
+      # verbs. Verb names are [a-z0-9|_-] only, so nothing needs escaping.
+      for v in ${verb//|/ }; do
+        re="(^|[^a-z0-9_-])$v([^a-z0-9_-]|$)"
+        [[ $usage =~ $re ]] || undoc="$undoc $v"
     done
   done < <(verbs_of "$f")
 
@@ -72,7 +76,7 @@ while IFS= read -r f; do
     ok "$rel: $n verb(s) all resolve"
     checked=$((checked+1))
   fi
-done < <(find "$ROOT/skills" "$ROOT/scripts" -name '*.sh' ! -name '*.test.sh' | sort)
+done < <(find "$ROOT/skills" "$ROOT/scripts" -name '*.sh' ! -name '*.test.sh' ! -name '._*' | sort)
 
 [ -n "$skipped" ] && printf '  note   inline-dispatch, no cmd_* to resolve:%s\n' "$skipped"
 

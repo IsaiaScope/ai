@@ -579,8 +579,26 @@ across the branch's commits wins**: a branch holding a feature and a fix is
 The lede is at most 3 lines and answers *should I care*. The dots answer *what
 changed*, one per change, `-` never `*`, wrapped at 72.
 
-A last line reading `Ticket: FIRE-9` may follow. `push.sh pr` writes it — that
-string is what the tracker scans for to link the PR to its ticket.
+The **title** gains a `FIRE-9` prefix — `push.sh pr` writes it, and that is the
+whole link. The identifier anywhere in the title binds the PR to its ticket.
+
+```
+FIRE-18 feat(agents): add opt-in caveman and ponytail modes
+```
+
+The body carries nothing. It *can* link, but only through a close intent
+(`Closes`/`Fixes`/`Resolves`) sitting directly against the identifier — a bare
+`Ticket: FIRE-9` is read and ignored — and with the title already written that
+would be a second link to the same ticket.
+
+The trade that buys: a title-only link does **not** move the ticket to done when
+the PR merges. `Closes` is the tracker's own merge-to-Done trigger and it is not
+sent. Completion stays where it already was — `retro` here, `reconcile` in
+`iso-issue-tracking`.
+
+Only the feature PR is tagged. A cascade hop (`dev → test`) and a release PR
+carry no key: they ship many tickets, and every extra link is one more PR the
+tracker counts as still open against those tickets.
 
 **Shape rule.** Every dot — and the lede — names something concrete in the
 diff: a file, function, endpoint, flag, behavior, error. Anything that cannot

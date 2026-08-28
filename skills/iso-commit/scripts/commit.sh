@@ -118,6 +118,30 @@ cmd_commit() {
   [ -n "$msgfile" ] && [ -f "$msgfile" ] || die "usage: commit.sh commit <message-file>"
   [ -s "$msgfile" ] || die "message file is empty"
   git commit -F "$msgfile"
+
+  # SKILL.md states the no-attribution rule and the message is written to obey
+  # it -- but the message file is not the last word on what lands. A
+  # `prepare-commit-msg` hook, a `commit.template`, or `trailer.*` config can
+  # all append to it, and `--no-verify` does not stop prepare-commit-msg. So
+  # the rule is checked against the COMMIT, which is the thing that ships.
+  #
+  # Anchored to trailer shapes on purpose: a commit that legitimately says
+  # "fix the claude parser" in its body is not a violation.
+  # One pattern, two greps. Spelling it twice let the test and the report drift:
+  # tighten one copy and the guard fires while the "offending line" print finds
+  # nothing to show.
+  local landed attr_re='^co-authored-by:.*claude|^generated with .*claude|noreply@anthropic\.com|🤖'
+  landed=$(git --no-pager log -1 --format=%B)
+  if printf '%s\n' "$landed" | grep -qiE "$attr_re"; then
+    printf 'commit.sh: attribution was added to the message after it was written\n' >&2
+    printf '%s\n' "$landed" | grep -inE "$attr_re" >&2
+    # NOT a bare `git commit --amend`: amend re-runs prepare-commit-msg, which
+    # is the injector this guard exists for, so the obvious advice loops --
+    # amend, hook re-appends, still dirty. Disabling the hook path is what
+    # actually clears it.
+    die "these are your commits. fix with: git -c core.hooksPath=/dev/null commit --amend"
+  fi
+
   git --no-pager log -1 --format='%h %s'
 }
 

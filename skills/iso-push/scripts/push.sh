@@ -41,7 +41,7 @@ cmd_development_branch() { printf '%s\n' "$DEVELOPMENT"; }
 # Hard requirement: no dev/develop means this repo has no governance layout.
 cmd_base() {
   local b
-  for b in "$DEVELOPMENT" develop; do
+  for b in $(iso_integration_candidates); do
     if git ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1; then
       printf '%s\n' "$b"; return 0
     fi
@@ -152,9 +152,8 @@ rescue_to_branch() {   # <protected-branch> -> echoes the new branch name
   git branch "$new"                      # reachable from two refs before anything moves
   git reset --hard "origin/$prot" >&2
   git checkout "$new" >&2
-  # The ledger still names the protected branch here, which is exactly the
-  # identifier that resolves the ticket.
-  # Point the ticket at the branch the work was just moved to.
+  # $prot, not $new: the ledger row is still keyed to the protected branch at
+  # this point, and that key is what resolves the ticket.
   iso_track rebranch "$prot" "$new" >/dev/null 2>&1
   printf '%s\n' "$new"
 }
@@ -382,10 +381,13 @@ cmd_push() {
   # caller that improvises the order. Preflight is where this is EXPLAINED; here
   # it is the last thing standing between a wrong branch and a direct push to an
   # integration branch, so it is checked again at the point of the write.
-  case "$branch" in
-    dev|develop|test|prod)
-      die "refusing to push protected branch '$branch' — landings go through gh pr merge";;
-  esac
+  #
+  # iso_is_protected, not a literal list. The literal read `dev|develop|test|prod`
+  # while branches.protected also carries main and master — so the file's LAST
+  # gate was its most permissive one, and a repo whose base is `main` could be
+  # pushed to directly by a `push` reached without preflight.
+  ! iso_is_protected "$branch" \
+    || die "refusing to push protected branch '$branch' — landings go through gh pr merge"
 
   if [ "$force" = "--force" ] && ! git rev-parse --verify --quiet "origin/$branch" >/dev/null; then
     printf 'push: origin/%s absent — plain push, force not needed\n' "$branch"
@@ -435,14 +437,31 @@ ticket_key() {
 }
 
 # The pure half, and the only half that can be quietly wrong: which key, or
-# none. An empty key, or a body already naming it, comes back byte-identical so
-# the caller can compare instead of deciding again — `pr` reuses an open PR, so
-# this runs on every re-run.
-body_with_ticket() {
-  local body="$1" key="$2"
-  [ -n "$key" ] || { printf '%s' "$body"; return 0; }
-  case "$body" in *"$key"*) printf '%s' "$body"; return 0 ;; esac
-  printf '%s\n\nTicket: %s' "$body" "$key"
+# none. An empty key, or a title already carrying it, comes back byte-identical
+# so the caller can compare instead of deciding again — `pr` reuses an open PR,
+# so this runs on every re-run.
+#
+# The TITLE is the whole mechanism; the body carries nothing. The identifier
+# anywhere in the title links the PR to its ticket with no ceremony. The body
+# can link too, but only through a GitHub close intent sitting directly against
+# the key (`Closes FIRE-9`) — a bare mention is read and ignored — and since the
+# title is always written, a body line would be a second link to the same
+# ticket and nothing more.
+#
+# What that costs, deliberately: a title-only link does NOT complete the issue on
+# merge. `Closes` is the tracker's own merge-to-Done trigger and it is not being
+# sent. Completion stays with iso-push's `retro` and tracking.sh's `reconcile`,
+# which is where it already lived.
+#
+# Matched anywhere, not just as a prefix, because anywhere is what links - a
+# title already naming the key needs nothing. Case-sensitive where the tracker
+# is not, so a lowercased `fire-9` prepends a second, correct reference rather
+# than assuming one; a duplicate is ugly and still links, a missing one does not.
+title_with_ticket() {
+  local title="$1" key="$2"
+  [ -n "$key" ] || { printf '%s' "$title"; return 0; }
+  case "$title" in *"$key"*) printf '%s' "$title"; return 0 ;; esac
+  printf '%s %s' "$key" "$title"
 }
 
 # ----------------------------------------------------------------------- pr
@@ -463,14 +482,13 @@ cmd_pr() {
   local n
   n=$(gh pr list --head "$head" --base "$base" --state open --json number --jq '.[0].number // empty')
   if [ -n "$n" ]; then
-    # The body is written once, at create. A ticket bound after that — or this
-    # very feature landing mid-flight — would never reach it. Append, never
-    # rewrite: the rest of that body is someone's prose.
     if [ -n "$key" ]; then
-      local cur new
-      cur=$(gh pr view "$n" --json body --jq '.body // ""') || cur=""
-      new=$(body_with_ticket "$cur" "$key")
-      [ "$new" = "$cur" ] || gh pr edit "$n" --body "$new" >/dev/null
+      # The title is written once, at create. A ticket bound after that — or
+      # this very feature landing mid-flight — would never reach it.
+      local curt newt
+      curt=$(gh pr view "$n" --json title --jq '.title // ""') || curt=""
+      newt=$(title_with_ticket "$curt" "$key")
+      [ "$newt" = "$curt" ] || gh pr edit "$n" --title "$newt" >/dev/null
     fi
     printf '%s\n' "$n"; return 0
   fi
@@ -478,8 +496,9 @@ cmd_pr() {
   local title body
   title=$(head -1 "$msgfile")
   body=$(tail -n +2 "$msgfile" | sed '1{/^$/d;}')
-  gh pr create --base "$base" --head "$head" --title "$title" \
-    --body "$(body_with_ticket "$body" "$key")" >/dev/null
+  gh pr create --base "$base" --head "$head" \
+    --title "$(title_with_ticket "$title" "$key")" \
+    --body "$body" >/dev/null
   gh pr list --head "$head" --base "$base" --state open --json number --jq '.[0].number'
 }
 

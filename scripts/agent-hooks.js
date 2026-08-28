@@ -14,7 +14,15 @@
 const { readFileSync } = require("fs");
 const { join } = require("path");
 
-const SKILL_REL = ".claude/skills/iso-issue-tracking/scripts/tracking.sh";
+// Relative to the agent config dir, not to $HOME: Claude Code honours
+// CLAUDE_CONFIG_DIR, and a hook command that hardcodes $HOME/.claude fails
+// SILENTLY for anyone who moved theirs -- `[ -x "$S" ]` is simply false, so the
+// hook no-ops and the board stops being updated with no error anywhere.
+// iso-config's `doctor` already reads settings.json through the same override
+// (config.sh:41,71); this is the write side catching up.
+const SKILL_REL = "skills/iso-issue-tracking/scripts/tracking.sh";
+// A shell expression, expanded by the hook shell -- not by this module.
+const CONFIG_DIR = "${CLAUDE_CONFIG_DIR:-$HOME/.claude}";
 
 // The list lives with the skill it wires up, in a file both readers can reach:
 // this module resolves it from the repo, and iso-config's `doctor` resolves the
@@ -39,7 +47,7 @@ const marker = (name) => `# iso-hook:${name}`;
 // Trailing, because a leading `#` would comment out the whole one-line command.
 // It sits after `exit 0` and never executes; it exists to be grepped.
 const commandFor = ({ name, verb }) =>
-  `S="$HOME/${SKILL_REL}"; [ -x "$S" ] && "$S" ${verb}; exit 0  ${marker(name)}`;
+  `S="${CONFIG_DIR}/${SKILL_REL}"; [ -x "$S" ] && "$S" ${verb}; exit 0  ${marker(name)}`;
 
 const isOurs = (command, hook) =>
   command.includes(marker(hook.name)) ||

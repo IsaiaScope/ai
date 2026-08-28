@@ -21,10 +21,16 @@ All three run `scripts/config.sh`. This file describes the surface; it holds no 
 
 `~/.config/iso/iso.json` describes **you** — tracker, terminal, identity, agent
 data. `docs/iso/config.json` in a repository describes **that repository**, and
-may carry `branches` and `paths` only. Repo wins per key, not per file.
+may carry `branches`, `paths` and `test` only. Repo wins per key, not per file.
 
-An overlay is meant to be tiny. This repository's is two lines, because two
-values differ from the global ones.
+An overlay is meant to be tiny: only the values that differ from the global
+ones, which for most repositories is a handful.
+
+`test.command` is the odd one out, and belongs to the repository for a reason a
+global value could not serve — it is the shell command that proves this
+repository still works. `/iso-review` runs it between phases and undoes a phase
+that turns it red. Unset (the default) means no gate: phases still run, and
+nothing checks them.
 
 A key the overlay is not allowed to carry is a hard error naming the key, never
 a silent fall-through to global. A typo in a five-line file must not behave
@@ -40,6 +46,27 @@ wrong under the rest.
     . "$HERE/../../iso-config/scripts/lib/sibling.sh"
     . "$(iso_sibling iso-config scripts/lib/config.sh)"
     development=$(iso_config_get branches.development)
+
+## Telling a user how to install something
+
+No `iso-*` skill names a package manager. `config.sh` exports the one this
+machine actually has, so a hint stays runnable off macOS — `brew install jq`
+handed to a Debian reader is advice they cannot follow, and it read as correct
+here for as long as only one machine ever ran these skills.
+
+    iso_pkg_install     # -> "brew install" | "sudo apt-get install -y" | "sudo dnf install -y"
+                        #    "sudo pacman -S" | "sudo apk add" | "install"
+
+It names the manager, not the package: names do differ between them, but a
+per-distro name table goes stale unnoticed, and a reader handed the right
+manager reconciles a rename in seconds. `iso_prereq_hint` already composes the
+two, so prefer that for anything in `ISO_PREREQS`.
+
+Agent config directories follow the same rule: read them from
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}` and `${CODEX_HOME:-$HOME/.codex}`, never
+bare. A bare path fails silently for a user who moved theirs — the file is
+written, just not where the agent reads it. `scripts/portability.test.sh`
+sweeps for all of this.
 
 ## Branch policy
 

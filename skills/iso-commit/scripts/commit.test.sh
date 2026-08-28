@@ -48,7 +48,41 @@ printf 'feat(x): thing\n\n- did a thing\n' > "$d/msg"
 (cd "$d" && bash "$SH" stage >/dev/null 2>&1 && bash "$SH" commit msg >/dev/null 2>&1); \
   check "stage+commit succeeds" "$?" 0
 check "body preserved" "$(git -C "$d" log -1 --format=%b | tr -d '\n')" "- did a thing"
-check "no AI trailer" "$(git -C "$d" log -1 --format=%B | grep -ci 'co-authored-by\|claude' || true)" "0"
+# The old form here grepped a message nothing had touched, so it could only
+# ever return 0 -- it asserted git's behaviour, not this script's, and passed
+# even when the commit above had failed and there was nothing to read. The
+# message file is not the last word on what lands: prepare-commit-msg hooks,
+# commit.template and trailer.* config all append AFTER it, and --no-verify
+# does not stop prepare-commit-msg. So drive the real failure mode.
+check "no AI trailer" "$(git -C "$d" log -1 --format=%B | grep -ci 'co-authored-by' || true)" "0"
+
+d=$(newrepo); ( cd "$d" && touch a.txt )
+mkdir -p "$d/.git/hooks"
+cat > "$d/.git/hooks/prepare-commit-msg" <<'HOOK'
+#!/usr/bin/env bash
+printf '\nCo-Authored-By: Claude <noreply@anthropic.com>\n' >> "$1"
+HOOK
+chmod +x "$d/.git/hooks/prepare-commit-msg"
+printf 'feat(x): thing\n\n- did a thing\n' > "$d/msg"
+out=$( cd "$d" && bash "$SH" stage >/dev/null 2>&1 && bash "$SH" commit msg 2>&1 ); rc=$?
+check "an injected trailer fails the commit" "$rc" "1"
+check "and the offending line is shown" \
+  "$(printf '%s' "$out" | grep -ci 'co-authored-by')" "1"
+# The remedy has to survive the injector. A bare `git commit --amend` re-runs
+# prepare-commit-msg -- the very hook that put the trailer there -- so advice
+# that omits the hook bypass sends the user into a loop.
+check "and it says how to fix it" "$(printf '%s' "$out" | grep -c 'commit --amend')" "1"
+check "and the fix bypasses the hook that injected it" \
+  "$(printf '%s' "$out" | grep -c 'core.hooksPath')" "1"
+rm -rf "$d"
+
+# A body that merely mentions the word is not a violation -- the guard is
+# anchored to trailer shapes, and a guard that fires on prose gets disabled.
+d=$(newrepo); ( cd "$d" && touch a.txt )
+printf 'fix(parse): handle claude model ids\n\n- generated with the new fixture\n' > "$d/msg"
+( cd "$d" && bash "$SH" stage >/dev/null 2>&1 && bash "$SH" commit msg >/dev/null 2>&1 )
+check "prose mentioning claude still commits" "$?" "0"
+rm -rf "$d"
 
 echo "branch gate"
 export ISO_GLOBAL_CONFIG=/nonexistent

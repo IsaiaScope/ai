@@ -71,6 +71,13 @@ two rows and leave the first sitting in `in_review` for good.
 |---|---|
 | `ticket-for-branch` | prints `<KEY>\t<status>` for this branch's live ticket, or nothing |
 | `replan <session_id> --plan <path> [--key KEY]` | rewrites the description, comments what it superseded, ticket → `todo` |
+| `comment <KEY>` | stdin becomes one comment. No status write, no ledger change |
+
+`comment` is `retro` with the ending removed — the same redaction and the same
+4000-character cap, without the close. `/iso-review` uses it to leave its run
+summary somewhere that outlives the terminal, on work that is not finished.
+Takes a key, not a plan, because the caller already knows which ticket it is
+reporting on.
 
 `ticket-for-branch` is the question `/iso-plan` asks before writing anything:
 empty means open a fresh ticket, a key means replan against that one. It hides
@@ -265,7 +272,7 @@ back up from the ticket anywhere — the `cd` is what makes it runnable from a
 reader's shell, not just from inside the repo. Do not write it yourself.
 
 Pass **`--agent codex`** when the implementation runs in Codex instead — as
-`/iso-todo --impl-agent codex` and `/iso-write` do — and the block is omitted
+`/iso-write` does — and the block is omitted
 entirely. `claude --resume` cannot reach a Codex session, and a resume line that
 resumes nothing is worse than none: it reads as an offer. Default is `claude`,
 so omitting the flag keeps the block.
@@ -342,7 +349,7 @@ tracking.sh branch-of <identifier>               # read it back; prints nothing 
 ```
 
 `<identifier>` is **either a plan path or the branch the work is moving off** —
-`ticket_for_plan` matches both, so a caller passes whichever it already holds.
+`ticket_for` matches both, so a caller passes whichever it already holds.
 `/iso-write` has the plan path. `/iso-push` and `/iso-commit` have only a branch.
 
 `rebranch` rewrites two things: the ledger row's `branch`, and the ticket's
@@ -385,9 +392,15 @@ Split when the parts have different scopes, land in different branches, or
 would each be worth reading about separately. Do not split a one-afternoon task
 into four tickets; a board of trivia is as unreadable as a board of vagueness.
 
-**Match before creating.** Run `multica issue search <words from the request>`
-first — it searches titles, descriptions and comment bodies, so a conclusion
-that only ever landed in a comment is still findable. Never search a bare
+**Match before creating.** Search the tracker for the words in the request
+first — search covers titles, descriptions and comment bodies, so a conclusion
+that only ever landed in a comment is still findable.
+
+> **Known gap.** The adapter contract has no `tk_issue_search`, so this one step
+> reaches past the adapter to the vendor CLI — `multica issue search <words>` on
+> the shipping adapter. It is the only place in this skill that names a vendor,
+> and it will keep leaking until search joins the contract's verbs.
+ Never search a bare
 number or an identifier like `WOR-412`: number-shaped queries rank number
 matches first and the prefix is not validated, so an identifier from another
 tracker surfaces an unrelated local issue at the top.

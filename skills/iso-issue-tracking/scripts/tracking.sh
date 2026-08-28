@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Multica work tracker. Called by the Claude Code session hooks (reconcile/end)
+# Work tracker, behind a swappable adapter. Called by the Claude Code session hooks (reconcile/end)
 # and by the agent (bind/open/done). Outbound only — nothing here starts an
 # agent.
 # ponytail: one file. Every subcommand shares redact + the ledger; splitting it
@@ -11,6 +11,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../iso-config/scripts/lib/sibling.sh"
 # shellcheck source=/dev/null
 . "$(iso_sibling iso-config scripts/lib/config.sh)"
+# shellcheck source=/dev/null
+. "$(iso_sibling iso-config scripts/lib/branch.sh)"
 
 TRACKER_KIND=$(iso_config_get tracker.kind)
 # The ledger belongs to the tracker that wrote it -- a swap must not leave
@@ -69,10 +71,13 @@ project_for() {
   basename "$url" .git
 }
 
-# dev, then develop, then origin's default. NOT main by convention.
+# The configured development branch, then develop, then origin's default. NOT
+# main by convention. The candidates come from iso-config so that renaming
+# branches.development reaches the reconciler too — this list used to be a
+# second, private copy that a rename silently left behind.
 integration_branch() {
   local d="${1:-$PWD}" b
-  for b in dev develop; do
+  for b in $(iso_integration_candidates); do
     git -C "$d" show-ref --verify --quiet "refs/heads/$b" && { echo "$b"; return 0; }
     git -C "$d" show-ref --verify --quiet "refs/remotes/origin/$b" && { echo "$b"; return 0; }
   done
@@ -93,7 +98,11 @@ ledger_del() {
     && mv "$tmp" "$LEDGER" || rm -f "$tmp"
 }
 
-# Reverse lookup: plan path -> ticket key. The ledger is keyed by issue, so this
+# Reverse lookup: identifier -> ticket key. Named for what it takes rather than
+# for one of the two things it takes — half the call sites hand it a branch
+# (/iso-push and /iso-commit hold no plan path), so `ticket_for_plan "$br"` read
+# like a bug at every one of them.
+# The ledger is keyed by issue, so this
 # is a scan; it holds one row per open branch, not a history, so a scan is
 # cheaper than a second index that can drift.
 # Matched on basename: /iso-plan records whatever path it was given and
@@ -101,13 +110,19 @@ ledger_del() {
 # string compare would silently no-op, which is the failure this replaces.
 # A branch name resolves too, because /iso-push holds a branch and never a
 # plan path - the ledger already stores the branch for the reconciler.
-ticket_for_plan() {
+# Scoped to this checkout, because the ledger is one file for every repo on the
+# machine and every repo has a `dev`: an unscoped branch match handed back some
+# other repo's ticket, and a rebranch then wrote this repo's branch name onto
+# it. Rows written before .repo existed carry none and stay visible everywhere -
+# stranding them is worse than the collision they risk.
+ticket_for() {
   local plan="${1:-}" base key
   [ -n "$plan" ] || return 1
   base=${plan##*/}
   state_dir
-  key=$(jq -r --arg b "$base" --arg a "$plan" \
+  key=$(jq -r --arg b "$base" --arg a "$plan" --arg r "$(project_for "$PWD")" \
     'to_entries[]
+       | select(((.value.repo // "") == "") or ((.value.repo // "") == $r))
        | select((((.value.plan // "") | split("/") | last) == $b)
                 or ((.value.branch // "") == $a))
        | .key' \
@@ -124,7 +139,7 @@ ticket_for_plan() {
 # later. Still returns 0 - visible, never fatal.
 move_plan_ticket() {
   local want="$1" plan="${2:-}" key
-  key=$(ticket_for_plan "$plan") \
+  key=$(ticket_for "$plan") \
     || { logf "$want: no ticket for plan ${plan:-<none>}"
          printf 'tracking: no ticket matches %s -- board not moved to %s\n' \
            "${plan:-<none>}" "$want" >&2
@@ -148,13 +163,15 @@ comment_bg() {
   disown 2>/dev/null || true
 }
 
-# --no-start is load-bearing. Without it a status write can start an agent run,
-# which is the one thing this design must never do.
+# --no-start is enforced in the adapter's tk_issue_status, not here: the flag
+# and its reason sit on that one line, in whichever adapter is loaded. Naming
+# the adapter here would put a vendor name in this file, which contract.test.sh
+# forbids — and rightly, since the point is that this layer does not know one.
 set_status() { tk_issue_status "$1" "$2"; }
 
 current_user_name() { tk_current_user; }
 
-PROJECTS_CACHE_NOTE=1   # title -> id cache; issue create takes an id, not a title.
+# title -> id cache; issue create takes an id, not a title.
 project_id_for() {
   local name="$1" id tmp
   state_dir; [ -f "$PROJECTS" ] || echo '{}' > "$PROJECTS"
@@ -162,13 +179,9 @@ project_id_for() {
   [ -n "$id" ] && { echo "$id"; return 0; }
   id=$(tk_project_list | awk -F'\t' -v n="$name" '$2==n {print $1; exit}')
   if [ -z "$id" ]; then
-    local lead pargs
-    lead=$(current_user_name)
     # No --priority flag exists on project create or update (CLI 0.4.26), so a
     # new project lands at priority "none" and has to be set in the UI.
-    pargs=(project create --title "$name" --icon "🤖" --status in_progress --output json)
-    [ -n "$lead" ] && pargs+=(--lead "$lead")
-    id=$(tk_project_create "$name" "$lead")
+    id=$(tk_project_create "$name" "$(current_user_name)")
   fi
   [ -z "$id" ] && { logf "could not resolve project $name"; return 1; }
   tmp=$(mktemp)
@@ -302,7 +315,7 @@ ticket_for_branch() {
   local br key st
   br=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || return 1
   [ -n "$br" ] || return 1
-  key=$(ticket_for_plan "$br") || return 1
+  key=$(ticket_for "$br") || return 1
   st=$(tk_issue_get_status "$key")
   case "$st" in done|cancelled) return 1 ;; esac
   printf '%s\t%s\n' "$key" "$st"
@@ -347,7 +360,7 @@ case "${1:-}" in
   retro)
     state_dir
     plan="${2:-}"
-    key=$(ticket_for_plan "$plan") \
+    key=$(ticket_for "$plan") \
       || { logf "retro: no ticket for plan ${plan:-<none>}"; exit 0; }
     body=""
     [ -t 0 ] || body=$(cat 2>/dev/null | redact | head -c 4000 || true)
@@ -384,7 +397,7 @@ case "${1:-}" in
     ident="${2:-}"; newbr="${3:-}"
     [ -n "$ident" ] && [ -n "$newbr" ] \
       || { logf "rebranch needs <identifier> <new-branch>"; exit 0; }
-    key=$(ticket_for_plan "$ident") \
+    key=$(ticket_for "$ident") \
       || { logf "rebranch: no ticket for $ident"; exit 0; }
     row=$(ledger_get "$key")
     ledger_put "$key" "$(printf '%s' "$row" | jq -c --arg b "$newbr" '.branch=$b' 2>/dev/null)"
@@ -398,7 +411,7 @@ case "${1:-}" in
   # holds no plan path, so it cannot reach the ledger any other way.
   branch-of)
     state_dir
-    key=$(ticket_for_plan "${2:-}") || exit 0
+    key=$(ticket_for "${2:-}") || exit 0
     ledger_get "$key" | jq -r '.branch // empty' 2>/dev/null
     ;;
 
@@ -539,6 +552,7 @@ case "${1:-}" in
   reconcile)
     state_dir
     repo_dir="$PWD"
+    here=$(project_for "$repo_dir")
     ib=$(integration_branch "$repo_dir")
     if [ -z "$ib" ]; then logf "reconcile: no integration branch, skipping"; exit 0; fi
 
@@ -554,25 +568,40 @@ case "${1:-}" in
     gh_ok=0; [ -n "$prs" ] && gh_ok=1
     [ "$gh_ok" -eq 0 ] && logf "reconcile: gh unavailable - no cancellation this run"
 
-    for key in $(jq -r 'keys[]' "$LEDGER" 2>/dev/null); do
-      row=$(ledger_get "$key"); [ -n "$row" ] || continue
-      br=$(printf '%s' "$row" | jq -r '.branch // empty' 2>/dev/null)
-      who=$(printf '%s' "$row" | jq -r '.opened_by // "iso"' 2>/dev/null)
+    # One jq for the whole PR list, one for the whole ledger. Both used to be
+    # re-parsed per row - the 200-record PR blob twice and the ledger four
+    # times - which put ~7 jq processes per open ticket on every session start.
+    # Now the loop forks nothing to read a field.
+    pr_map=$(printf '%s' "$prs" | jq -r \
+      '.[]? | [.headRefName, .state, .url] | @tsv' 2>/dev/null)
+    rows=$(jq -r 'to_entries[]
+      | [.key, (.value.branch // ""), (.value.opened_by // "iso"),
+         (.value.repo // ""), (.value.pr // "")] | @tsv' "$LEDGER" 2>/dev/null)
+
+    while IFS=$'\t' read -r key br who rrepo pr_recorded; do
+      [ -n "$key" ] || continue
       { [ -z "$br" ] || [ "$br" = "$ib" ]; } && continue
 
-      pr_state=$(printf '%s' "$prs" | jq -r --arg b "$br" \
-        '[.[]? | select(.headRefName==$b) | .state] | first // empty' 2>/dev/null)
-      pr_url=$(printf '%s' "$prs" | jq -r --arg b "$br" \
-        '[.[]? | select(.headRefName==$b) | .url] | first // empty' 2>/dev/null)
+      # Only the checkout a row was opened in can say anything true about its
+      # branch. Anywhere else that branch is simply absent, which the rules
+      # below read as "gone" and cancel - a live ticket in another repo killed
+      # by a session start over here. The .repo field was written on every row
+      # from the start and read by nothing until now.
+      { [ -n "$rrepo" ] && [ "$rrepo" != "$here" ]; } && continue
+
+      pr_state=""; pr_url=""
+      while IFS=$'\t' read -r p_br p_state p_url; do
+        [ "$p_br" = "$br" ] && { pr_state="$p_state"; pr_url="$p_url"; break; }
+      done <<< "$pr_map"
 
       # Click-through from ticket to PR. Written before the merge check, because a
       # merged row is deleted from the ledger and would never get the link.
       # Recorded in the ledger so a quiet reconcile does not rewrite it each run.
-      if [ -n "$pr_url" ] && [ "$pr_url" != "$(printf '%s' "$row" | jq -r '.pr // empty' 2>/dev/null)" ]; then
+      if [ -n "$pr_url" ] && [ "$pr_url" != "$pr_recorded" ]; then
+        row=$(ledger_get "$key")
         ensure_property PR url \
           && tk_issue_property "$key" PR "$pr_url" \
           && { ledger_put "$key" "$(printf '%s' "$row" | jq -c --arg u "$pr_url" '.pr=$u' 2>/dev/null)"
-               row=$(ledger_get "$key")
                logf "reconcile $key: PR $pr_url recorded"; }
       fi
 
@@ -608,8 +637,29 @@ case "${1:-}" in
           logf "reconcile $key: branch $br gone, not cancelling (opened_by=$who gh_ok=$gh_ok)"
         fi
       fi
-    done
+    done <<< "$rows"
     ;;
+  # A skill reporting to a human wants that report on the ticket too, so it
+  # survives the terminal. Body on stdin rather than in argv: a summary is
+  # multi-line, and argv is the one place a newline gets mangled.
+  #
+  # Through redact for the same reason retro is: this crosses from the machine
+  # to a board other people read, and a phase transcript can quote anything the
+  # working tree contains.
+  #
+  # Says something and closes nothing. retro, three arms up, is the same shape
+  # plus a status transition and a ledger_del — that is deliberately not here.
+  comment)
+    state_dir
+    key="${2:-}"
+    [ -n "$key" ] || { logf "comment needs <key>"; exit 0; }
+    body=""
+    [ -t 0 ] || body=$(cat 2>/dev/null | redact | head -c 4000 || true)
+    [ -n "$body" ] || { logf "comment: empty body for $key"; exit 0; }
+    printf '%s' "$body" | tk_issue_comment "$key" \
+      || logf "comment failed on $key"
+    ;;
+
   *) logf "unknown subcommand: ${1:-<none>}" ;;
 esac
 
