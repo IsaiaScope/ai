@@ -9,6 +9,12 @@ ok()  { pass=$((pass+1)); printf '  ok   %s\n' "$1"; }
 bad() { fail=$((fail+1)); printf '  FAIL %s\n' "$1"; }
 check() { [ "$2" = "$3" ] && ok "$1" || { bad "$1"; printf '       want=%q got=%q\n' "$3" "$2"; }; }
 export ISO_GLOBAL_CONFIG=/nonexistent
+# write.sh reaches the real tracking.sh through iso_sibling, so EVERY fixture
+# below -- not just the ones that assert on tracking -- would otherwise write to
+# the user's live ledger. This once rebranched a real ticket onto a fixture
+# branch name, so it belongs here, above the first test, not beside the first
+# test that happens to care.
+export ISO_TRACKER_STATE_DIR; ISO_TRACKER_STATE_DIR=$(mktemp -d)
 
 echo "branch derivation"
 check "known type"    "$(bash "$SH" branch-for 2026-05-26-feat-health-check.md)" "feat/health-check"
@@ -65,9 +71,8 @@ check "named branch used" "$(printf '%s' "$out" | grep '^branch=')" "branch=cust
 check "checked out"       "$( cd "$r" && git branch --show-current )" "custom/name"
 
 echo "refusals"
-r=$(newrepo dev); ( cd "$r" && git branch feat/thing )
-( cd "$r" && bash "$SH" resolve 2026-05-26-feat-thing.md ) >/dev/null 2>&1
-check "existing derived branch refused" "$?" "1"
+# An existing derived branch is no longer a refusal - it is a resume. See
+# "resuming a plan's existing branch" below.
 r=$(newrepo dev)
 ( cd "$r" && bash "$SH" resolve p.md --no-branch --worktree ) >/dev/null 2>&1
 check "two modes rejected" "$?" "1"
@@ -84,6 +89,52 @@ echo "tracking never fails the run"
 r=$(newrepo dev)
 ( cd "$r" && bash "$SH" track progress somewhere/plan.md ) >/dev/null 2>&1
 check "track exits 0 regardless" "$?" "0"
+
+
+echo "resuming a plan's existing branch"
+r=$(newrepo dev)
+( cd "$r" && git branch feat/thing )
+out=$( cd "$r" && bash "$SH" resolve 2026-05-26-feat-thing.md )
+check "mode is resumed-branch" "$(printf '%s' "$out" | grep '^mode=')"   "mode=resumed-branch"
+check "branch is the existing one" "$(printf '%s' "$out" | grep '^branch=')" "branch=feat/thing"
+check "landed on it" "$( cd "$r" && git branch --show-current )" "feat/thing"
+
+echo "resuming carries uncommitted work"
+r=$(newrepo dev)
+( cd "$r" && git branch feat/thing )
+printf 'dirty\n' > "$r/file.txt"
+( cd "$r" && bash "$SH" resolve 2026-05-26-feat-thing.md ) >/dev/null
+check "work came along on resume" "$(cat "$r/file.txt")" "dirty"
+
+echo "an existing branch is no longer an error"
+r=$(newrepo dev)
+( cd "$r" && git branch feat/thing )
+( cd "$r" && bash "$SH" resolve 2026-05-26-feat-thing.md ) >/dev/null 2>&1
+check "exits 0 where it used to die" "$?" "0"
+
+echo "the ticket follows the branch"
+# Seeds a ledger row by hand, then asserts resolve moved it. Without this the
+# gate is tested and the wiring to tracking.sh is not: every other case in this
+# file resolves no ticket, so a rebranch that never fires looks identical.
+TSH=$(cd "$(dirname "$SH")/../../iso-issue-tracking/scripts" && pwd)/tracking.sh
+if [ -x "$TSH" ]; then
+  ISO_TRACKER_STATE_DIR=$(mktemp -d)
+  r=$(newrepo dev)
+  PL=docs/superpowers/plans/2026-05-26-feat-thing.md
+  printf '{"WRT-1":{"repo":"scratch","branch":"dev","project":"p","opened_by":"iso","plan":"%s"}}\n' \
+    "$PL" > "$ISO_TRACKER_STATE_DIR/tracked.json"
+  # No multica on PATH: the ledger write must still happen, because the board
+  # write is best-effort and must not gate it.
+  ( cd "$r" && ISO_TRACKER_STATE_DIR="$ISO_TRACKER_STATE_DIR" PATH=/usr/bin:/bin \
+      bash "$SH" resolve "$PL" ) >/dev/null 2>&1
+  check "resolve moved the ledger row" \
+    "$(jq -r '.["WRT-1"].branch' "$ISO_TRACKER_STATE_DIR/tracked.json")" "feat/thing"
+  check "resolve read the ticket back" \
+    "$( cd "$r" && ISO_TRACKER_STATE_DIR="$ISO_TRACKER_STATE_DIR" PATH=/usr/bin:/bin \
+        bash "$TSH" branch-of "$PL" )" "feat/thing"
+else
+  ok "iso-issue-tracking absent, integration skipped"
+fi
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

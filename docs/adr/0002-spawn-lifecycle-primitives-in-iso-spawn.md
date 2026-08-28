@@ -1,5 +1,7 @@
 # Spawn lifecycle robustness lives in iso-spawn, not in each skill
 
+> **Partially superseded by [ADR 0005](0005-refine-phases-run-headless.md).** Still true of `iso-spawn` itself, but no other skill builds on it any more.
+
 Detecting when a spawned tab is *done*, *alive*, or *dead* — and recovering its result without catching a pre-final turn — is the hard, easy-to-get-wrong part of driving another terminal. iso-review had to build it (`rv_wait_finished`/`rv_confirm_started`/`rv_recover_settled`) because the native `herdr agent wait --status idle` hangs when status sticks on `working`, recovers stale turns under jsonl flush-lag, and can't tell a slow-but-working agent from a dead one. The same gaps live in the shared layer — `deliver.sh:48` uses that very `agent wait --status idle` — so `iso-write` and every `--wait`/`deliver` caller is still exposed. The fix belongs in **one tested place in iso-spawn**, with the guiding split that **liveness is universal** (answerable from screen activity, no task knowledge) while **completion is domain-specific** (a generic `idle` proxy, or an artifact the caller injects). Three primitives — `herdr_pane_active`, `wait_recover_settled`, `wait_done` (with a `--done-grep` hook) — carry the universal logic; iso-review keeps only its findings-shape, passed in as `--done-grep`. Full API, migration, and test plan: [docs/superpowers/specs/2026-05-29-spawn-lifecycle-primitives-design.md](../superpowers/specs/2026-05-29-spawn-lifecycle-primitives-design.md).
 
 ## Considered Options

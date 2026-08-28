@@ -38,7 +38,7 @@ cmd_show() {
 # ponytail: reports, never repairs — install.js owns the linking.
 cmd_doctor_topology() {
   local d n
-  for d in "$HOME/.claude/skills" "$HOME/.codex/skills"; do
+  for d in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills" "${CODEX_HOME:-$HOME/.codex}/skills"; do
     if [ ! -d "$d" ]; then printf '  absent   %s\n' "$d"; continue; fi
     n=$(find "$d" -maxdepth 1 -name 'iso-*' | wc -l | tr -d ' ')
     if [ "$n" -eq 0 ]; then
@@ -59,7 +59,7 @@ cmd_doctor_topology() {
 # which is honest; a check that cannot read its own subject asserts nothing.
 iso_hooks() {
   local f
-  f=$(iso_sibling iso-tracking scripts/hooks.json 2>/dev/null) || return 1
+  f=$(iso_sibling iso-issue-tracking scripts/hooks.json 2>/dev/null) || return 1
   jq -r '.[] | "\(.event):\(.name)"' "$f" 2>/dev/null
 }
 
@@ -68,9 +68,9 @@ iso_hooks() {
 # install defect must not fail readiness either. Same posture as the topology
 # check above, down to the remedy line.
 cmd_doctor_hooks() {
-  local settings="${ISO_AGENT_SETTINGS:-$HOME/.claude/settings.json}" pair ev name cmd target
+  local settings="${ISO_AGENT_SETTINGS:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json}" pair ev name cmd target
   if ! iso_hooks >/dev/null 2>&1; then
-    printf '  absent   hook list (iso-tracking/scripts/hooks.json)\n'
+    printf '  absent   hook list (iso-issue-tracking/scripts/hooks.json)\n'
     return 0
   fi
   if [ ! -f "$settings" ]; then

@@ -44,7 +44,7 @@ With an argument, that text is the seed handed to brainstorming. Without one, pl
 
 ## ✅ Output
 
-One plan file under `docs/superpowers/plans/`, then a summary card:
+One plan file under `docs/superpowers/plans/`, then a summary ticket:
 
 ```
   PLAN READY
@@ -74,7 +74,7 @@ One plan file under `docs/superpowers/plans/`, then a summary card:
 
 **Covers** is 3–6 dots of what the plan delivers, phrased as outcomes rather than phase names. **Next** carries the real path — copy-pasteable. iso-plan never runs it for you; planning and building stay separate commands.
 
-The card is only rendered if a **new** plan file actually appeared — a stale file never gets a card.
+The ticket is only rendered if a **new** plan file actually appeared — a stale file never gets a ticket.
 
 ---
 

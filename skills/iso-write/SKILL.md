@@ -1,6 +1,6 @@
 ---
 name: iso-write
-description: Implement a written plan using TDD, without committing. Use when invoked as /iso-write <plan_path> [--no-branch | --branch=<name> | --worktree] or handed an implementation plan to build. By default it cuts a fresh branch from the plan filename only when the current branch is a base branch (dev, develop, test, prod, main, master) or detached, and otherwise stays on the feature branch already checked out; --no-branch always implements on the current branch; --branch=<name> uses a named branch; --worktree runs in an isolated worktree. Delegates execution to superpowers executing-plans (red-green-refactor per task), stamps the plan done, and stops so the user reviews all changes before any commit. Agent-independent (Claude Code or Codex).
+description: Implement a written plan using TDD, without committing. Use when invoked as /iso-write <plan_path> [--no-branch | --branch=<name> | --worktree] or handed an implementation plan to build. By default it resumes or cuts a branch derived from the plan filename only when the current branch is a base branch (dev, develop, test, prod, main, master) or detached, and otherwise stays on the feature branch already checked out; --no-branch always implements on the current branch; --branch=<name> uses a named branch; --worktree runs in an isolated worktree. Delegates execution to superpowers executing-plans (red-green-refactor per task), stamps the plan done, and stops so the user reviews all changes before any commit. Agent-independent (Claude Code or Codex).
 ---
 
 # iso-write
@@ -15,7 +15,7 @@ An optional **workspace flag** selects where the implementation happens. The fla
 
 | Flag | Workspace |
 |------|-----------|
-| *(none)* | **Reuse or cut** — on a base branch (`dev`, `develop`, `test`, `prod`, `main`, `master`) or detached HEAD, derive `<type>/<slug>` from the plan filename and create it. Already on a feature branch: stay on it, create nothing. |
+| *(none)* | **Reuse, resume, or cut** — on a base branch (`dev`, `develop`, `test`, `prod`, `main`, `master`) or detached HEAD, derive `<type>/<slug>` from the plan filename: check it out if it exists, create it if not. Already on a feature branch: stay on it, create nothing. |
 | `--no-branch` | **In place** — stay on the current branch, no checkout. |
 | `--branch=<name>` | **Named branch** — checkout `<name>`, creating it if missing. |
 | `--worktree` | **Worktree** — isolated worktree on a fresh `<type>/<slug>` branch via the `using-git-worktrees` skill. |
@@ -47,10 +47,10 @@ able to fail a write run:
 scripts/write.sh track <progress|review|blocked> "$plan_path"
 ```
 
-The card is resolved from `<plan_path>` alone — the same path `/iso-plan` recorded
-with `--plan` when it opened the card. A plan written by hand was never carded, so
+The ticket is resolved from `<plan_path>` alone — the same path `/iso-plan` recorded
+with `--plan` when it opened the ticket. A plan written by hand was never ticketed, so
 the call resolves nothing and does nothing, which is correct. One plan is one
-card, so each transition is a single status write.
+ticket, so each transition is a single status write.
 ## Step 1: Read the full plan
 
 Read `<plan_path>` end-to-end before touching anything. Understand all tasks, file layout, and architectural decisions.
@@ -78,6 +78,10 @@ popped by mistake.
 
 **A branch is cut only when there is nowhere else to be.** If the current branch is already a feature branch, the plan is implemented on it and nothing is created.
 
+**Re-running the same plan resumes its branch.** When the derived `<type>/<slug>` already exists it is checked out (`mode=resumed-branch`) rather than refused. This used to be a hard error telling you to delete the branch, rename the plan, or pass `--branch=` — exactly wrong for the common case, a session that ended mid-plan and picked the work back up the next day. The ticket already points at that branch, and cutting a near-duplicate beside it would split one piece of work across two.
+
+The decision belongs to `iso_branch_gate` in `iso-config/scripts/lib/branch.sh`, the shared gate every `iso-*` skill uses; see **Branch policy** in `iso-config/SKILL.md`. After the workspace resolves, the ticket's `Branch` is pointed at wherever the run landed — in every mode, including the ones that create nothing.
+
 ```bash
 # handled by: scripts/write.sh resolve "$plan_path"
 ```
@@ -104,10 +108,10 @@ Invoke the **superpowers `using-git-worktrees` skill** to create the isolated wo
 
 Uncommitted work in the main checkout is **not** carried — the worktree is isolated by design and starts clean from the current HEAD. Tell the user their uncommitted changes remain in the original checkout. Record the worktree path for the Step 6 summary.
 
-### Mark the card in progress
+### Mark the ticket in progress
 
 The workspace is now resolved, which is the moment work actually starts. Move the
-card:
+ticket:
 
 ```bash
 scripts/write.sh track progress "$plan_path"
@@ -143,7 +147,7 @@ Halt immediately if:
 
 On halt: write the blocked marker `docs/iso/logs/write/<plan-basename>.blocked.md` (create `docs/iso/logs/write/` if needed; `<plan-basename>` is `<plan_path>`'s filename minus `.md`) with the failed task number/title, the exact error or ambiguity, what you tried, and the suggested next action. Then print `Halted at task <N>. See docs/iso/logs/write/<plan-basename>.blocked.md.` and wait for user input. Do not commit, do not exit.
 
-Mark the card blocked at the same time, so the board shows where the run stopped:
+Mark the ticket blocked at the same time, so the board shows where the run stopped:
 
 ```bash
 scripts/write.sh track blocked "$plan_path"
@@ -174,20 +178,20 @@ Append a footer:
 - Committed: no — awaiting user review
 ```
 
-Then move the card to review — the plan is implemented and Iso should look at it:
+Then move the ticket to review — the plan is implemented and Iso should look at it:
 
 ```bash
 scripts/write.sh track review "$plan_path"
 ```
 
 `in_review` is a claim about attention, not about GitHub. It is set here whether
-or not a PR exists; `/iso-push` is what later closes the card.
+or not a PR exists; `/iso-push` is what later closes the ticket.
 
 ## Step 6: Print review summary and stop
 
 ```
 ✓ Implementation complete — nothing committed.
-  Mode:    <fresh-branch | current-branch | no-branch | named-branch | worktree>
+  Mode:    <fresh-branch | resumed-branch | current-branch | no-branch | named-branch | worktree>
   Branch:  <branch>          (the current branch for --no-branch)
   Worktree: <path>           (only printed in --worktree mode)
   Plan:    <plan_path> (stamped)
