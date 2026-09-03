@@ -51,6 +51,18 @@ check "dev wins"     "$(integration_branch "$r")" "dev"
 ( cd "$r" && git branch -D dev >/dev/null 2>&1; git branch develop )
 check "develop next" "$(integration_branch "$r")" "develop"
 
+echo "iso_current_branch"
+# A detached head has no branch. `rev-parse --abbrev-ref HEAD` answers with the
+# literal string "HEAD", which four call sites used to bind and resolve tickets
+# by -- so this asserts the empty answer, not a pretty one.
+cb=$(mktemp -d)
+( cd "$cb" && git init -q -b main . && git commit -q --allow-empty -m x ) >/dev/null 2>&1
+check "on a branch"   "$( cd "$cb" && iso_current_branch )" "main"
+( cd "$cb" && git checkout -q --detach HEAD ) >/dev/null 2>&1
+check "detached is empty" "$( cd "$cb" && iso_current_branch )" ""
+check "and resolves no ticket" "$( cd "$cb" && ticket_for_branch >/dev/null 2>&1; echo $? )" "1"
+rm -rf "$cb"
+
 echo "ledger"
 ledger_put WOR-1 '{"repo":"scratch","branch":"b","project":"p","opened_by":"claude"}'
 check "put then get"          "$(ledger_get WOR-1 | jq -r .branch)" "b"
@@ -62,6 +74,340 @@ check "del removes one"       "$(jq -r 'keys|length' "$LEDGER")" "1"
 check "del leaves other"      "$(ledger_get WOR-2 | jq -r .branch)" "c"
 check "get on missing key is empty" "$(ledger_get NOPE)" ""
 
+
+echo "plan entries"
+S15=$(mktemp -d)
+pe() { MULTICA_STATE_DIR="$S15" bash -c '. "'"$SH"'"; '"$*"''; }
+
+# A legacy row written before this change holds a bare string. It must read as
+# one current entry, with no migration script anywhere.
+pe 'ledger_put OLD-1 "{\"repo\":\"r\",\"branch\":\"b\",\"plan\":\"docs/p/one.md\"}"'
+check "string plan coerces to one entry" "$(pe 'plan_entries OLD-1 | jq -r "length"')" "1"
+check "coerced entry is current"         "$(pe 'plan_entries OLD-1 | jq -r ".[0].state"')" "current"
+check "coerced entry keeps the path"     "$(pe 'plan_entries OLD-1 | jq -r ".[0].path"')" "docs/p/one.md"
+
+# An empty string is not a plan. It must not become an entry with an empty path.
+pe 'ledger_put OLD-2 "{\"repo\":\"r\",\"branch\":\"b\",\"plan\":\"\"}"'
+check "empty string plan is no entries" "$(pe 'plan_entries OLD-2 | jq -r "length"')" "0"
+check "a row with no plan key is no entries" \
+  "$(pe 'ledger_put OLD-3 "{\"repo\":\"r\"}"; plan_entries OLD-3 | jq -r "length"')" "0"
+
+# addplan semantics: the outgoing current plan becomes done.
+pe 'plan_push OLD-1 docs/p/two.md done "second body"'
+check "push appends"                 "$(pe 'plan_entries OLD-1 | jq -r "length"')" "2"
+check "previous current became done" "$(pe 'plan_entries OLD-1 | jq -r ".[0].state"')" "done"
+check "new entry is current"         "$(pe 'plan_entries OLD-1 | jq -r ".[1].state"')" "current"
+check "new entry keeps its body"     "$(pe 'plan_entries OLD-1 | jq -r ".[1].body"')" "second body"
+check "plan_current names it"        "$(pe 'plan_current OLD-1')" "docs/p/two.md"
+
+# replan semantics: the outgoing current plan becomes superseded, and is kept.
+pe 'plan_push OLD-1 docs/p/three.md superseded "third"'
+check "replan supersedes, does not delete" "$(pe 'plan_entries OLD-1 | jq -r ".[1].state"')" "superseded"
+check "superseded body survives"           "$(pe 'plan_entries OLD-1 | jq -r ".[1].body"')" "second body"
+check "three entries now"                  "$(pe 'plan_entries OLD-1 | jq -r "length"')" "3"
+
+# Re-adding a plan already on the row moves it, never duplicates it.
+pe 'plan_push OLD-1 docs/p/two.md done "again"'
+check "re-adding does not duplicate" \
+  "$(pe 'plan_entries OLD-1 | jq -r "[.[] | select(.path==\"docs/p/two.md\")] | length"')" "1"
+check "re-added plan is current" "$(pe 'plan_current OLD-1')" "docs/p/two.md"
+
+# The ledger row is an open object. A bind merges with `. +`, so a field do_bind
+# knows nothing about has to survive it.
+pe 'ledger_put PR-1 "{\"repo\":\"scratch\",\"branch\":\"b\",\"opened_by\":\"claude\",\"extra\":\"keep-me\"}"'
+( cd "$tmp" && MULTICA_STATE_DIR="$S15" PATH=/usr/bin:/bin bash -c '. "'"$SH"'"; do_bind s1 PR-1 claude "" 0' ) >/dev/null 2>&1
+check "bind preserves unknown fields" "$(pe 'ledger_get PR-1 | jq -r ".extra"')" "keep-me"
+
+check "plan_push on a missing row fails" "$(pe 'plan_push NOPE-1 x done ""' >/dev/null 2>&1; echo $?)" "1"
+rm -rf "$S15"
+
+echo "ticket_for with plan arrays"
+S16=$(mktemp -d); rr2=$(mktemp -d)
+( cd "$rr2" && git init -q -b main . && git remote add origin https://github.com/IsaiaScope/scratch.git )
+tf() { ( cd "$rr2" && MULTICA_STATE_DIR="$S16" bash -c '. "'"$SH"'"; '"$*"'' ); }
+
+tf 'ledger_put ARR-1 "{\"repo\":\"scratch\",\"branch\":\"feat/x\",\"opened_by\":\"claude\",\"plan\":[{\"path\":\"docs/superpowers/plans/a.md\",\"state\":\"done\",\"body\":\"\"},{\"path\":\"docs/superpowers/plans/b.md\",\"state\":\"current\",\"body\":\"\"}]}"'
+check "resolves by branch"                  "$(tf 'ticket_for feat/x')" "ARR-1"
+check "resolves by the current plan"        "$(tf 'ticket_for docs/superpowers/plans/b.md')" "ARR-1"
+check "resolves by an older plan"           "$(tf 'ticket_for docs/superpowers/plans/a.md')" "ARR-1"
+check "an unknown plan resolves to nothing" "$(tf 'ticket_for docs/superpowers/plans/zz.md')" ""
+
+# The FIRE-20/FIRE-21 case: two live rows, one branch, same repo. head -1 hid
+# this completely. One key is still returned - callers expect one - but the
+# duplicate must be announced.
+tf 'ledger_put ARR-2 "{\"repo\":\"scratch\",\"branch\":\"feat/x\",\"opened_by\":\"claude\",\"plan\":[]}"'
+check "still returns exactly one key" "$(tf 'ticket_for feat/x' | wc -l | tr -d ' ')" "1"
+err=$( cd "$rr2" && MULTICA_STATE_DIR="$S16" bash -c '. "'"$SH"'"; ticket_for feat/x' 2>&1 >/dev/null )
+contains "ARR-1" "$err" && contains "ARR-2" "$err" \
+  && ok "a duplicate branch is announced on stderr, naming both" \
+  || bad "duplicate rows on one branch went unreported"
+grep -q 'ARR-2' "$S16/log" && ok "the duplicate is logged" || bad "duplicate not logged"
+
+# A row scoped out by repo must announce itself, or "wrong checkout" and "new
+# work" are indistinguishable - and only one of them should open a ticket.
+tf 'ledger_put FAR-9 "{\"repo\":\"elsewhere\",\"branch\":\"feat/far\",\"opened_by\":\"claude\",\"plan\":[]}"'
+check "another repo's row still resolves to nothing" "$(tf 'ticket_for feat/far')" ""
+err2=$( cd "$rr2" && MULTICA_STATE_DIR="$S16" bash -c '. "'"$SH"'"; ticket_for feat/far' 2>&1 >/dev/null )
+contains "another checkout" "$err2" && ok "a scoped-out match is announced" || bad "scoped-out match was silent"
+rm -rf "$S16" "$rr2"
+
+echo "render_body"
+S17=$(mktemp -d); rr3=$(mktemp -d)
+( cd "$rr3" && git init -q -b main . && git commit -q --allow-empty -m x )
+rb() { ( cd "$rr3" && MULTICA_STATE_DIR="$S17" bash -c '. "'"$SH"'"; '"$*"'' ); }
+
+check "label strips date and type" "$(rb 'plan_label docs/superpowers/plans/2026-08-28-feat-editor-script.md')" "editor script"
+check "label survives no prefix"   "$(rb 'plan_label docs/superpowers/plans/script-layer.md')" "script layer"
+
+ENT='[{"path":"docs/p/2026-08-27-script-layer.md","state":"done","body":"first prose"},{"path":"docs/p/2026-08-28-feat-editor-script.md","state":"current","body":"third prose"},{"path":"docs/p/2026-08-28-feat-x.md","state":"superseded","body":"abandoned"}]'
+out=$(rb 'render_body s1 claude "the umbrella" '"'$ENT'"'')
+
+contains "the umbrella" "$out"  && ok "intro is rendered"         || bad "intro missing"
+contains "script layer" "$out"  && ok "done section rendered"     || bad "done section missing"
+contains "editor script" "$out" && ok "current section rendered"  || bad "current section missing"
+contains "abandoned" "$out"     && ok "a superseded body is kept" || bad "superseded body was dropped"
+check "exactly one /iso-write line" "$(printf '%s' "$out" | grep -c '^/iso-write ')" "1"
+contains "/iso-write docs/p/2026-08-28-feat-editor-script.md" "$out" \
+  && ok "the /iso-write line names the current plan" || bad "wrong plan in the /iso-write line"
+check "exactly one resume block" "$(printf '%s' "$out" | grep -c 'claude --resume')" "1"
+check "three section headings" "$(printf '%s' "$out" | grep -c '^## ')" "3"
+
+# Idempotence: the whole point of rendering rather than patching.
+out2=$(rb 'render_body s1 claude "the umbrella" '"'$ENT'"'')
+check "render is idempotent" "$out" "$out2"
+
+# codex does the work in a session this command cannot reach, so no resume line.
+outc=$(rb 'render_body s1 codex "" '"'$ENT'"'')
+contains "claude --resume" "$outc" && bad "resume offered for a codex session" || ok "no resume line for codex"
+contains "third prose" "$outc" && ok "sections still render for codex" || bad "codex render lost the sections"
+
+# No entries at all: open with no plan must still produce the footer.
+oute=$(rb 'render_body s1 claude "" "[]"')
+contains "claude --resume s1" "$oute" && ok "empty entries still render a resume block" || bad "empty render lost the footer"
+rm -rf "$S17" "$rr3"
+
+echo "addplan"
+S18=$(mktemp -d); BIN18=$(mktemp -d); g18=$(mktemp -d)
+CALLS18="$S18/calls"; DESC18="$S18/desc"; : > "$CALLS18"; : > "$DESC18"
+cat > "$BIN18/multica" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CALLS18"
+case "$1 $2" in
+  "issue get")    printf '{"status":"in_review"}' ;;
+  "issue update") cat > "$DESC18" ;;
+  "issue create") cat >/dev/null 2>&1; printf '{"identifier":"FIRE-9"}' ;;
+  "auth status")  printf 'User: Isaia Riva (x)\n' >&2 ;;
+  *) : ;;
+esac
+exit 0
+STUB
+chmod +x "$BIN18/multica"
+export CALLS18 DESC18
+( cd "$g18" && git init -q -b main . && git remote add origin https://github.com/IsaiaScope/scratch.git \
+  && git commit -q --allow-empty -m x && git checkout -q -b feat/many )
+
+ap() { ( cd "$g18" && MULTICA_STATE_DIR="$S18" PATH="$BIN18:$PATH" bash "$SH" "$@" ); }
+
+MULTICA_STATE_DIR="$S18" bash -c '. "'"$SH"'"; ledger_put FIRE-50 "{\"repo\":\"scratch\",\"branch\":\"feat/many\",\"opened_by\":\"claude\",\"plan\":[{\"path\":\"docs/p/one.md\",\"state\":\"current\",\"body\":\"first\"}]}"'
+
+got=$(printf 'second body\n' | ap addplan s5 --plan docs/p/two.md)
+check "addplan returns the existing key" "$got" "FIRE-50"
+check "no new issue was created" "$(grep -c 'issue create' "$CALLS18")" "0"
+check "the previous plan is done" \
+  "$(MULTICA_STATE_DIR="$S18" bash -c '. "'"$SH"'"; plan_entries FIRE-50 | jq -r ".[0].state"')" "done"
+check "the new plan is current" \
+  "$(MULTICA_STATE_DIR="$S18" bash -c '. "'"$SH"'"; plan_current FIRE-50')" "docs/p/two.md"
+contains "first" "$(cat "$DESC18")" && ok "the earlier plan survives in the body" || bad "addplan destroyed the earlier plan"
+contains "second body" "$(cat "$DESC18")" && ok "the new plan is in the body" || bad "new plan missing from body"
+grep -q 'issue status FIRE-50 in_progress' "$CALLS18" \
+  && ok "in_review moves to in_progress" || bad "status not moved to in_progress"
+grep -q 'comment add FIRE-50' "$CALLS18" && ok "the switch is commented" || bad "no comment for the plan switch"
+
+# A token in the piped body must never reach the board, and must never be stored
+# in the ledger either - the ledger is now what the body is rendered from.
+: > "$DESC18"
+printf 'tok mul_abcdefghijklmnop1234 x\n' | ap addplan s6 --plan docs/p/three.md >/dev/null 2>&1
+grep -q 'mul_abcdefghijklmnop1234' "$DESC18" && bad "a token reached the board" || ok "the body was redacted"
+MULTICA_STATE_DIR="$S18" bash -c '. "'"$SH"'"; plan_entries FIRE-50' | grep -q 'mul_abcdefghijklmnop1234' \
+  && bad "a token was stored in the ledger" || ok "the stored body was redacted"
+
+# No live ticket for this branch: addplan is not a create path.
+( cd "$g18" && git checkout -q -b feat/orphan )
+out=$(printf 'x\n' | ap addplan s7 --plan docs/p/four.md 2>&1)
+check "addplan on an unknown branch exits 0" "$?" "0"
+contains "no live ticket" "$out" && ok "says why it did nothing" || bad "silent on a missing ticket"
+( cd "$g18" && git checkout -q feat/many )
+
+check "addplan with no --plan exits 0" "$(printf 'x\n' | ap addplan s8 >/dev/null 2>&1; echo $?)" "0"
+rm -rf "$S18" "$BIN18" "$g18"
+
+echo "replan keeps history"
+S19=$(mktemp -d); BIN19=$(mktemp -d); g19=$(mktemp -d)
+CALLS19="$S19/calls"; DESC19="$S19/desc"; : > "$CALLS19"; : > "$DESC19"
+cat > "$BIN19/multica" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CALLS19"
+case "$1 $2" in
+  "issue get")    printf '{"status":"in_progress"}' ;;
+  "issue update") cat > "$DESC19" ;;
+  "auth status")  printf 'User: Isaia Riva (x)\n' >&2 ;;
+  *) : ;;
+esac
+exit 0
+STUB
+chmod +x "$BIN19/multica"
+export CALLS19 DESC19
+( cd "$g19" && git init -q -b main . && git remote add origin https://github.com/IsaiaScope/scratch.git \
+  && git commit -q --allow-empty -m x && git checkout -q -b feat/redo )
+MULTICA_STATE_DIR="$S19" bash -c '. "'"$SH"'"; ledger_put FIRE-60 "{\"repo\":\"scratch\",\"branch\":\"feat/redo\",\"opened_by\":\"claude\",\"plan\":[{\"path\":\"docs/p/wrong.md\",\"state\":\"current\",\"body\":\"the wrong approach\"}]}"'
+
+printf 'the right approach\n' | ( cd "$g19" && MULTICA_STATE_DIR="$S19" PATH="$BIN19:$PATH" bash "$SH" \
+  replan s9 --plan docs/p/right.md ) >/dev/null 2>&1
+
+check "the abandoned plan is superseded, not gone" \
+  "$(MULTICA_STATE_DIR="$S19" bash -c '. "'"$SH"'"; plan_entries FIRE-60 | jq -r ".[0].state"')" "superseded"
+contains "the wrong approach" "$(cat "$DESC19")" \
+  && ok "the superseded plan still appears in the body" || bad "replan destroyed the superseded plan"
+contains "the right approach" "$(cat "$DESC19")" && ok "the new plan is in the body" || bad "new plan missing"
+check "exactly one /iso-write line after a replan" "$(grep -c '^/iso-write ' "$DESC19")" "1"
+contains "/iso-write docs/p/right.md" "$(cat "$DESC19")" \
+  && ok "the runnable command names the new plan" || bad "wrong plan in the /iso-write line"
+grep -q 'issue status FIRE-60 todo' "$CALLS19" && ok "replan returns the ticket to todo" || bad "replan did not move to todo"
+rm -rf "$S19" "$BIN19" "$g19"
+
+echo "open redirects on a held branch"
+S20=$(mktemp -d); BIN20=$(mktemp -d); g20=$(mktemp -d)
+CALLS20="$S20/calls"; DESC20="$S20/desc"; : > "$CALLS20"; : > "$DESC20"
+cat > "$BIN20/multica" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CALLS20"
+case "$1 $2" in
+  "issue get")      printf '{"status":"in_review"}' ;;
+  "issue update")   cat > "$DESC20" ;;
+  "issue create")   cat >/dev/null 2>&1; printf '{"identifier":"FIRE-99"}' ;;
+  "project list")   printf '[]' ;;
+  "project create") printf '{"id":"p1"}' ;;
+  "auth status")    printf 'User: Isaia Riva (x)\n' >&2 ;;
+  *) : ;;
+esac
+exit 0
+STUB
+chmod +x "$BIN20/multica"
+export CALLS20 DESC20
+( cd "$g20" && git init -q -b main . && git remote add origin https://github.com/IsaiaScope/scratch.git \
+  && git commit -q --allow-empty -m x && git checkout -q -b feat/held )
+
+# THE regression test. The exact FIRE-20/FIRE-21 case: a live ticket already
+# holds this branch, and `open` is called anyway.
+MULTICA_STATE_DIR="$S20" bash -c '. "'"$SH"'"; ledger_put FIRE-70 "{\"repo\":\"scratch\",\"branch\":\"feat/held\",\"opened_by\":\"claude\",\"plan\":[{\"path\":\"docs/p/first.md\",\"state\":\"current\",\"body\":\"first\"}]}"'
+got=$(printf 'second\n' | ( cd "$g20" && MULTICA_STATE_DIR="$S20" PATH="$BIN20:$PATH" bash "$SH" \
+  open s10 "a second title" --plan docs/p/second.md --scope be ) 2>/dev/null)
+
+check "open returns the existing key" "$got" "FIRE-70"
+check "open created no second issue"  "$(grep -c 'issue create' "$CALLS20")" "0"
+check "the ledger still has one row for this branch" \
+  "$(jq -r '[to_entries[] | select(.value.branch=="feat/held")] | length' "$S20/tracked.json")" "1"
+check "the second plan landed on the existing ticket" \
+  "$(MULTICA_STATE_DIR="$S20" bash -c '. "'"$SH"'"; plan_current FIRE-70')" "docs/p/second.md"
+contains "first" "$(cat "$DESC20")" && ok "the first plan survives the redirect" || bad "redirect lost the first plan"
+err=$(printf 'x\n' | ( cd "$g20" && MULTICA_STATE_DIR="$S20" PATH="$BIN20:$PATH" bash "$SH" \
+  open s11 "third" --plan docs/p/third.md ) 2>&1 >/dev/null)
+contains "FIRE-70" "$err" && ok "the redirect is announced on stderr" || bad "the redirect was silent"
+grep -q 'redirect' "$S20/log" && ok "the redirect is logged" || bad "redirect not logged"
+
+# A branch with no live ticket must still create, or open is broken.
+( cd "$g20" && git checkout -q -b feat/fresh )
+got=$(printf 'body\n' | ( cd "$g20" && MULTICA_STATE_DIR="$S20" PATH="$BIN20:$PATH" bash "$SH" \
+  open s12 "a fresh one" --plan docs/p/fresh.md --scope be ) 2>/dev/null)
+check "a free branch still opens a new ticket" "$got" "FIRE-99"
+
+# --intro survives the redirect (addplan renders it) but has nowhere to go on a
+# fresh ticket, which has no plan sections for it to introduce. The same command
+# line therefore keeps the prose on a held branch and drops it on a free one, so
+# the drop is logged: this asserts the log line, not a behaviour change.
+( cd "$g20" && git checkout -q -b feat/introless )
+: > "$S20/log"
+printf 'body\n' | ( cd "$g20" && MULTICA_STATE_DIR="$S20" PATH="$BIN20:$PATH" bash "$SH" \
+  open s14 "introless" --plan docs/p/i.md --intro 'umbrella prose' ) >/dev/null 2>&1
+grep -q 'intro ignored' "$S20/log" \
+  && ok "a dropped --intro is logged, not silent" \
+  || bad "--intro vanished on a fresh ticket with nothing in the log"
+
+# There is no escape hatch. --force-new must be treated as an unknown flag.
+: > "$CALLS20"
+( cd "$g20" && git checkout -q feat/held )
+got=$(printf 'x\n' | ( cd "$g20" && MULTICA_STATE_DIR="$S20" PATH="$BIN20:$PATH" bash "$SH" \
+  open s13 "forced" --force-new --plan docs/p/forced.md ) 2>/dev/null)
+check "--force-new does not create a second ticket" "$(grep -c 'issue create' "$CALLS20")" "0"
+check "--force-new still redirects" "$got" "FIRE-70"
+rm -rf "$S20" "$BIN20" "$g20"
+
+echo "umbrella title"
+S21=$(mktemp -d); BIN21=$(mktemp -d); g21=$(mktemp -d)
+CALLS21="$S21/calls"; : > "$CALLS21"
+cat > "$BIN21/multica" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CALLS21"
+case "$1 $2" in
+  "issue get")    printf '{"status":"in_review"}' ;;
+  "issue update") cat >/dev/null 2>&1 ;;
+  "auth status")  printf 'User: Isaia Riva (x)\n' >&2 ;;
+  *) : ;;
+esac
+exit 0
+STUB
+chmod +x "$BIN21/multica"
+export CALLS21
+( cd "$g21" && git init -q -b main . && git remote add origin https://github.com/IsaiaScope/scratch.git \
+  && git commit -q --allow-empty -m x && git checkout -q -b feat/umb )
+MULTICA_STATE_DIR="$S21" bash -c '. "'"$SH"'"; ledger_put FIRE-80 "{\"repo\":\"scratch\",\"branch\":\"feat/umb\",\"opened_by\":\"claude\",\"plan\":[{\"path\":\"docs/p/a.md\",\"state\":\"current\",\"body\":\"a\"}]}"'
+
+printf 'b\n' | ( cd "$g21" && MULTICA_STATE_DIR="$S21" PATH="$BIN21:$PATH" bash "$SH" \
+  addplan s14 --plan docs/p/b.md ) >/dev/null 2>&1
+grep -q -- '--title' "$CALLS21" && bad "renamed the ticket without being asked" || ok "no --title means no rename"
+
+: > "$CALLS21"
+printf 'c\n' | ( cd "$g21" && MULTICA_STATE_DIR="$S21" PATH="$BIN21:$PATH" bash "$SH" \
+  addplan s15 --plan docs/p/c.md --title "The script layer" ) >/dev/null 2>&1
+grep -q -- 'issue update FIRE-80 --title The script layer' "$CALLS21" \
+  && ok "an explicit --title renames the ticket" || bad "--title did not rename"
+grep -q -- '--no-start' "$CALLS21" && ok "the rename cannot start an agent" || bad "rename missing --no-start"
+
+# A redirect must never rename: the incoming title describes one plan, and the
+# ticket it lands on already covers several.
+: > "$CALLS21"
+printf 'd\n' | ( cd "$g21" && MULTICA_STATE_DIR="$S21" PATH="$BIN21:$PATH" bash "$SH" \
+  open s16 "only the newest plan" --plan docs/p/d.md ) >/dev/null 2>&1
+grep -q -- '--title' "$CALLS21" && bad "the redirect renamed the ticket" || ok "a redirect leaves the title alone"
+rm -rf "$S21" "$BIN21" "$g21"
+
+echo "honest status writes"
+S22=$(mktemp -d); BIN22=$(mktemp -d); g22=$(mktemp -d)
+CALLS22="$S22/calls"; : > "$CALLS22"
+# The board accepts the write and then does not move - exactly the FIRE-19 shape.
+cat > "$BIN22/multica" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CALLS22"
+case "$1 $2" in
+  "issue get")   printf '{"status":"in_review"}' ;;
+  "auth status") printf 'User: Isaia Riva (x)\n' >&2 ;;
+  *) : ;;
+esac
+exit 0
+STUB
+chmod +x "$BIN22/multica"
+export CALLS22
+( cd "$g22" && git init -q -b main . && git remote add origin https://github.com/IsaiaScope/scratch.git \
+  && git commit -q --allow-empty -m x )
+rc=$( cd "$g22" && MULTICA_STATE_DIR="$S22" PATH="$BIN22:$PATH" bash -c '. "'"$SH"'"; set_status FIRE-19 done; echo $?' )
+check "a status that did not stick reports failure" "$rc" "1"
+grep -q 'FIRE-19' "$S22/log" && ok "the refused transition is logged" || bad "a silent failed transition"
+
+# Outside a repo the script still exits 0, but no longer vanishes without trace.
+out=$( cd / && MULTICA_STATE_DIR="$S22" PATH="$BIN22:/usr/bin:/bin" bash "$SH" ticket-for-branch >/dev/null 2>&1; echo $? )
+check "outside a repo still exits 0" "$out" "0"
+grep -q 'not a git repo' "$S22/log" && ok "a non-repo invocation is logged" || bad "non-repo invocation is invisible"
+rm -rf "$S22" "$BIN22" "$g22"
 echo "exit contract"
 PATH=/usr/bin:/bin bash "$SH" end </dev/null >/dev/null 2>&1
 check "end with no multica/gh on PATH exits 0" "$?" "0"
@@ -501,7 +847,7 @@ awk '/^=== desc FIRE-50 ===$/{p=1;next} /^=== /{p=0} p' "$STUB_DESC" | grep -qF 
 awk '/^=== comment FIRE-50 ===$/{p=1;next} /^=== /{p=0} p' "$STUB_DESC" | grep -qF -- "$P_OLD" \
   && ok "a comment records which plan was superseded" || bad "supersession not recorded"
 check "the ledger row now points at the new plan" \
-  "$(jq -r '."FIRE-50".plan' "$S12/tracked.json")" "$P_NEW"
+  "$(jq -r '."FIRE-50".plan | map(select(.state=="current")) | .[0].path' "$S12/tracked.json")" "$P_NEW"
 # --no-start on the description write too: a board write must never enqueue a run.
 grep -q 'issue update FIRE-50 --description-stdin --no-start' "$STUB_CALLS" \
   && ok "the description write carries --no-start" || bad "description write could start an agent"
@@ -575,7 +921,7 @@ grep -q -- '--parent' "$STUB_CALLS" && bad "open sent a --parent" || ok "no --pa
 check "each scope labelled on the one ticket" "$(grep -c 'issue label add FIRE-1 label-id' "$STUB_CALLS")" "2"
 
 check "plan path recorded in the ledger row" \
-  "$(jq -r '."FIRE-1".plan' "$S10/tracked.json")" "$P10"
+  "$(jq -r '."FIRE-1".plan | map(select(.state=="current")) | .[0].path' "$S10/tracked.json")" "$P10"
 
 grep -q 'stayed invisible' "$STUB_DESC" \
   && ok "multi-sentence prose reaches the ticket whole" || bad "prose truncated"
@@ -702,7 +1048,7 @@ check "fixture ticket opened on the base branch" \
 check "resolves by plan path" "$(jq -r '.["FIRE-9"].branch' "$S13/tracked.json")" "feat/rb"
 grep -q -- 'issue property set FIRE-9 --name Branch --value feat/rb' "$STUB_CALLS" \
   && ok "board follows the ledger" || bad "Branch property not rewritten"
-check "the plan key survives the move" "$(jq -r '.["FIRE-9"].plan' "$S13/tracked.json")" "$P13"
+check "the plan key survives the move" "$(jq -r '.["FIRE-9"].plan | map(select(.state=="current")) | .[0].path' "$S13/tracked.json")" "$P13"
 check "other row fields survive" "$(jq -r '.["FIRE-9"].opened_by' "$S13/tracked.json")" "claude"
 
 # iso-push holds a branch and never a plan path, so the old branch must resolve.

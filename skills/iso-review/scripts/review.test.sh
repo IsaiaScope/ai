@@ -228,8 +228,8 @@ echo "gate"
 r=$(work_repo feat/g1)
 printf 'edit\n' >> "$r/w.txt"
 out=$( cd "$r" && bash "$SH" gate architecture )
-check "unset gate still passes"   "$(printf '%s' "$out" | grep -c '^phase=architecture result=pass')" "1"
-check "and says it did not check" "$(printf '%s' "$out" | grep -c 'no gate configured')" "1"
+check "unset gate still runs"     "$(printf '%s' "$out" | grep -c '^phase=architecture result=unchecked')" "1"
+check "and says it did not check" "$(printf '%s' "$out" | grep -c 'nothing verified it')" "1"
 
 gated() {  # a repo whose test.command is <cmd>
   local d; d=$(work_repo "$1"); shift
@@ -240,10 +240,22 @@ gated() {  # a repo whose test.command is <cmd>
 }
 
 r=$(gated feat/g2 true)
+# Snapshot BEFORE the edits, which is the order a run uses. Taking it after was
+# harmless only while `files=` was measured from the index instead.
+snap=$( cd "$r" && bash "$SH" snapshot )
 printf 'edit\n' >> "$r/w.txt"; printf 'made\n' > "$r/made.txt"
-out=$( cd "$r" && bash "$SH" gate simplify "$( cd "$r" && bash "$SH" snapshot )" )
-check "a green gate passes"        "$(printf '%s' "$out" | grep -c '^phase=simplify result=pass')" "1"
+out=$( cd "$r" && bash "$SH" gate simplify "$snap" )
+check "a green gate passes"        "$(printf '%s' "$out" | grep -c '^phase=simplify result=verified')" "1"
 check "and counts both files"      "$(printf '%s' "$out" | sed -n 's/.*files=\([0-9]*\).*/\1/p')" "2"
+
+# files= is THIS phase's delta, not the run's. Measured from the index it was
+# cumulative, so a later phase reported its predecessor's files as its own -
+# which is what made `architecture files=1` then `simplify files=7` unreadable.
+snap2=$( cd "$r" && bash "$SH" snapshot )
+printf 'second\n' >> "$r/w.txt"
+out=$( cd "$r" && bash "$SH" gate review "$snap2" )
+check "the next phase counts only its own" \
+  "$(printf '%s' "$out" | sed -n 's/.*files=\([0-9]*\).*/\1/p')" "1"
 check "the edit survives"          "$(grep -c edit "$r/w.txt")" "1"
 check "the created file survives"  "$([ -f "$r/made.txt" ] && echo yes || echo no)" "yes"
 
@@ -251,7 +263,7 @@ r=$(gated feat/g3 false)
 snap=$( cd "$r" && bash "$SH" snapshot )
 printf 'edit\n' >> "$r/w.txt"; printf 'made\n' > "$r/made.txt"
 out=$( cd "$r" && bash "$SH" gate review "$snap" ); rc=$?
-check "a red gate reverts"        "$(printf '%s' "$out" | grep -c '^phase=review result=revert files=0')" "1"
+check "a red gate reverts"        "$(printf '%s' "$out" | grep -c '^phase=review result=reverted files=0')" "1"
 check "and exits 0 anyway"        "$rc" "0"
 check "the edit is undone"        "$(grep -c edit "$r/w.txt")" "0"
 check "the created file is gone"  "$([ -f "$r/made.txt" ] && echo yes || echo no)" "no"
@@ -285,7 +297,7 @@ check "the red phase's file does not"    "$([ -f "$r/second.txt" ] && echo yes |
 r=$(gated feat/g5 false)
 printf 'edit\n' >> "$r/w.txt"; printf 'made\n' > "$r/made.txt"
 out=$( cd "$r" && bash "$SH" gate review )
-check "a snapshotless red gate reverts" "$(printf '%s' "$out" | grep -c 'result=revert')" "1"
+check "a snapshotless red gate reverts" "$(printf '%s' "$out" | grep -c 'result=reverted')" "1"
 check "the edit is undone"              "$(grep -c edit "$r/w.txt")" "0"
 check "the created file is gone, not emptied" \
   "$([ -e "$r/made.txt" ] && echo present || echo gone)" "gone"
@@ -306,8 +318,11 @@ subrepo() {  # a gated repo with a committed subdirectory
 }
 
 r=$(subrepo feat/g6 true)
+# Snapshot before the edits: same order a run uses, and the only order that
+# makes `files=` mean this phase.
+snap=$( cd "$r" && bash "$SH" snapshot )
 printf 'above\n' >> "$r/w.txt"; printf 'below\n' >> "$r/sub/s.txt"
-out=$( cd "$r/sub" && bash "$SH" gate simplify "$( cd "$r" && bash "$SH" snapshot )" )
+out=$( cd "$r/sub" && bash "$SH" gate simplify "$snap" )
 check "counts the whole tree from a subdirectory" \
   "$(printf '%s' "$out" | sed -n 's/.*files=\([0-9]*\).*/\1/p')" "2"
 
@@ -347,8 +362,18 @@ check "and cleans above it" \
 
 echo "report"
 r=$(work_repo feat/rep)
-out=$( printf 'phase=architecture result=pass files=1\n' | ( cd "$r" && bash "$SH" report ) )
+out=$( printf '## architecture\n- folded the two config readers into one\nphase=architecture result=verified files=1\n' \
+       | ( cd "$r" && bash "$SH" report ) )
 check "echoes what it was given" "$(printf '%s' "$out" | grep -c '^phase=architecture')" "1"
+check "and the findings with it"  "$(printf '%s' "$out" | grep -c 'config readers')" "1"
+
+# A summary of only machine lines is a receipt, not a report. It still reaches
+# the terminal -- the phases already spent their tokens and the text must not be
+# lost -- but it is refused before it can reach the board.
+rc=0
+out=$( printf 'phase=x result=verified files=1\n' | ( cd "$r" && bash "$SH" report ) 2>&1 ) || rc=$?
+check "a machine-only summary is refused" "$rc" "1"
+check "but still reaches the terminal"    "$(printf '%s' "$out" | grep -c '^phase=x')" "1"
 
 TB=$(mktemp -d)
 mk_tracker() { printf '%s' "$1" > "$TB/tracking.sh"; chmod +x "$TB/tracking.sh"; : > "$TB/track"; : > "$TB/body"; }
@@ -356,7 +381,7 @@ mk_tracker() { printf '%s' "$1" > "$TB/tracking.sh"; chmod +x "$TB/tracking.sh";
 mk_tracker '#!/usr/bin/env bash
 echo "$@" >> '"$TB"'/track
 cat > /dev/null'
-printf 'phase=x result=pass files=0\n' | ( cd "$r" && ISO_TRACKING_SH="$TB/tracking.sh" bash "$SH" report ) >/dev/null 2>&1
+printf '## x\n- nothing to change\nphase=x result=verified files=0\n' | ( cd "$r" && ISO_TRACKING_SH="$TB/tracking.sh" bash "$SH" report ) >/dev/null 2>&1
 check "no ticket means no comment" "$(grep -c '^comment' "$TB/track")" "0"
 
 # With a ticket, the same text that reached the terminal reaches the board.
@@ -366,7 +391,7 @@ case "$1" in
   ticket-for-branch) printf "FIRE-9\ttodo\n" ;;
   comment) cat >> '"$TB"'/body ;;
 esac'
-printf 'phase=x result=pass files=0\nphase=y result=revert files=0\n' \
+printf '## x\n- nothing to change\nphase=x result=verified files=0\nphase=y result=reverted files=0\n' \
   | ( cd "$r" && ISO_TRACKING_SH="$TB/tracking.sh" bash "$SH" report ) >/dev/null 2>&1
 check "a ticket gets one comment"   "$(grep -c '^comment FIRE-9' "$TB/track")" "1"
 check "and the body is the summary" "$(grep -c '^phase=' "$TB/body")" "2"
@@ -383,7 +408,7 @@ check "the body is capped" "$(wc -c < "$TB/body" | tr -d ' ')" "101"
 # happened, and the working tree is the deliverable.
 mk_tracker '#!/usr/bin/env bash
 exit 3'
-printf 'phase=x result=pass files=0\n' \
+printf '## x\n- a finding\nphase=x result=verified files=0\n' \
   | ( cd "$r" && ISO_TRACKING_SH="$TB/tracking.sh" bash "$SH" report ) >/dev/null 2>&1
 check "a broken tracker does not fail the report" "$?" "0"
 rm -rf "$TB"

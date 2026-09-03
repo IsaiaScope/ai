@@ -9,10 +9,13 @@ ok()  { pass=$((pass+1)); printf '  ok   %s\n' "$1"; }
 bad() { fail=$((fail+1)); printf '  FAIL %s\n' "$1"; }
 check() { [ "$2" = "$3" ] && ok "$1" || { bad "$1"; printf '       want=%q got=%q\n' "$3" "$2"; }; }
 
-VERBS='tk_current_user tk_project_list tk_project_create
-tk_issue_create tk_issue_get_status tk_issue_status tk_issue_describe
-tk_issue_comment tk_issue_label tk_issue_property
-tk_label_list tk_label_create tk_property_list tk_property_create'
+# Derived from the caller, never listed here. A written-out list is a second
+# copy of the interface: `tk_issue_title` was added to the multica adapter and
+# called twice from tracking.sh while the list, and none.sh, never heard of it -
+# so `tracker: none` hit a command-not-found on two live paths and this test
+# reported a full pass. The callers ARE the interface, so ask them.
+VERBS=$(grep -oE '\btk_[a-z_]+' "$DIR/../tracking.sh" 2>/dev/null | sort -u)
+[ -n "$VERBS" ] || { printf 'contract: found no tk_* calls in tracking.sh -- broken sweep, not a pass\n' >&2; exit 1; }
 
 for a in "$DIR"/*.sh; do
   case "$a" in *contract.test.sh) continue;; esac

@@ -37,7 +37,15 @@ SCOPES="fe be db data ai api auth ci gh vps security doc test perf"
 PRIORITIES="urgent high medium low none"
 LOG="$STATE/log"
 
-state_dir() { mkdir -p "$STATE" 2>/dev/null; [ -f "$LEDGER" ] || echo '{}' > "$LEDGER" 2>/dev/null; }
+# Idempotent by nature, so the second call onwards is pure fork. 24 call sites
+# reach it, and a single `open` run used to pay for `mkdir -p` a dozen times.
+_STATE_READY=0
+state_dir() {
+  [ "$_STATE_READY" = 1 ] && return 0
+  mkdir -p "$STATE" 2>/dev/null
+  [ -f "$LEDGER" ] || echo '{}' > "$LEDGER" 2>/dev/null
+  _STATE_READY=1
+}
 logf() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$LOG" 2>/dev/null; }
 
 # The board behind the tk_* verbs. An unknown kind falls back to `none`
@@ -98,6 +106,42 @@ ledger_del() {
     && mv "$tmp" "$LEDGER" || rm -f "$tmp"
 }
 
+# `plan` is an array of {path,state,body}: one branch carries many plans, and a
+# ticket that can only name its newest one has to destroy the others to stay
+# accurate. Rows written before this change hold a bare string, so coerce on
+# read - two live rows is fewer than a migration script is worth.
+# state is exactly one of: done | current | superseded.
+plan_entries() {
+  state_dir
+  local out
+  # jq on empty input prints nothing and still exits 0, so a `|| echo []`
+  # fallback never fires for a row that does not exist. Check the value, not
+  # the exit status: an empty string reaching --argjson kills the write.
+  out=$(ledger_get "$1" | jq -c '
+    (.plan // null) as $p
+    | if   ($p | type) == "array"  then $p
+      elif ($p | type) == "string" then
+        (if $p == "" then [] else [{path:$p, state:"current", body:""}] end)
+      else [] end' 2>/dev/null)
+  [ -n "$out" ] || out='[]'
+  printf '%s' "$out"
+}
+# so a repeated call is idempotent instead of growing the row.
+plan_push() {
+  local key="$1" path="$2" outgoing="$3" body="${4:-}" row entries
+  row=$(ledger_get "$key"); [ -n "$row" ] || return 1
+  entries=$(plan_entries "$key" | jq -c \
+    --arg p "$path" --arg o "$outgoing" --arg b "$body" '
+      map(if .state == "current" then .state = $o else . end)
+      | map(select(.path != $p))
+      + [{path:$p, state:"current", body:$b}]' 2>/dev/null) || return 1
+  ledger_put "$key" "$(printf '%s' "$row" | jq -c --argjson e "$entries" '.plan = $e' 2>/dev/null)"
+}
+
+plan_current() {
+  plan_entries "$1" | jq -r 'map(select(.state=="current")) | .[0].path // empty' 2>/dev/null
+}
+
 # Reverse lookup: identifier -> ticket key. Named for what it takes rather than
 # for one of the two things it takes — half the call sites hand it a branch
 # (/iso-push and /iso-commit hold no plan path), so `ticket_for_plan "$br"` read
@@ -116,18 +160,55 @@ ledger_del() {
 # it. Rows written before .repo existed carry none and stay visible everywhere -
 # stranding them is worse than the collision they risk.
 ticket_for() {
-  local plan="${1:-}" base key
+  local plan="${1:-}" base keys key elsewhere
   [ -n "$plan" ] || return 1
   base=${plan##*/}
   state_dir
-  key=$(jq -r --arg b "$base" --arg a "$plan" --arg r "$(project_for "$PWD")" \
-    'to_entries[]
-       | select(((.value.repo // "") == "") or ((.value.repo // "") == $r))
-       | select((((.value.plan // "") | split("/") | last) == $b)
-                or ((.value.branch // "") == $a))
-       | .key' \
-    "$LEDGER" 2>/dev/null | head -1)
-  [ -n "$key" ] || return 1
+  # Every path in the plan array, not only the newest: a session resumed on an
+  # older plan must find the same ticket, and a lookup that comes back empty is
+  # exactly what mints a duplicate.
+  keys=$(jq -r --arg b "$base" --arg a "$plan" --arg r "$(project_for "$PWD")" '
+    to_entries[]
+    | select(((.value.repo // "") == "") or ((.value.repo // "") == $r))
+    | . as $e
+    | ( ($e.value.plan // []) as $p
+        | if   ($p | type) == "array"  then ($p | map(.path // ""))
+          elif ($p | type) == "string" then [$p]
+          else [] end ) as $paths
+    | select( (($paths | map(split("/") | last) | index($b)) != null)
+              or (($e.value.branch // "") == $a) )
+    | $e.key' "$LEDGER" 2>/dev/null)
+  # A row that matched on identifier but lost on repo scope is not the same as
+  # no row at all: the first means "you are in the wrong checkout", the second
+  # means "this is new work". Silence made them identical, and only one of them
+  # should lead to a new ticket.
+  if [ -z "$keys" ]; then
+    elsewhere=$(jq -r --arg b "$base" --arg a "$plan" '
+      to_entries[]
+      | . as $e
+      | ( ($e.value.plan // []) as $p
+          | if   ($p | type) == "array"  then ($p | map(.path // ""))
+            elif ($p | type) == "string" then [$p]
+            else [] end ) as $paths
+      | select( (($paths | map(split("/") | last) | index($b)) != null)
+                or (($e.value.branch // "") == $a) )
+      | "\($e.key) in \($e.value.repo // "?")"' "$LEDGER" 2>/dev/null | head -3)
+    if [ -n "$elsewhere" ]; then
+      logf "ticket_for: $plan matches only rows in another repo: $(printf '%s' "$elsewhere" | tr '\n' ';')"
+      printf 'tracking: %s is tracked in another checkout (%s) -- not visible from %s\n' \
+        "$plan" "$(printf '%s' "$elsewhere" | tr '\n' ';')" "$(project_for "$PWD")" >&2
+    fi
+    return 1
+  fi
+  key=$(printf '%s\n' "$keys" | head -1)
+  # More than one row for one identifier is the bug this design exists to stop.
+  # One key is still returned, because every caller wants one - but silence here
+  # is how FIRE-21 stayed invisible for a day.
+  if [ "$(printf '%s\n' "$keys" | grep -c .)" -gt 1 ]; then
+    logf "ticket_for: $plan matches several rows: $(printf '%s' "$keys" | tr '\n' ' ')-- using $key"
+    printf 'tracking: %s matches several tickets (%s) -- using %s\n' \
+      "$plan" "$(printf '%s' "$keys" | tr '\n' ' ')" "$key" >&2
+  fi
   echo "$key"
   return 0
 }
@@ -167,7 +248,19 @@ comment_bg() {
 # and its reason sit on that one line, in whichever adapter is loaded. Naming
 # the adapter here would put a vendor name in this file, which contract.test.sh
 # forbids — and rightly, since the point is that this layer does not know one.
-set_status() { tk_issue_status "$1" "$2"; }
+set_status() {
+  local key="$1" want="$2" got
+  tk_issue_status "$key" "$want" || { logf "status write refused: $key -> $want"; return 1; }
+  # Read it back. FIRE-19 was logged "-> done" and dropped from the ledger while
+  # the board stayed in_review: the write returned success, the transition never
+  # happened, and nothing would ever move that row again.
+  got=$(tk_issue_get_status "$key")
+  [ -z "$got" ] && return 0          # cannot verify; do not invent a failure
+  [ "$got" = "$want" ] && return 0
+  logf "status did not stick: $key wanted $want, board says $got"
+  printf 'tracking: %s did not move to %s (board says %s)\n' "$key" "$want" "$got" >&2
+  return 1
+}
 
 current_user_name() { tk_current_user; }
 
@@ -247,15 +340,33 @@ label_id_for() {
 # Shared by the bind arm and by open. A function, not a re-exec: open would
 # otherwise depend on the script being +x, which packaging can get wrong.
 do_bind() {
-  local sid="$1" key="$2" who="${3:-iso}" plan="${4:-}" promote="${5:-1}" br proj st
+  local sid="$1" key="$2" who="${3:-iso}" plan="${4:-}" promote="${5:-1}" br proj st row entries
   [ -n "$sid" ] && [ -n "$key" ] || { logf "bind needs <session_id> <key>"; return 1; }
-  br=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  br=$(iso_current_branch)
   proj=$(project_for "$PWD")
   printf '{"issue":"%s"}' "$key" > "$(session_file "$sid")" 2>/dev/null
-  # plan is what review/blocked/progress resolve a ticket by; it is the only
-  # identifier /iso-write holds at its own boundaries.
-  ledger_put "$key" "$(jq -nc --arg r "$proj" --arg b "$br" --arg p "$proj" --arg o "$who" \
-    --arg pl "$plan" '{repo:$r,branch:$b,project:$p,opened_by:$o,plan:$pl}')"
+  # Merge into the row, never replace it. The ledger row is an open object -
+  # other arms and future ones write fields do_bind knows nothing about, and a
+  # wholesale rewrite dropped them silently.
+  row=$(ledger_get "$key"); [ -n "$row" ] || row='{}'
+  entries=$(plan_entries "$key")
+  # bind means "this is the plan being worked now", so the given plan must end up
+  # current. addplan and replan have already settled the outgoing entry with
+  # their own state by the time they call this, so it is a no-op for them; a bare
+  # `bind` gets addplan's reading, and `replan` is the explicit way to say the
+  # previous plan was wrong instead.
+  if [ -n "$plan" ]; then
+    entries=$(printf '%s' "$entries" | jq -c --arg p "$plan" '
+      if ((map(select(.state == "current")) | .[0].path // "") == $p) then .
+      else ( map(if .state == "current" then .state = "done" else . end)
+             | map(select(.path != $p))
+             + [{path:$p, state:"current", body:""}] )
+      end' 2>/dev/null)
+    [ -n "$entries" ] || entries=$(jq -nc --arg p "$plan" '[{path:$p, state:"current", body:""}]')
+  fi
+  ledger_put "$key" "$(printf '%s' "$row" | jq -c \
+    --arg r "$proj" --arg b "$br" --arg o "$who" --argjson e "$entries" \
+    '. + {repo:$r, branch:$b, project:$r, opened_by:$o, plan:$e}' 2>/dev/null)"
   # Branch on the ticket, not only in the local ledger: the board should stay
   # readable without the local ledger, and from another machine.
   if [ -n "$br" ]; then
@@ -274,6 +385,55 @@ do_bind() {
     esac
   fi
   return 0
+}
+
+# Section heading from a plan filename. Derived, never passed in: one more flag
+# on addplan is one more thing a caller gets wrong, and the filename already
+# carries the name someone chose for this plan.
+plan_label() {
+  local base="${1##*/}"
+  base="${base%.md}"
+  base=$(printf '%s' "$base" \
+    | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//; s/^(feat|fix|chore|refactor|docs?|test|perf|style|build)-//')
+  printf '%s' "${base//-/ }"
+}
+
+# The whole ticket description, rendered from the plan array. Pure: no board
+# read, no remote state, so the same entries always produce the same bytes and a
+# damaged description is repaired by rendering it again. This is what makes a
+# multi-plan body safe - the alternative, read-modify-write against the board,
+# is what deleted the first plan on FIRE-20.
+# Markers are single codepoints on purpose: the variation-selector form of the
+# triangle is a format character, and it does not survive every pipe it passes
+# through on the way to the board.
+# $1 session id, $2 agent kind, $3 intro prose (may be empty), $4 entries JSON.
+render_body() {
+  local sid="$1" agent="$2" intro="$3" entries="${4:-[]}"
+  local out="" path state body label marker cur=""
+  [ -n "$intro" ] && out="$intro"
+  # The body travels in the same row, base64'd. Re-querying `$entries` per row
+  # for a field the first query was already holding cost one jq fork per plan;
+  # base64 because a body carries newlines and tabs, which @tsv cannot.
+  while IFS=$'\t' read -r path state b64; do
+    [ -n "$path" ] || continue
+    case "$state" in
+      done)       marker="✅" ;;
+      superseded) marker="⊘"  ;;
+      *)          marker="▶"  ; cur="$path" ;;
+    esac
+    label=$(plan_label "$path")
+    body=$(printf '%s' "$b64" | base64 -d 2>/dev/null)
+    if [ -n "$out" ]; then
+      out=$(printf '%s\n\n## %s %s\n\n`%s` - %s' "$out" "$marker" "$label" "$path" "$state")
+    else
+      out=$(printf '## %s %s\n\n`%s` - %s' "$marker" "$label" "$path" "$state")
+    fi
+    [ -n "$body" ] && out=$(printf '%s\n\n%s' "$out" "$body")
+  done <<< "$(printf '%s' "$entries" \
+    | jq -r '.[]? | [.path, .state, ((.body // "") | @base64)] | @tsv' 2>/dev/null)"
+  # Footer once, at the end - not once per section. Only the current plan gets a
+  # runnable command; a `/iso-write` on a shipped or abandoned plan is a trap.
+  printf '%s' "$out" | ticket_body "$sid" "$agent" "$cur"
 }
 
 # The ticket body a caller pipes in, plus the two resume blocks. Shared by `open`
@@ -313,7 +473,7 @@ ticket_body() {
 # not a second attempt at the old one.
 ticket_for_branch() {
   local br key st
-  br=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || return 1
+  br=$(iso_current_branch)
   [ -n "$br" ] || return 1
   key=$(ticket_for "$br") || return 1
   st=$(tk_issue_get_status "$key")
@@ -330,7 +490,14 @@ ticket_for_branch() {
 # repo there is no project to file against and no branch to reconcile, and a
 # project minted for ~/Downloads is noise nobody asked for. Placed after the
 # sourced-guard: the self-check sources this file and must not be gated.
-git rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
+# Installed globally, so it runs in every directory the agent opens. Outside a
+# repo there is nothing to file against - but exiting without a word made a
+# lookup run from the wrong directory indistinguishable from one that found
+# nothing, which is one way a duplicate ticket gets minted.
+if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
+  logf "not a git repo ($PWD), skipping ${1:-<none>}"
+  exit 0
+fi
 
 case "${1:-}" in
 
@@ -415,6 +582,65 @@ case "${1:-}" in
     ledger_get "$key" | jq -r '.branch // empty' 2>/dev/null
     ;;
 
+  # A further plan on a branch that already has one. The previous plan shipped -
+  # that is the whole difference from `replan`, where it was wrong. Both keep
+  # every plan visible; only the state on the outgoing entry differs.
+  # stdin: this plan's section body.
+  addplan)
+    state_dir
+    sid="${2:-}"; plan=""; key=""; agent=claude; title=""; intro=""
+    shift 2 2>/dev/null || shift $#
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --plan)  plan="${2:-}";  shift 2 ;;
+        --key)   key="${2:-}";   shift 2 ;;
+        --agent) agent="${2:-}"; shift 2 ;;
+        --title) title="${2:-}"; shift 2 ;;
+        --intro) intro="${2:-}"; shift 2 ;;
+        *) logf "addplan: ignoring unknown arg $1"; shift ;;
+      esac
+    done
+    if [ -z "$sid" ] || [ -z "$plan" ]; then
+      logf "addplan needs <session_id> --plan <path>"; exit 0
+    fi
+    if [ -z "$key" ]; then
+      key=$(ticket_for_branch | cut -f1)
+      if [ -z "$key" ]; then
+        logf "addplan: no live ticket for this branch -- open one instead"
+        printf 'tracking: no live ticket for this branch -- nothing to add to\n' >&2
+        exit 0
+      fi
+    fi
+    body=""
+    [ -t 0 ] || body=$(cat 2>/dev/null | redact | head -c 8000 || true)
+    was=$(plan_current "$key")
+    plan_push "$key" "$plan" done "$body" \
+      || { logf "addplan: no ledger row for $key"; exit 0; }
+    desc=$(render_body "$sid" "$agent" "$intro" "$(plan_entries "$key")")
+    if [ -n "$desc" ]; then
+      printf '%s' "$desc" | tk_issue_describe "$key" \
+        || logf "addplan: description update failed on $key"
+    fi
+    if [ -n "$title" ]; then
+      safe=$(printf '%s' "$title" | redact | head -c 200)
+      tk_issue_title "$key" "$safe" \
+        && logf "$key retitled: $safe" \
+        || logf "retitle failed on $key"
+    fi
+    printf 'Plan added - `%s` continues from `%s`, which is done. The description above carries both.\n' \
+      "$plan" "${was:-<none>}" | redact | tk_issue_comment "$key" \
+      || logf "addplan: comment failed on $key"
+    st=$(tk_issue_get_status "$key")
+    case "$st" in
+      todo|backlog|in_review|blocked)
+        set_status "$key" in_progress \
+          && logf "$key -> in_progress (addplan, ${plan##*/}, was ${was:-<none>}, from $st)" ;;
+      *) logf "$key addplan ${plan##*/} (was ${was:-<none>}, status $st unchanged)" ;;
+    esac
+    do_bind "$sid" "$key" claude "$plan" 0
+    echo "$key"
+    ;;
+
   # A second plan for work already ticketed. The first attempt was wrong, or it
   # came back from review needing a different approach - that is the same piece
   # of work, so it is the same ticket. A second ticket would split one story across
@@ -423,13 +649,15 @@ case "${1:-}" in
   # stdin: the new ticket body, same shape as `open`.
   replan)
     state_dir
-    sid="${2:-}"; plan=""; key=""; agent=claude
+    sid="${2:-}"; plan=""; key=""; agent=claude; intro=""; title=""
     shift 2 2>/dev/null || shift $#
     while [ $# -gt 0 ]; do
       case "$1" in
         --plan)  plan="${2:-}"; shift 2 ;;
         --key)   key="${2:-}";  shift 2 ;;
         --agent) agent="${2:-}"; shift 2 ;;
+        --intro) intro="${2:-}"; shift 2 ;;
+        --title) title="${2:-}"; shift 2 ;;
         *) logf "replan: ignoring unknown arg $1"; shift ;;
       esac
     done
@@ -453,19 +681,30 @@ case "${1:-}" in
         printf 'tracking: %s is %s, not replanning it\n' "$key" "$st" >&2
         exit 0 ;;
     esac
-    was=$(jq -r --arg k "$key" '.[$k].plan // ""' "$LEDGER" 2>/dev/null)
-    # Description replaced, not appended: the ticket must describe the plan being
-    # worked now. The switch itself goes in a comment, which is where this
-    # ticket's history already lives.
-    desc=$(ticket_body "$sid" "$agent" "$plan")
+    body=""
+    [ -t 0 ] || body=$(cat 2>/dev/null | redact | head -c 8000 || true)
+    was=$(plan_current "$key")
+    # Superseded, not deleted. The old arm replaced the whole description with
+    # the new plan, so the abandoned one survived only as a filename in a
+    # comment - which is how FIRE-20 lost its first plan.
+    plan_push "$key" "$plan" superseded "$body" \
+      || { logf "replan: no ledger row for $key"; exit 0; }
+    desc=$(render_body "$sid" "$agent" "$intro" "$(plan_entries "$key")")
     if [ -n "$desc" ]; then
       printf '%s' "$desc" | tk_issue_describe "$key" \
         || logf "replan: description update failed on $key"
     fi
-    printf '🔁 **Replanned** from `%s` — superseded by `%s`. Back to `todo`; the description above is the plan now being worked.\n' \
+    if [ -n "$title" ]; then
+      safe=$(printf '%s' "$title" | redact | head -c 200)
+      tk_issue_title "$key" "$safe" \
+        && logf "$key retitled: $safe" \
+        || logf "retitle failed on $key"
+    fi
+    printf 'Replanned from `%s` - superseded by `%s`. Back to `todo`; both remain in the description above.\n' \
       "${was:-<none>}" "$plan" | redact | tk_issue_comment "$key" \
       || logf "replan: comment failed on $key"
-    set_status "$key" todo && logf "$key -> todo (replan, ${plan##*/}, was ${was:-<none>}, from $st)"
+    set_status "$key" todo \
+      && logf "$key -> todo (replan, ${plan##*/}, was ${was:-<none>}, from $st)"
     do_bind "$sid" "$key" claude "$plan" 0
     echo "$key"
     ;;
@@ -482,7 +721,7 @@ case "${1:-}" in
 
   open)
     state_dir
-    sid="${2:-}"; title="${3:-}"; scope=""; priority=""; agent=claude; plan=""
+    sid="${2:-}"; title="${3:-}"; scope=""; priority=""; agent=claude; plan=""; intro=""
     shift 3 2>/dev/null || shift $#
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -490,10 +729,44 @@ case "${1:-}" in
         --plan)   plan="${2:-}"; shift 2 ;;
         --priority) priority="${2:-}"; shift 2 ;;
         --agent)    agent="${2:-}"; shift 2 ;;
+        --intro)    intro="${2:-}"; shift 2 ;;
         *) logf "open: ignoring unknown arg $1"; shift ;;
       esac
     done
     if [ -z "$sid" ] || [ -z "$title" ]; then logf "open needs <session_id> <title>"; exit 0; fi
+    # One branch, one ticket. The rule used to live in a SKILL.md, which held
+    # exactly as long as the caller read the right document - and on 2026-08-28
+    # one did not, producing a second row on a branch that already had one.
+    # Redirect rather than refuse: a refusal hands the decision back to whoever
+    # already skipped one, and a caller that cannot create a ticket may cut a
+    # new branch instead. There is deliberately no --force-new.
+    # Base branches are exempt. `dev` accumulates unrelated tickets by design -
+    # /iso-plan opens on it and /iso-write rebranches afterwards - so a gate that
+    # fired there would fold every plan written back-to-back into one ticket.
+    # The invariant this enforces is about feature branches, which is where a
+    # duplicate actually splits one story in two.
+    cur_br=$(iso_current_branch)
+    held=""
+    if iso_is_protected "$cur_br"; then
+      logf "open: $cur_br is a base branch, no branch gate applied"
+    else
+      held=$(ticket_for_branch | cut -f1)
+    fi
+    if [ -n "$held" ]; then
+      # The title is deliberately NOT forwarded. It was written for a ticket
+      # that is not going to exist, and applying it would rename the existing
+      # ticket to describe only its newest plan - the drift this design removes.
+      # Broadening a title is an explicit `addplan --title`, never a side effect.
+      logf "open: redirect to addplan on $held (branch already tracked; title not applied: $title)"
+      printf 'tracking: this branch is already tracked by %s -- adding the plan there (title left alone)\n' "$held" >&2
+      # An args array, not word-splitting: an intro contains spaces and
+      # ${intro:+--intro "$intro"} would shatter it into separate arguments.
+      redirect=(addplan "$sid" --key "$held" --plan "$plan" --agent "$agent")
+      [ -n "$intro" ] && redirect+=(--intro "$intro")
+      # exec, so stdin is inherited unread and the piped body reaches addplan
+      # intact. Nothing above this point may consume stdin.
+      exec "$0" "${redirect[@]}"
+    fi
     [ -z "$priority" ] && priority="medium"
     if ! printf '%s' " $PRIORITIES " | grep -q " $priority "; then
       logf "open: unknown priority '$priority', using medium (valid: $PRIORITIES)"
@@ -516,6 +789,14 @@ case "${1:-}" in
 
     # Description arrives on stdin: multi-line, no arg-quoting, and it still
     # goes through redact because it is the same trust boundary as a comment.
+    #
+    # --intro is a forwarding hook for the redirect above, not a second way to
+    # write this body: `open` has no plan sections to sit above, so there is
+    # nothing for an intro to introduce. Logged rather than dropped in silence,
+    # because the same command line keeps the prose when the branch already
+    # holds a ticket -- so a caller who reaches this arm has lost bytes it saw
+    # survive the last time, and the log is the only place that can say so.
+    [ -n "$intro" ] && logf "open: --intro ignored on a fresh ticket, put the prose on stdin"
     desc=$(ticket_body "$sid" "$agent" "$plan")
 
     # --status todo, not in_progress: do_bind does the promotion, and that is
@@ -525,6 +806,7 @@ case "${1:-}" in
     who=$(current_user_name)
     key=$(printf '%s' "$desc" | tk_issue_create "$pid" todo "$safe" "$priority" "$who")
     if [ -z "$key" ]; then logf "open failed for: $safe"; exit 0; fi
+    logf "open $key: $safe (project $proj, branch $(iso_current_branch), plan ${plan:-<none>})"
 
     # Scope label, best-effort: a missing label is cosmetic, not a reason to
     # leave the row unbound. The repo is already the project, so labelling by
@@ -564,7 +846,7 @@ case "${1:-}" in
     # merging, so ancestry alone cannot tell a rebase-merged branch from an
     # abandoned one. Without gh, cancellation is skipped for the whole run.
     prs=$(cd "$repo_dir" && gh pr list --state all --limit 200 \
-            --json headRefName,state,number,url 2>/dev/null)
+            --json headRefName,state 2>/dev/null)
     gh_ok=0; [ -n "$prs" ] && gh_ok=1
     [ "$gh_ok" -eq 0 ] && logf "reconcile: gh unavailable - no cancellation this run"
 
@@ -573,12 +855,17 @@ case "${1:-}" in
     # times - which put ~7 jq processes per open ticket on every session start.
     # Now the loop forks nothing to read a field.
     pr_map=$(printf '%s' "$prs" | jq -r \
-      '.[]? | [.headRefName, .state, .url] | @tsv' 2>/dev/null)
+      '.[]? | [.headRefName, .state] | @tsv' 2>/dev/null)
     rows=$(jq -r 'to_entries[]
       | [.key, (.value.branch // ""), (.value.opened_by // "iso"),
-         (.value.repo // ""), (.value.pr // "")] | @tsv' "$LEDGER" 2>/dev/null)
+         (.value.repo // "")] | @tsv' "$LEDGER" 2>/dev/null)
 
-    while IFS=$'\t' read -r key br who rrepo pr_recorded; do
+    # Loop-invariant: the integration tip does not move while the loop runs, and
+    # resolving it per row cost one git fork per open ticket on every session
+    # start. Same standard the pr_map/rows comment above sets for jq.
+    ib_sha=$(git -C "$repo_dir" rev-parse "$ib" 2>/dev/null)
+
+    while IFS=$'\t' read -r key br who rrepo; do
       [ -n "$key" ] || continue
       { [ -z "$br" ] || [ "$br" = "$ib" ]; } && continue
 
@@ -589,21 +876,15 @@ case "${1:-}" in
       # from the start and read by nothing until now.
       { [ -n "$rrepo" ] && [ "$rrepo" != "$here" ]; } && continue
 
-      pr_state=""; pr_url=""
-      while IFS=$'\t' read -r p_br p_state p_url; do
-        [ "$p_br" = "$br" ] && { pr_state="$p_state"; pr_url="$p_url"; break; }
+      pr_state=""
+      while IFS=$'\t' read -r p_br p_state; do
+        [ "$p_br" = "$br" ] && { pr_state="$p_state"; break; }
       done <<< "$pr_map"
 
-      # Click-through from ticket to PR. Written before the merge check, because a
-      # merged row is deleted from the ledger and would never get the link.
-      # Recorded in the ledger so a quiet reconcile does not rewrite it each run.
-      if [ -n "$pr_url" ] && [ "$pr_url" != "$pr_recorded" ]; then
-        row=$(ledger_get "$key")
-        ensure_property PR url \
-          && tk_issue_property "$key" PR "$pr_url" \
-          && { ledger_put "$key" "$(printf '%s' "$row" | jq -c --arg u "$pr_url" '.pr=$u' 2>/dev/null)"
-               logf "reconcile $key: PR $pr_url recorded"; }
-      fi
+      # No `PR` property is written here. The tracker links pull requests to the
+      # ticket itself and has its own verb for listing them, so a property
+      # holding the same URL was a second copy of that link, going stale on its
+      # own the moment the PR moved.
 
       merged=0
       [ "$pr_state" = "MERGED" ] && merged=1
@@ -611,10 +892,15 @@ case "${1:-}" in
       # integration tip, so `--is-ancestor` is vacuously true and the row would
       # close having shipped nothing. Require a real difference first. A merged
       # PR is checked above and stays authoritative.
-      if [ "$merged" -eq 0 ] && git -C "$repo_dir" rev-parse --verify --quiet "$br" >/dev/null 2>&1; then
-        if [ "$(git -C "$repo_dir" rev-parse "$br" 2>/dev/null)" \
-             != "$(git -C "$repo_dir" rev-parse "$ib" 2>/dev/null)" ]; then
-          git -C "$repo_dir" merge-base --is-ancestor "$br" "$ib" 2>/dev/null && merged=1
+      # Resolved once and reused by the branch-gone check below, which asked git
+      # the same question about the same ref a second time.
+      br_sha=$(git -C "$repo_dir" rev-parse --verify --quiet "$br" 2>/dev/null)
+      if [ "$merged" -eq 0 ] && [ -n "$br_sha" ] && [ "$br_sha" != "$ib_sha" ]; then
+        git -C "$repo_dir" merge-base --is-ancestor "$br" "$ib" 2>/dev/null && merged=1
+        # Only when the local base has not already answered yes. Written as an
+        # `if`, not `[ ] || git ... && merged=1`: that chain parses as
+        # `(A || B) && C` and is a puzzle to read for one saved fork.
+        if [ "$merged" -eq 0 ]; then
           git -C "$repo_dir" merge-base --is-ancestor "$br" "origin/$ib" 2>/dev/null && merged=1
         fi
       fi
@@ -628,7 +914,7 @@ case "${1:-}" in
       # Branch gone is the sole cancellation condition. "Nothing shipped" is the
       # done rule above, already evaluated - restating it here would be a second
       # copy that drifts out of sync with the rule it copies.
-      if ! git -C "$repo_dir" rev-parse --verify --quiet "$br" >/dev/null 2>&1 \
+      if [ -z "$br_sha" ] \
          && ! git -C "$repo_dir" rev-parse --verify --quiet "origin/$br" >/dev/null 2>&1; then
         if [ "$gh_ok" -eq 1 ] && [ "$who" = "claude" ]; then
           set_status "$key" cancelled \

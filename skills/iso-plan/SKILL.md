@@ -108,6 +108,11 @@ existing=$("$S" ticket-for-branch)   # "<KEY>\t<status>", or empty
 | empty | `open` — no live ticket for this branch, this is new work |
 | `FIRE-13\tin_review` | `replan` — attach to that ticket and send it back to `todo` |
 
+`open` performs this same check itself and redirects when the branch is already
+tracked, so a skipped gate can no longer mint a duplicate. The gate stays because
+choosing the right verb here is still better than being corrected — and because
+`open` exempts base branches, which is usually where /iso-plan runs.
+
 `ticket-for-branch` only names tickets that are still live; `done` and `cancelled`
 read as empty, because a new plan against shipped work is new work. Say which
 one you took, and which ticket:
