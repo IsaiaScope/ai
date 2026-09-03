@@ -103,6 +103,10 @@ cmd_preflight() {
     die "nothing on this branch to refine (base $ib)"
   fi
   printf 'base=%s\n' "$REVIEW_BASE"
+  # The sha lines stay bare: they are parsed with `sed -n 's/^index=//p'` and
+  # matched anchored to end-of-line, so the prose goes on its own lines.
+  printf 'note=index= is your staged work from before this run. Undo the staging with: git read-tree %s\n' "$index"
+  printf 'note=base= is the commit every phase measures its diff against (merge-base with %s)\n' "$ib"
 }
 
 # ----------------------------------------------------------------- scope
@@ -252,7 +256,7 @@ cmd_snapshot() {
 }
 
 # ------------------------------------------------------------------ gate
-# gate <name> [snapshot-sha] -> "phase=<name> result=<pass|revert> files=<n>"
+# gate <name> [snapshot-sha] -> "phase=<name> result=<unchecked|verified|reverted> files=<n>"
 #
 # Exits 0 on both outcomes. A red gate is a RESULT, not a failure: the phase
 # ran, its edits were undone, and the next phase still has a tree to work on.
@@ -286,28 +290,47 @@ cmd_gate() {
   # would `git clean` away an EARLIER phase's files. Asking the snapshot is the
   # same answer without the standing obligation.
   if [ -n "$snap" ] && [ -n "$created" ]; then
-    created=$(printf '%s\n' "$created" | while IFS= read -r f; do
-      [ -n "$f" ] || continue
-      git cat-file -e "$snap:$f" 2>/dev/null || printf '%s\n' "$f"
-    done)
+    # One `ls-tree`, not a `cat-file` per file. The loop cost a git fork per
+    # untracked file on every phase; the snapshot's whole file list is one read.
+    #
+    # --full-tree for the same reason `ls-files` above needs --full-name: without
+    # it, ls-tree from a subdirectory lists only that subdirectory, every path
+    # above the cwd reads as "not in the snapshot", and the revert deletes an
+    # earlier phase's file. The test for that caught this rewrite.
+    created=$(printf '%s\n' "$created" \
+      | grep -Fxv -f <(git -c core.quotePath=false ls-tree -r --full-tree --name-only \
+                        "$snap" 2>/dev/null) 2>/dev/null || true)
   fi
 
   # Intent-to-add, not add: without this a file the phase CREATED is untracked,
   # `git diff` shows nothing, and the phase's output is partly invisible in the
   # one place the whole design says to read it.
   git add -N -- :/ >/dev/null 2>&1 || true
-  files=$(git diff --name-only -- :/ | wc -l | tr -d ' ')
+  # Against the SNAPSHOT, not the index. The index is pinned at run start, so
+  # diffing it counts every phase before this one too - `simplify files=7` was
+  # architecture's edits plus its own, under a label that names one phase. With
+  # no snapshot there is nothing better to measure from, and the run-wide count
+  # is the honest answer to "what changed", so the fallback keeps it.
+  #
+  # A concurrent session editing this checkout lands in the count either way.
+  if [ -n "$snap" ]; then
+    files=$(git diff --name-only "$snap" -- :/ | wc -l | tr -d ' ')
+  else
+    files=$(git diff --name-only -- :/ | wc -l | tr -d ' ')
+  fi
 
   gate=$(iso_config_get test.command)
   if [ -z "$gate" ]; then
-    printf 'phase=%s result=pass files=%s (no gate configured)\n' "$name" "$files"
+    printf 'phase=%s result=unchecked files=%s (ran; no test.command set, so nothing verified it)\n' \
+      "$name" "$files"
     return 0
   fi
   # Subshell, so a gate command that calls `exit` or `cd` cannot take the caller
   # with it. Output discarded: the phase line is the record, and a test runner's
   # full output would bury it and blow the ticket comment cap.
   if ( eval "$gate" ) >/dev/null 2>&1; then
-    printf 'phase=%s result=pass files=%s\n' "$name" "$files"
+    printf 'phase=%s result=verified files=%s (ran; the test command was still green after it)\n' \
+      "$name" "$files"
     return 0
   fi
 
@@ -342,7 +365,8 @@ cmd_gate() {
     git checkout -- :/ >/dev/null 2>&1 || true
   fi
   git clean -fdq -- :/ >/dev/null 2>&1 || true
-  printf 'phase=%s result=revert files=0 (gate red, phase undone)\n' "$name"
+  printf 'phase=%s result=reverted files=0 (the test command went red; this phase edits were undone)\n' \
+    "$name"
   return 0
 }
 
@@ -365,7 +389,18 @@ cmd_report() {
   local summary key
   summary=$(cat)
   summary="${summary:0:$ISO_REVIEW_REPORT_CAP}"
+  # Echoed before the check below, so a refusal costs the retyping of a report
+  # and never the report itself — every phase has already spent its tokens by
+  # the time this runs.
   printf '%s\n' "$summary"
+
+  # A summary made only of machine lines is a receipt, not a report: it says a
+  # phase ran and how many files it touched, and nothing about what it found.
+  # This is a check rather than a line of prose in SKILL.md because the prose
+  # version was already there, and runs kept posting the receipt anyway.
+  if [ -z "$(printf '%s\n' "$summary" | grep -vE '^(index|base|note|phase)=' | tr -d '[:space:]')" ]; then
+    die "report needs each phase's findings, not just its phase= line"
+  fi
 
   # A ticket is optional. No tracker, or no row for this branch, means the
   # terminal is the whole report — the normal case for a quick branch. iso_track

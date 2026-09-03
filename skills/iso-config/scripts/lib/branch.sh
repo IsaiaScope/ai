@@ -19,6 +19,14 @@ type iso_config_get >/dev/null 2>&1 || {
 
 ISO_KNOWN_TYPES='feat fix chore refactor docs test perf'
 
+# The branch HEAD points at, or empty when it points at a commit.
+#
+# `symbolic-ref`, not `rev-parse --abbrev-ref`: the latter answers with the
+# literal string "HEAD" on a detached head, and every caller that took that for
+# a branch name went on to bind, resolve and gate by a branch called HEAD.
+# Empty is the answer iso_branch_gate below already documents for that case.
+iso_current_branch() { git symbolic-ref --quiet --short HEAD 2>/dev/null || printf ''; }
+
 # A place work is promoted TO, never worked ON. An empty branch is a detached
 # HEAD and counts: work must not live on a ref nothing will find again.
 iso_is_protected() {

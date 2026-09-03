@@ -8,7 +8,6 @@
 # Redaction is NOT done here — tracking.sh redacts before calling any verb that
 # takes a body, so an adapter written in a hurry cannot skip it.
 
-_M_LOG() { printf '%s' "${LOG:-/dev/null}"; }
 
 # The authenticated human's name. `multica auth status` prints to stderr, not
 # stdout, so the swap is load-bearing: a plain 2>/dev/null yields an empty lead
@@ -25,12 +24,12 @@ tk_project_list() {
 }
 
 # <title> [lead] -> id. No --priority flag exists on project create or update
-# (CLI 0.4.26), so a new project lands at priority "none".
+# (CLI 0.4.36, checked 2026-08-28), so a new project lands at priority "none".
 tk_project_create() {
   local title="$1" lead="${2:-}" args
   args=(project create --title "$title" --icon "🤖" --status in_progress --output json)
   [ -n "$lead" ] && args+=(--lead "$lead")
-  multica "${args[@]}" 2>>"$(_M_LOG)" | jq -r '.id // empty' 2>/dev/null
+  multica "${args[@]}" 2>>"${LOG:-/dev/null}" | jq -r '.id // empty' 2>/dev/null
 }
 
 # <project-id> <status> <title> <priority> [assignee]
@@ -47,10 +46,10 @@ tk_issue_create() {
   # which mangles any code pasted into a prompt. Omitted entirely when the body
   # is empty, so the issue gets no description rather than a blank one.
   if [ -n "$body" ]; then
-    printf '%s' "$body" | multica "${args[@]}" --description-stdin 2>>"$(_M_LOG)" \
+    printf '%s' "$body" | multica "${args[@]}" --description-stdin 2>>"${LOG:-/dev/null}" \
       | jq -r '.identifier // .key // .id // empty' 2>/dev/null
   else
-    multica "${args[@]}" 2>>"$(_M_LOG)" \
+    multica "${args[@]}" 2>>"${LOG:-/dev/null}" \
       | jq -r '.identifier // .key // .id // empty' 2>/dev/null
   fi
 }
@@ -61,18 +60,25 @@ tk_issue_get_status() {
 
 # --no-start is load-bearing: without it a status write can start an agent run,
 # the one thing this design must never do.
-tk_issue_status() { multica issue status "$1" "$2" --no-start >/dev/null 2>>"$(_M_LOG)"; }
+tk_issue_status() { multica issue status "$1" "$2" --no-start >/dev/null 2>>"${LOG:-/dev/null}"; }
 
 # Replace the description. Body on stdin. --no-start for the usual reason:
 # a write against the board must never enqueue an agent run.
 tk_issue_describe() {
-  multica issue update "$1" --description-stdin --no-start >/dev/null 2>>"$(_M_LOG)"
+  multica issue update "$1" --description-stdin --no-start >/dev/null 2>>"${LOG:-/dev/null}"
+}
+
+# Rename. Separate from tk_issue_describe because a rename and a rewrite are
+# different decisions: a plan continuing the same topic changes the body and not
+# the title. --no-start for the usual reason - the board must never enqueue a run.
+tk_issue_title() {
+  multica issue update "$1" --title "$2" --no-start >/dev/null 2>>"${LOG:-/dev/null}"
 }
 
 # Body on stdin.
-tk_issue_comment()  { multica issue comment add "$1" --content-stdin >/dev/null 2>>"$(_M_LOG)"; }
-tk_issue_label()    { multica issue label add "$1" "$2" >/dev/null 2>>"$(_M_LOG)"; }
-tk_issue_property() { multica issue property set "$1" --name "$2" --value "$3" >/dev/null 2>>"$(_M_LOG)"; }
+tk_issue_comment()  { multica issue comment add "$1" --content-stdin >/dev/null 2>>"${LOG:-/dev/null}"; }
+tk_issue_label()    { multica issue label add "$1" "$2" >/dev/null 2>>"${LOG:-/dev/null}"; }
+tk_issue_property() { multica issue property set "$1" --name "$2" --value "$3" >/dev/null 2>>"${LOG:-/dev/null}"; }
 
 # "<id>\t<name>" per line.
 tk_label_list() {
@@ -82,7 +88,7 @@ tk_label_list() {
 
 # <name> <color> -> id.
 tk_label_create() {
-  multica label create --name "$1" --color "$2" --output json 2>>"$(_M_LOG)" \
+  multica label create --name "$1" --color "$2" --output json 2>>"${LOG:-/dev/null}" \
     | jq -r '.id // empty' 2>/dev/null
 }
 
@@ -95,5 +101,5 @@ tk_property_list() {
 # <name> <type>
 tk_property_create() {
   multica property create --name "$1" --type "$2" --icon tag --output json \
-    >/dev/null 2>>"$(_M_LOG)"
+    >/dev/null 2>>"${LOG:-/dev/null}"
 }

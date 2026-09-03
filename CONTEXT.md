@@ -24,6 +24,10 @@ Glossary of canonical terms for this repo. Definitions only — no implementatio
 
 **Phase gate** — the check deciding whether a review phase's edits survive: the configured test command runs after the phase, and a failure restores that phase from the tree object recorded before it ran — not from the index, which holds the state the whole run started from and would undo the phases that already passed. No configured command means no gate, which is reported rather than assumed. _Avoid_: test gate, verification step, guard.
 
+**Plan entry** — one plan file recorded against a ticket, carrying its path, its state and the body it contributed. A ticket holds an ordered list of them, so the ticket describes the whole story rather than the plan that happened to open it. _Avoid_: plan, doc, attachment.
+
+**Plan state** — what a plan entry is to the ticket now: **current** (the plan being worked), **done** (finished, kept for the record), **superseded** (replaced by a later plan that changed the approach). Exactly one entry is current. _Avoid_: status, active, archived.
+
 **Finding** — one problem a review phase identified, at a location. Applied rather than reported, so findings are read in the diff and never collected into a ledger. _Avoid_: issue, suggestion, comment.
 
 **Init run** — one execution of `iso-ai-init`. It is deterministic orchestration over independently addable or removable init steps.
