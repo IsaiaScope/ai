@@ -13,6 +13,7 @@ tk_issue_get_status(){ return 0; }
 tk_issue_status()    { return 0; }
 tk_issue_describe()  { cat >/dev/null; return 0; }
 tk_issue_comment()   { cat >/dev/null; return 0; }
+tk_issue_title()     { return 0; }
 tk_issue_label()     { return 0; }
 tk_issue_property()  { return 0; }
 tk_label_list()      { return 0; }

@@ -70,7 +70,8 @@ two rows and leave the first sitting in `in_review` for good.
 | command | effect |
 |---|---|
 | `ticket-for-branch` | prints `<KEY>\t<status>` for this branch's live ticket, or nothing |
-| `replan <session_id> --plan <path> [--key KEY]` | rewrites the description, comments what it superseded, ticket → `todo` |
+| `addplan <session_id> --plan <path> [--key KEY] [--title T]` | the previous plan shipped: marks it `done`, adds this one, ticket → `in_progress` |
+| `replan <session_id> --plan <path> [--key KEY] [--title T]` | the previous plan was wrong: marks it `superseded`, adds this one, ticket → `todo` |
 | `comment <KEY>` | stdin becomes one comment. No status write, no ledger change |
 
 `comment` is `retro` with the ending removed — the same redaction and the same
@@ -94,7 +95,7 @@ And the ones you still call by hand, for work with no plan behind it:
 | situation | command |
 |---|---|
 | an existing open issue already covers the request | `tracking.sh bind <session_id> <KEY>` |
-| trackable work, no matching issue | `open <session_id> "<title>" --scope <scope>` |
+| trackable work | `open <session_id> "<title>" --scope <scope>` — always safe to call: on a feature branch that already has a live ticket this adds the plan to it and returns that ticket's key instead of creating a second one |
 | Iso says the work is finished and no merge will show it | `tracking.sh done <session_id>` |
 
 ## Writing the row
@@ -123,7 +124,21 @@ a wrong icon is worse than none, because the board is skimmed by shape.
 | 🐛 bug fix | ✨ feature | ♻️ refactor | 📝 plan, spec, docs |
 | 🚀 deploy, release | ⚙️ config, infra | 🔒 security | 🧪 tests |
 
-**One plan, one ticket.** There are no sub-issues and no `--parent`. A plan that
+**One branch, one ticket.** Every plan that lands on a branch is a section in
+that branch's ticket, marked `done`, `current` or `superseded`. Nothing is ever
+deleted to make room, and only the `current` section carries a runnable
+`/iso-write` line. `addplan` and `replan` differ in exactly one thing: what the
+outgoing plan becomes. Both take an optional `--title`, which broadens the
+ticket's title as the topics on a branch diverge; omit it and the title is left
+alone, so a plan continuing the same topic does not churn it.
+
+`open` enforces this itself — it looks up the current branch and redirects to
+`addplan` rather than creating a second row. There is no `--force-new`. Base
+branches are exempt, because `dev` accumulates unrelated tickets by design.
+
+**No sub-issues.** There are no sub-issues and no `--parent` — the CLI
+supports both, so this is a choice, not a limit. Two rows on one branch close in
+the same instant whatever line is drawn between them. A plan that
 touches three scopes is still one ticket carrying three scope labels — splitting
 it produced rows nobody moved independently and a status that had to be written
 four times to mean one thing.
@@ -257,7 +272,7 @@ them into the description too just creates a second copy that goes stale:
 | already a field | do not write in the description |
 |---|---|
 | `Branch` property, set at bind | "on branch feat/x" |
-| `PR` property, set by the reconciler | the PR link or number |
+| the linked pull requests (`multica issue pull-requests <key>`) | the PR link or number |
 | labels | "this is backend work" |
 | priority | "this is urgent" |
 | assignee | "assigned to Iso" |
@@ -355,9 +370,9 @@ tracking.sh branch-of <identifier>               # read it back; prints nothing 
 `rebranch` rewrites two things: the ledger row's `branch`, and the ticket's
 `Branch` property. **The ledger is the one that matters.** It is the key
 `ticket-for-branch` resolves by, so a stale row makes the ticket unfindable from
-the branch the work is actually on — which is what silently unlinks pull
-requests and leaves the `PR` property unwritten, since `reconcile` matches PRs
-on `headRefName` against that same field.
+the branch the work is actually on — which is what makes `reconcile` miss the
+pull request entirely, since it matches PRs on `headRefName` against that same
+field, and so never sees the branch as merged.
 
 It is idempotent, and a miss is normal: no ticket for this work still has to
 exit 0, like every other write here. It posts **no comment** — a branch move is
