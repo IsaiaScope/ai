@@ -22,13 +22,14 @@ orchestration.
 | `scope [base]` | print what a run would act on, without acting and without spending a token. Without `base` it re-runs preflight, so it stages, and prints `index=` too |
 | `skill-check <name>...` | is each phase's skill invocable by a model? Non-zero if any is blocked |
 | `snapshot` | print a tree sha for the current working tree. One phase's undo point |
-| `gate <name> [snap]` | run the repo's tests; on red, undo back to `<snap>`. Prints one `phase=` line |
+| `gate <name> [snap]` | run the repo's tests; on red, undo back to `<snap>`. Prints one `phase=` line. `<snap>` is also what `files=` is measured from |
 | `report` | summary on stdin: echo it, and post it as one ticket comment |
 
 ## The run
 
 **Preflight.** `review.sh preflight`. Non-zero: print its message and stop.
-Keep the `index=` and `base=` lines — they open the report.
+Read the `index=`, `base=` and `note=` lines and leave them in the terminal.
+They do not go in the report — see below.
 
 **Skill gate.** `review.sh skill-check improve-codebase-architecture simplify review`.
 
@@ -99,8 +100,16 @@ wrote the code is the worst possible reader of it, and the whole value of a
 review phase is eyes with no stake in the choices being reviewed. Pass it the
 scope and let it invoke `review` itself.
 
-**Report.** Collect the preflight lines and every `phase=` line, in order, and
-pipe them to `review.sh report`.
+**Report.** Write the summary, then pipe it to `review.sh report`. What belongs
+in it is what each phase *found* — the change, in a sentence someone who was not
+here can act on. The `phase=` lines say a phase ran and how much it touched;
+they never say what it did, and a summary carrying only them is a receipt.
+
+`report` refuses one. A summary whose every line matches `index=`, `base=`,
+`note=` or `phase=` is echoed to the terminal — the phases have already spent
+their tokens and the text is not thrown away — and then rejected before it
+reaches the ticket. The rule was prose here first, and runs posted the receipt
+anyway.
 
 A phase that fails outright **stops the ones after it** — a phase hands its
 tree to the next one, and a broken tree turns one failure into three. A phase
@@ -149,7 +158,7 @@ snapshot, so reverting to it would throw away every phase that already passed.
 `gate` exits 0 on both outcomes. Read the `phase=` line, not the status.
 
 With `test.command` unset there is no gate. Phases still run, nothing checks
-them, and each phase's line says `(no gate configured)` rather than claiming a
+them, and each phase's line reads `result=unchecked` rather than claiming a
 pass it did not earn. That is a real mode, not a broken one.
 
 ## Scope
@@ -174,9 +183,16 @@ Two things the list does not cover, both by construction:
   diff and nothing new is ever staged. Later phases still see it on disk; it
   just is not named.
 
-`files=N` on a phase line counts the files that phase **changed**. It is not a
-coverage number. A small `files=` against a large scope means the phase sampled
-rather than covered, and that is the failure this section exists to prevent.
+`files=N` on a phase line counts the files that phase **changed** — measured
+against that phase's own `snapshot`, so it is the phase's footprint and not the
+run's. (Called without a snapshot, `gate` has nothing to measure from and falls
+back to the whole run.) Anything a concurrent session writes to this checkout
+during the phase lands in the count too; there is no way to tell the two apart
+from inside the phase.
+
+It is not a coverage number. A small `files=` against a large scope means the
+phase sampled rather than covered, and that is the failure this section exists
+to prevent.
 
 ## Staleness
 
@@ -199,17 +215,61 @@ measures against the local one.
 
 ## Reading the result
 
+One heading per phase, in the run's order, and under it one dot per change worth
+naming. The `phase=` lines go at the bottom, where they belong: they are the
+record that the run happened, not the report of what it did.
+
+The two sha lines do **not** go in it. `preflight` already printed them to the
+terminal, and `index=` is a recovery aid with a short shelf life — it exists so
+you can `git read-tree` a partial stage within minutes of the run. On a ticket
+a month later it is an unresolvable hex string whose tree object may be gone.
+
 ```
-index=4b825dc642cb6eb9a060e54bf8d69288fbee4904
-base=e83c5163316f89bfbde7d9ab23ca2e25604af290
-phase=architecture result=pass files=3
-phase=simplify result=revert files=0 (gate red, phase undone)
-phase=review result=pass files=1
+## architecture — verified, 3 files
+
+- folded the two config readers into `iso_config_get`, so a caller no longer
+  has to know which file holds which key
+
+## simplify — reverted
+
+- the gate went red and the edits were undone; nothing from this phase survives
+
+## review — unchecked, 1 file
+
+- `push.sh:412` reads `$?` after a pipeline, so it tests grep's status and
+  never the command's
+
+phase=architecture result=verified files=3 (ran; the test command was still green after it)
+phase=simplify result=reverted files=0 (the test command went red; this phase edits were undone)
+phase=review result=unchecked files=1 (ran; no test.command set, so nothing verified it)
 ```
 
+Three result words, and they are not interchangeable:
+
+| `result=` | what happened |
+|---|---|
+| `verified` | the phase ran and `test.command` was green afterwards |
+| `unchecked` | the phase ran and **nothing checked it** — no `test.command` is set |
+| `reverted` | `test.command` went red, so this phase's edits were undone |
+
+`unchecked` is the one to read carefully. It is not a pass; it means the phase's
+output has had no verification of any kind, and the only thing standing behind
+it is the agent that wrote it.
+
+Every dot names something concrete that exists in the diff: a file, a function,
+a flag, a behaviour. A dot that cannot name one is padding and gets deleted
+rather than reworded — that is the rule `/iso-commit` uses on a commit body, and
+it catches the same slop here. A phase that changed nothing says so in one dot,
+which is a finding too.
+
+In the terminal, `preflight` opens with the two shas and a `note=` line for
+each. They exist because those shas are the only output a reader cannot decode,
+and they are separate lines rather than a suffix because the sha lines are
+parsed by machine, anchored to end-of-line.
+
 The same summary is posted as one comment on this branch's ticket, when there
-is one, capped at 8000 characters. No ticket means the terminal is the whole
-report.
+is one, capped at `ISO_REVIEW_REPORT_CAP` characters (4000 by default, matching
+the tracker's own limit). No ticket means the terminal is the whole report.
 
 ## Never commits
 
