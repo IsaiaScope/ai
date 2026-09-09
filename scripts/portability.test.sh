@@ -66,5 +66,23 @@ report "agent config dir must be overridable" \
      | grep -v 'CLAUDE_CONFIG_DIR\|CODEX_HOME' \
      | grep -vE 'iso-config/scripts/lib/config.sh|iso-spawn/tests/run.sh')"
 
+echo "SKILL.md prose assumes no particular shell"
+# A shell block in a SKILL.md is run by whatever shell the harness hands the
+# agent, and that is not always bash -- Claude Code's Bash tool runs zsh on a
+# Mac. iso_sibling anchors on BASH_SOURCE, which zsh does not define, so a
+# SKILL.md that sources sibling.sh resolves nothing and silently skips whatever
+# it was resolving. That cost a closed ticket once: /iso-push found no tracker,
+# and its guard could not tell "not installed" from "not found".
+#
+# Scripts are exempt -- they carry a bash shebang, so the helper is correct
+# there. This is about a block the agent is told to run, not one it is told to
+# write. iso-config/SKILL.md is exempt for that reason: its sample sits under
+# "Reading config from another skill" and resolves "relative to your own
+# script", which is the very idiom being taught.
+report "no SKILL.md resolves a path through sibling.sh" \
+  "$(grep -rnE 'iso_sibling|sibling\.sh' --include='SKILL.md' --exclude='._*' skills/ 2>/dev/null \
+     | grep -vE "$NOT_COMMENT" \
+     | grep -v 'iso-config/SKILL.md')"
+
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

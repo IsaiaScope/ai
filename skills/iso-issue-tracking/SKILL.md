@@ -31,7 +31,9 @@ place a `[redacted]` should depend on.
 
 `scripts/tracking.sh` is called by the Claude Code session hooks for `reconcile`
 and `end`. The `iso-*` skills call it at their own boundaries, and you call it
-for the work that never went through a plan.
+for the work that never went through a plan. `<skill-base-dir>` below means the
+directory this SKILL.md lives in — resolve against it, never `$HOME/.claude`,
+which is correct for a development symlink and wrong for every other topology.
 
 The board answers "what is being worked on and where is it", not "what happened
 step by step". Every status change corresponds to a point the chain already
@@ -109,7 +111,7 @@ printf '%s\n' \
   'retry wrapper treats the batch as one unit, so a partial failure discards' \
   'the rows that did land. Nothing surfaces it: the job exits 0 and the count' \
   'is only wrong the next morning.' \
-  | "$(iso_sibling iso-issue-tracking scripts/tracking.sh)" \
+  | "<skill-base-dir>/scripts/tracking.sh" \
       open "$SESSION_ID" "🐛 Uploader drops a whole batch when S3 returns 5xx" \
       --scope be,data --priority high
 ```
