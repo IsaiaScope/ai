@@ -25,13 +25,6 @@ const PLUGINS = [
     description:
       "IsaiaScope engineering skills — plan, TDD execution, review, repo/AI init, and house-style READMEs.",
   },
-  {
-    name: "isaiascope-social",
-    prefix: "social-",
-    category: "Social",
-    description:
-      "IsaiaScope social skills — research-first NotebookLM prep for your next video.",
-  },
 ];
 
 // The skill set is the filesystem: every skills/<name>/ that contains a SKILL.md.
