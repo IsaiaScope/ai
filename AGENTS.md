@@ -17,7 +17,7 @@ Copies `config/CLAUDE.md` → `~/CLAUDE.md` and `config/AGENTS.md` → `~/.codex
 config/
   AGENTS.md   — global agent instructions (copied to ~/.codex/AGENTS.md on install)
   CLAUDE.md   — symlink to AGENTS.md (copied to ~/CLAUDE.md on install)
-skills/                            — prefix routes each skill to a marketplace plugin (iso-* → eng, social-* → social)
+skills/                            — prefix routes each skill to a marketplace plugin (iso-* → eng)
   iso-config/SKILL.md              — the Iso config every iso-* skill reads
   iso-config/scripts/lib/branch.sh — shared branch vocabulary: protected test, name derivation, the gate
   iso-config/scripts/lib/track.sh  — the one seam to the tracker: iso_track, iso_track_path; never fatal
@@ -29,8 +29,6 @@ skills/                            — prefix routes each skill to a marketplace
   iso-review/SKILL.md              — three phases over the branch: architecture, simplify, review
   iso-spawn/SKILL.md               — spawn a codex/claude agent in a herdr tab
   iso-readme/SKILL.md              — write/refine READMEs in house style, commit + push
-  social-notebooklm/SKILL.md       — research-first NotebookLM notebook + scaletta for a video
-  social-new-video/SKILL.md        — one-shot launcher: spawns a tab that runs social-notebooklm
 scripts/
   install.js                        — deploys config files + installs skill packs globally
   agent-hooks.js                    — writes the tracker hooks into ~/.claude/settings.json (list: skills/iso-issue-tracking/scripts/hooks.json)
@@ -47,10 +45,6 @@ plugins/                            — one subdir per marketplace plugin (route
     .claude-plugin/plugin.json      — Claude manifest (skills array, regenerated on install)
     .codex-plugin/plugin.json       — Codex manifest (skills: "./skills/", whole-dir)
     skills → ../../../skills/iso-*  — per-skill symlinks, regenerated on install
-  isaiascope-social/                — social plugin (social-* skills)
-    .claude-plugin/plugin.json      — Claude manifest (skills array, regenerated on install)
-    .codex-plugin/plugin.json       — Codex manifest (skills: "./skills/", whole-dir)
-    skills → ../../../skills/social-* — per-skill symlinks, regenerated on install
 ```
 
 `scripts/install.js` installs these upstream skill packs globally for both `claude-code` and `codex`:
@@ -67,7 +61,7 @@ The local `IsaiaScope/ai` skills are NOT installed via the marketplace pack. `sc
 1. Create `skills/<name>/SKILL.md`
 2. Re-run `node scripts/install.js`
 
-The skill set is derived from the filesystem: `scripts/install.js` scans `skills/*/SKILL.md`, symlinks each into both agents, **routes it to a plugin by name prefix** (`iso-` → `isaiascope-eng`, `social-` → `isaiascope-social`; see `PLUGINS` in `scripts/skills-manifest.js`), and regenerates that plugin's `.claude-plugin/plugin.json` + its private `skills/` symlink dir. There is no list to maintain — a directory with a `SKILL.md` is a skill, and its prefix picks the plugin.
+The skill set is derived from the filesystem: `scripts/install.js` scans `skills/*/SKILL.md`, symlinks each into both agents, **routes it to a plugin by name prefix** (`iso-` → `isaiascope-eng`; see `PLUGINS` in `scripts/skills-manifest.js`), and regenerates that plugin's `.claude-plugin/plugin.json` + its private `skills/` symlink dir. There is no list to maintain — a directory with a `SKILL.md` is a skill, and its prefix picks the plugin.
 
 A skill that needs configuration sources `iso-config/scripts/lib/config.sh` through
 `iso_sibling`, never through an absolute `$HOME` path — `$HOME/.claude/skills/…`
@@ -78,7 +72,7 @@ Marketplace manifests need **no** edit when adding a skill: each Codex plugin de
 
 ## Plugin Marketplace
 
-This repo is a native marketplace for both agents (parallel manifests — the two CLIs diverge). The single `marketonfire` marketplace ships **two independently-installable plugins**: `isaiascope-eng` (engineering, `iso-*`) and `isaiascope-social` (social, `social-*`). Both live in subdirs — Codex rejects repo-root as a plugin source, so for symmetry the Claude plugins are subdir-sourced too.
+This repo is a native marketplace for both agents (parallel manifests — the two CLIs diverge). The single `marketonfire` marketplace ships one plugin, `isaiascope-eng` (engineering, `iso-*`). It lives in a subdir — Codex rejects repo-root as a plugin source, so for symmetry the Claude plugin is subdir-sourced too. A `social-*` family used to ship beside it; ADR-0003 in `IsaiaScope/social` moved those skills into the content repo that is their only consumer.
 
 | | Claude Code | Codex |
 | --- | --- | --- |
@@ -86,7 +80,6 @@ This repo is a native marketplace for both agents (parallel manifests — the tw
 | plugin location | subdir (`source: "./plugins/<name>"`) | subdir (`source: {source:"local",path:"./plugins/<name>"}`) |
 | plugin manifest | `plugins/<name>/.claude-plugin/plugin.json` (`skills` array) | `plugins/<name>/.codex-plugin/plugin.json` (`skills` string dir) |
 | install eng | `/plugin marketplace add IsaiaScope/ai` then `/plugin install isaiascope-eng@marketonfire` | `codex plugin marketplace add IsaiaScope/ai` then `codex plugin add isaiascope-eng@marketonfire` |
-| install social | `/plugin install isaiascope-social@marketonfire` | `codex plugin add isaiascope-social@marketonfire` |
 
 When both manifests are present, each CLI reads only its own path — no conflict. Each Codex plugin globs its own `plugins/<name>/skills/` dir, so the two plugins never see each other's skills.
 

@@ -85,6 +85,9 @@ on it, for the case where the branch is a base for follow-up work you are about
 to push again.
 
 Mechanics live in `skills/iso-push/scripts/push.sh`. Run it by absolute path.
+`<skill-base-dir>` below means the directory this SKILL.md lives in; sibling
+skills sit beside it. Resolve against it rather than `$HOME/.claude`, which is
+correct for a development symlink and wrong for every other topology.
 
 ## Why every landing is `gh pr merge --merge`
 
@@ -305,20 +308,24 @@ a branch tip that a PR and CI have already passed.
    time the reconciler next runs. Guarded, and never allowed to fail the push:
 
    ```bash
-   # Resolve the tracking script from this skill's own location. Task 12/13 move
-   # this into a real script, where BASH_SOURCE anchors it; until then a failed
-   # resolve must leave S empty, never error — tracking may not fail the run.
-   _sib="$(dirname "${BASH_SOURCE[0]:-$0}")/../../iso-config/scripts/lib/sibling.sh"
-   # shellcheck source=/dev/null
-   [ -f "$_sib" ] && . "$_sib"
-   S=$(iso_sibling iso-issue-tracking scripts/tracking.sh 2>/dev/null) || S=""
-   [ -x "$S" ] && printf '%s\n' \
-     '🏁 **Landed** · PR [#42](url)' \
-     'Swapped the polling loop for a webhook receiver.' \
-     '- 🔀 started on cron every 30s, dropped events under load, moved to a webhook' \
-     '- 🐛 signature check failed on replays — clock skew, widened tolerance to 5m' \
-     '- ⚠️ retry backoff is still fixed, not exponential' \
-     | "$S" retro "<branch>"
+   # tracking.sh sits beside this skill, so name it directly rather than
+   # resolving it through iso_sibling: that helper anchors on BASH_SOURCE, which
+   # zsh does not define, so under a harness whose shell is zsh it resolved
+   # nothing and this whole block was skipped without a word. Still never fatal
+   # to the push -- but a tracker that cannot be found now says so, instead of
+   # reading identically to a repo that tracks nothing.
+   S="<skill-base-dir>/../iso-issue-tracking/scripts/tracking.sh"
+   if [ -x "$S" ]; then
+     printf '%s\n' \
+       '🏁 **Landed** · PR [#42](url)' \
+       'Swapped the polling loop for a webhook receiver.' \
+       '- 🔀 started on cron every 30s, dropped events under load, moved to a webhook' \
+       '- 🐛 signature check failed on replays — clock skew, widened tolerance to 5m' \
+       '- ⚠️ retry backoff is still fixed, not exponential' \
+       | "$S" retro "<branch>"
+   else
+     printf 'tracking: no runnable tracker at %s -- retro skipped, ticket left open\n' "$S" >&2
+   fi
    ```
 
    `retro` posts stdin as one comment on the ticket and then sets it `done`. It
