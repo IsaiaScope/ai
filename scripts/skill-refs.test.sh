@@ -13,7 +13,7 @@
 # live file points at, require a directory for each. A typo, a half-finished
 # rename and a deleted skill all fail the same way.
 #
-# ponytail: repo-owned families only (iso-, hetzner-, social-). `/review` and
+# ponytail: repo-owned families only (iso-, hetzner-). `/review` and
 # `/simplify` are other people's skills with no directory here to check.
 set -uo pipefail
 
@@ -25,7 +25,10 @@ ok()  { pass=$((pass+1)); printf '  ok   %s\n' "$1"; }
 bad() { fail=$((fail+1)); printf '  FAIL %s\n' "$1"
         if [ $# -gt 1 ]; then printf '       %s\n' "$2"; fi; }
 
-FAMILIES='iso|hetzner|social'
+# `social` is deliberately absent: ADR-0003 in IsaiaScope/social moved that
+# family out of this repo, so a `social-*` name in prose here refers to a skill
+# that lives elsewhere and must not be resolved against this directory tree.
+FAMILIES='iso|hetzner'
 
 # Excluded, and why:
 #   docs/superpowers/  dated plans and specs -- a superseded name is history

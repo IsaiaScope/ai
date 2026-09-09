@@ -10,12 +10,6 @@
       "source": "./plugins/isaiascope-eng",
       "description": "🔥 IsaiaScope engineering skills — plan, TDD execution, review, repo/AI init, and house-style READMEs.",
       "category": "Engineering"
-    },
-    {
-      "name": "isaiascope-social",
-      "source": "./plugins/isaiascope-social",
-      "description": "🔥 IsaiaScope social skills — research-first NotebookLM prep for your next video.",
-      "category": "Social"
     }
   ]
 }
