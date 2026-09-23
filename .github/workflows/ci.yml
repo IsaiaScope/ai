@@ -30,13 +30,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+      # Pinned to the version the pre-push hook runs locally. The runner's apt
+      # shellcheck is 0.9, which reports SC2218 on iso-spawn/tests/run.sh where
+      # 0.11 correctly follows the sourced lib/herdr.sh; two versions means two
+      # verdicts, and the local one is the one people fix against.
       # From git, never a glob; see .shellcheckrc. A list that matched nothing
       # would pass, so count it first.
       - name: shellcheck
         run: |
           n=$(git ls-files '*.sh' | wc -l); echo "shellcheck: $n files"
           [ "$n" -gt 0 ] || exit 1
-          git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
+          git ls-files -z '*.sh' | xargs -0 uvx --from 'shellcheck-py==0.11.0.1' shellcheck -S warning
 
       # The exec bit is tracked content. core.fileMode is false on the exFAT
       # volume this repo lives on, so a working copy cannot show it is wrong;
