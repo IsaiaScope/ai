@@ -91,6 +91,16 @@ earlier phases' output included. Pass it.
 not approximate them, not do what you remember them doing. The skill is the
 phase; anything else is your own judgement wearing the phase's name.
 
+Phase 1 has a shape the other two do not. `improve-codebase-architecture` ends
+by writing an HTML report of candidates and asking which one to explore, and in
+a run nobody answers that question. **Implement every candidate it badges
+`Strong`** — all of them, including where the refactor reaches files the scope
+does not name, because a deepening that stops at the scope boundary leaves the
+codebase half-migrated. Leave `Worth exploring` and `Speculative` untouched, and
+name the report's path in the summary so the ones you skipped stay reachable. A
+phase whose report holds no `Strong` candidate changes nothing and says so in
+one dot.
+
 Architecture and simplify run **here, in this session**: you have the branch's
 context already, and a fresh reader would spend its first minutes re-deriving
 what you know.

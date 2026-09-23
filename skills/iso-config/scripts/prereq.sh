@@ -16,6 +16,7 @@ PREREQ_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$PREREQ_HERE/lib/config.sh"
 
+# shellcheck disable=SC2034  # read by config.sh, which sources this
 ISO_PREREQ_VERSION=1
 
 # bin:class — auto (installable unattended), manual (auth-gated, print steps),

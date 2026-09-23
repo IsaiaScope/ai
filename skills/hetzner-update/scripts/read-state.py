@@ -19,16 +19,16 @@ import sys
 
 # Overridable so the refusal paths can be exercised against a fixture without
 # touching the real config.
-CONFIG = os.path.expanduser(
-    os.environ.get("HETZNER_CONFIG_JSON", "~/.config/hetzner/hetzner.json"))
+CONFIG = os.path.expanduser(os.environ.get("HETZNER_CONFIG_JSON", "~/.config/hetzner/hetzner.json"))
 
 # Borrow the planner's semver parser rather than writing a second one. Two
 # definitions of "which version is newer" would eventually disagree, and the
 # disagreement would show up as a correct-looking plan built from the wrong
 # starting point. Naive string compare is the specific trap: "0.4.9" > "0.4.19".
-sys.dont_write_bytecode = True          # no __pycache__ litter in the skill dir
+sys.dont_write_bytecode = True  # no __pycache__ litter in the skill dir
 _spec = importlib.util.spec_from_file_location(
-    "planner", os.path.join(os.path.dirname(os.path.abspath(__file__)), "plan-upgrade.py"))
+    "planner", os.path.join(os.path.dirname(os.path.abspath(__file__)), "plan-upgrade.py")
+)
 _planner = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_planner)
 
@@ -97,8 +97,10 @@ def main():
     e = soft[args.app]
     servers = cfg.get("fleet", {}).get("servers", {})
     if e.get("server") not in servers:
-        die("entry %r names server %r, which is not in the fleet. Known: %s"
-            % (args.app, e.get("server"), ", ".join(sorted(servers))))
+        die(
+            "entry %r names server %r, which is not in the fleet. Known: %s"
+            % (args.app, e.get("server"), ", ".join(sorted(servers)))
+        )
     alias = servers[e["server"]].get("ssh_alias")
     if not alias:
         die("server %r has no ssh_alias in the fleet" % e["server"])
@@ -113,20 +115,31 @@ def main():
     comps = [(c.get("name", "?"), resolve(c.get("version_cmd"))) for c in e.get("companions", [])]
 
     if args.print_cmds:
-        print(json.dumps({
-            "app": args.app, "alias": alias,
-            "version_cmds": halves,
-            "companion_cmds": {n: c for n, c in comps},
-            "upgrade_cmd": resolve(e.get("remote", {}).get("upgrade_cmd")),
-            "backup_cmd": resolve(e.get("backup_cmd")),
-            "backup_verify_cmd": resolve(e.get("backup_verify_cmd")),
-            "verify_cmd": resolve(e.get("remote", {}).get("verify_cmd")),
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "app": args.app,
+                    "alias": alias,
+                    "version_cmds": halves,
+                    "companion_cmds": dict(comps),
+                    "upgrade_cmd": resolve(e.get("remote", {}).get("upgrade_cmd")),
+                    "backup_cmd": resolve(e.get("backup_cmd")),
+                    "backup_verify_cmd": resolve(e.get("backup_verify_cmd")),
+                    "verify_cmd": resolve(e.get("remote", {}).get("verify_cmd")),
+                },
+                indent=2,
+            )
+        )
         return
 
-    out = {"app": args.app, "server": e["server"], "alias": alias,
-           "repo": e.get("repo"), "pinned": e.get("pinned"),
-           "self_updating": bool(e.get("local", {}).get("self_updating"))}
+    out = {
+        "app": args.app,
+        "server": e["server"],
+        "alias": alias,
+        "repo": e.get("repo"),
+        "pinned": e.get("pinned"),
+        "self_updating": bool(e.get("local", {}).get("self_updating")),
+    }
 
     for side, cmd in halves.items():
         if not cmd:
@@ -151,18 +164,25 @@ def main():
             # Plan from whichever half is behind — that is the gap to close.
             out["plan_from"] = rv if out["drift"] == "local ahead" else lv
         if out["drift"] == "remote ahead" and out["self_updating"]:
-            out["blocked"] = ("The local half is behind and self-updating, so it cannot be "
-                              "pinned or forced. Ask the user to update the app. Never "
-                              "downgrade the server to meet a stale client.")
+            out["blocked"] = (
+                "The local half is behind and self-updating, so it cannot be "
+                "pinned or forced. Ask the user to update the app. Never "
+                "downgrade the server to meet a stale client."
+            )
     else:
         out["drift"] = "unknown — a version_cmd failed or returned an unparseable version"
 
-    lagging = [c["name"] for c in out["companions"]
-               if c.get("version") and lv and same(c["version"], lv) is False]
+    lagging = [
+        c["name"]
+        for c in out["companions"]
+        if c.get("version") and lv and same(c["version"], lv) is False
+    ]
     if lagging:
         out["companions_lagging"] = lagging
-        out["companions_note"] = ("These share the name but not the protocol. Lagging is "
-                                  "harmless; do not report it as drift.")
+        out["companions_note"] = (
+            "These share the name but not the protocol. Lagging is "
+            "harmless; do not report it as drift."
+        )
 
     print(json.dumps(out, indent=2))
 

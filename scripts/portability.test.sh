@@ -7,7 +7,7 @@
 # written to a directory the agent does not read. All are cheap to reintroduce
 # and invisible until someone else clones the repo.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 pass=0; fail=0
 ok()  { pass=$((pass+1)); printf '  ok   %s\n' "$1"; }
 bad() { fail=$((fail+1)); printf '  FAIL %s\n' "$1"; printf '       %s\n' "$2"; }

@@ -270,7 +270,7 @@ cmd_setup() {
     return 0
   fi
 
-  local backup="$f.bak-$(date +%Y%m%d-%H%M%S)"
+  local backup; backup="$f.bak-$(date +%Y%m%d-%H%M%S)"
   cp "$f" "$backup" || die "could not back up $f"
 
   local tmp; tmp=$(mktemp)
@@ -311,7 +311,7 @@ cmd_launch() {
     --no-first-run --no-default-browser-check >/dev/null 2>&1 &
   printf 'launched pid %s\n' "$!"
   local end=$((SECONDS+20))
-  until cdp_up || [ $SECONDS -ge $end ]; do sleep 1; done
+  until cdp_up || [ "$SECONDS" -ge "$end" ]; do sleep 1; done
   cdp_up && printf 'cdp reachable on %s\n' "$(cdp_url)" || die "cdp did not come up on port $port"
 }
 

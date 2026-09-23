@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # iso-spawn test runner. Pure bash, no external deps. Exits non-zero on any failure.
+# shellcheck disable=SC2319  # every `[ -f ... ]; assert_eq ... "$?"` asserts the test's own status
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RECOVER="$HERE/../scripts/recover.py"
@@ -447,6 +448,7 @@ assert_eq "env still beats config" \
 
 # --- sidecar home redaction ---------------------------------------------------
 TRANSCRIPT="$HERE/../scripts/lib/transcript.sh"
+# shellcheck disable=SC2088  # a literal fixture path; expanding it would defeat the test
 assert_eq "home becomes tilde" \
   "$(HOME=/Users/x bash -c ". $AGENTKIND; . $TRANSCRIPT; iso_tildify /Users/x/.codex/sessions/a.jsonl")" \
   "~/.codex/sessions/a.jsonl"
@@ -459,4 +461,4 @@ assert_eq "tilde expands back" \
   "$(HOME=/Users/x bash -c 'v="~/.codex/s"; printf "%s" "${v/#\~/$HOME}"')" "/Users/x/.codex/s"
 
 
-exit $fail
+exit "$fail"

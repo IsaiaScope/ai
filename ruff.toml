@@ -1,0 +1,68 @@
+# ruff — this repo's Python house rules.
+#
+#   uvx ruff check .          report
+#   uvx ruff check --fix .    apply what is mechanical
+#   uvx ruff format .         normalise layout
+#
+# Method, borrowed from IsaiaScope/social: select every rule, then subtract.
+# Each subtraction says why and how many sites in THIS repo made it necessary,
+# counted under `select = ["ALL"]` on 2026-09-23 (230 findings in total). An
+# ignore without a reason is debt; an ignore with one is a decision.
+#
+# uvx fetches ruff on demand. No package.json, no pip install, no build step:
+# AGENTS.md's promise holds.
+
+# The oldest interpreter CI runs: .github/workflows/ci.yml pins 3.12.
+target-version = "py312"
+line-length = 100
+
+exclude = [
+  ".agents/skills",
+  ".claude/skills",
+  "**/node_modules",
+  "graphify-out",
+  # ruff 0.16 formats python blocks inside markdown fences, which would
+  # rewrite every skill's documentation for no behavioural gain.
+  "*.md",
+]
+
+[lint]
+select = ["ALL"]
+ignore = [
+  # --- Fights the shape of the repo -------------------------------------
+  "ANN",      # 64: untyped stdlib scripts; no type checker runs
+  "D1",       # 16: undocumented functions in single-purpose scripts
+  "D401",     # 2: descriptive docstrings read fine
+  "CPY001",   # 5: no copyright header anywhere
+  "T201",     # 27: print is how a CLI script reports
+
+  # --- Style opinions with no defect behind them ------------------------
+  "PTH",      # 8: os.path throughout; a pathlib migration fixes nothing
+  "UP031",    # 43: %-formatting is the prevailing style
+
+  # --- Judgement calls a linter cannot make -----------------------------
+  "PLR2004",  # 5: HTTP status codes and exit codes, readable as written
+  "PLR0912", "PLR0915", "C901",  # 6: CLI mains that read top to bottom
+  "S310",     # 6: urlopen against the Dokploy API; the URL comes from the committed
+              #    registry, always https, never from argv
+  "S602",     # 1: read-state.py runs version_cmd from the registry with shell=True. Those
+              #    entries are shell pipelines; running them without a shell breaks every one
+  "S607",     # 1: subprocess by PATH name on purpose
+  "PLW1510",  # 2: subprocess.run without check=; the caller reads returncode itself
+  "PLW2901",  # 2: `line = line.strip()` inside the loop that reads it
+  "SIM115",   # 2: files handed to a subprocess and closed explicitly
+
+  # --- Known conflicts / deliberate deferrals ---------------------------
+  "E501",
+  "COM812", "ISC001",  # conflict with ruff format, per ruff's own docs
+  "D203", "D213",      # each is half of a mutually exclusive pair
+]
+
+[lint.per-file-ignores]
+# plan-upgrade.py --self-test: the assert IS the test. 16 sites.
+"skills/hetzner-update/scripts/plan-upgrade.py" = ["S101"]
+# exFAT reports every file 0700, so "executable without a shebang" would fire
+# locally on any future library module the index says is 100644. CI's exec-bit
+# step reads the index, which is the only source that can be right. 0 sites
+# today; here so the first one is not a local-only failure.
+"*.py" = ["EXE002"]

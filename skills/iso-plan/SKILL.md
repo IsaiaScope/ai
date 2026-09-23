@@ -24,6 +24,8 @@ If the user passed an argument, it is the seed idea — hand it to brainstorming
 
 1. **brainstorming** — invoke `superpowers:brainstorming`. Explore intent, requirements, and shape of the idea.
 
+   **Skip brainstorming's written-spec review gate.** The user approves the design in chat, and that approval is enough. Write the spec file, run its self-review, then move straight on — do not ask the user to review the spec file and do not wait for a reply. The written plan is the artefact the user reviews.
+
 2. **grilling** (gated) — which grill skill runs depends on where you are. Resolve it with one check, before invoking anything:
 
 ```bash

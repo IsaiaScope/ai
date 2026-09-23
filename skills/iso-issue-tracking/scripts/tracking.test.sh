@@ -68,6 +68,7 @@ ledger_put WOR-1 '{"repo":"scratch","branch":"b","project":"p","opened_by":"clau
 check "put then get"          "$(ledger_get WOR-1 | jq -r .branch)" "b"
 check "opened_by round-trips" "$(ledger_get WOR-1 | jq -r .opened_by)" "claude"
 ledger_put WOR-2 '{"repo":"scratch","branch":"c","project":"p","opened_by":"iso"}'
+# shellcheck disable=SC2154  # assigned in tracking.sh, sourced at the top
 check "two rows"              "$(jq -r 'keys|length' "$LEDGER")" "2"
 ledger_del WOR-1
 check "del removes one"       "$(jq -r 'keys|length' "$LEDGER")" "1"
@@ -441,7 +442,7 @@ check "open without multica writes no ledger row" \
   "$(jq -r 'keys|length' "$S3/tracked.json" 2>/dev/null)" "0"
 grep -q "could not resolve project\|open failed" "$S3/log" \
   && ok "the failure was logged" || bad "silent failure, nothing logged"
-MULTICA_STATE_DIR="$S3" PATH=/usr/bin:/bin bash "$SH" done s9 >/dev/null 2>&1
+MULTICA_STATE_DIR="$S3" PATH=/usr/bin:/bin bash "$SH" "done" s9 >/dev/null 2>&1
 check "done with nothing bound exits 0" "$?" "0"
 
 # The whole design is outbound-only, so no status write may omit --no-start.
@@ -487,6 +488,18 @@ MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-103 "{\"repo\":\"sc
 ( cd "$rr" && MULTICA_STATE_DIR="$S4" PATH="$MB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
 check "commitless branch not closed" "$(jq -r 'has("WOR-103")' "$S4/tracked.json")" "true"
 grep -q 'WOR-103 -> done' "$S4/log" && bad "closed a branch with no commits" || ok "no done for a commitless branch"
+
+# The stale variant of the same bug. A branch cut from dev and left with no
+# commits of its own, while dev moved on: its tip is an OLDER dev commit, so the
+# tips differ and a tip-inequality guard lets it through, yet it is still an
+# ancestor of dev and still shipped nothing. FIRE-19 closed three weeks early
+# this way, while its work sat uncommitted.
+( cd "$rr" && git branch feat/stale dev && git checkout -q dev \
+    && git commit -q --allow-empty -m "dev moves on" )
+MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-105 "{\"repo\":\"scratch\",\"branch\":\"feat/stale\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
+( cd "$rr" && MULTICA_STATE_DIR="$S4" PATH="$MB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
+check "stale commitless branch not closed" "$(jq -r 'has("WOR-105")' "$S4/tracked.json")" "true"
+grep -q 'WOR-105 -> done' "$S4/log" && bad "closed a stale branch that shipped nothing" || ok "no done for a stale commitless branch"
 
 # The other half: a branch that really did land must still close.
 ( cd "$rr" && git checkout -q -b feat/landed dev && git commit -q --allow-empty -m shipped \
@@ -545,6 +558,7 @@ rm -rf "$S6" "$GB"
 rm -rf "$rr"
 
 echo "scope colours"
+# shellcheck disable=SC2154  # assigned in tracking.sh, sourced at the top
 n_scopes=$(printf '%s' "$SCOPES" | wc -w | tr -d ' ')
 n_colors=$(for x in $SCOPES; do label_color_for "$x"; done | sort -u | wc -l | tr -d ' ')
 check "every scope has a distinct colour" "$n_colors" "$n_scopes"
@@ -853,7 +867,7 @@ grep -q 'issue update FIRE-50 --description-stdin --no-start' "$STUB_CALLS" \
   && ok "the description write carries --no-start" || bad "description write could start an agent"
 
 # Shipped work is not replanned - a new plan against it is new work.
-for dead in done cancelled; do
+for dead in "done" cancelled; do
   echo "$dead" > "$STUB_ST"; : > "$STUB_CALLS"
   ( cd "$g12" && printf 'x' | MULTICA_STATE_DIR="$S12" PATH="$BIN12:$PATH" \
       bash "$SH" replan s51 --plan "$P_NEW" ) >/dev/null 2>&1

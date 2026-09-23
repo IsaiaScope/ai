@@ -9,7 +9,7 @@
 // (the flag dir) and XDG config (a deliberately DIFFERENT defaultMode), then
 // asserts the rendered label tracks the flag, not config. No network — never skips.
 
-const assert = require("node:assert");
+const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { mkdtempSync, writeFileSync, rmSync, mkdirSync, unlinkSync } = require("node:fs");
 const { join } = require("node:path");
@@ -33,8 +33,15 @@ function ponyLabel(flagMode) {
   mkdirSync(join(xdg, "ponytail"), { recursive: true });
   writeFileSync(join(xdg, "ponytail", "config.json"), '{"defaultMode":"ultra"}');
   const flag = join(dir, ".ponytail-active");
-  if (flagMode === null) { try { unlinkSync(flag); } catch {} }
-  else writeFileSync(flag, flagMode);
+  if (flagMode === null) {
+    try {
+      unlinkSync(flag);
+    } catch {
+      // flag already absent: the state this test wants
+    }
+  } else {
+    writeFileSync(flag, flagMode);
+  }
 
   const res = spawnSync("bash", [script], {
     input: stdin,
@@ -43,13 +50,18 @@ function ponyLabel(flagMode) {
   });
   rmSync(dir, { recursive: true, force: true });
   assert.strictEqual(res.status, 0, `statusline.sh exited ${res.status}: ${res.stderr}`);
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI colour codes; ESC is the point
   const m = res.stdout.replace(/\x1b\[[0-9;]*m/g, "").match(/🐴 ([A-Za-z]+)/);
   return m ? m[1] : "";
 }
 
 test("🐴 segment tracks the .ponytail-active flag, not config.json", () => {
   // config.json is "ultra" in every case; only the flag varies.
-  assert.strictEqual(ponyLabel("full"), "FULL", "runtime /ponytail full must win over seeded ultra");
+  assert.strictEqual(
+    ponyLabel("full"),
+    "FULL",
+    "runtime /ponytail full must win over seeded ultra"
+  );
   assert.strictEqual(ponyLabel("lite"), "LITE");
   assert.strictEqual(ponyLabel("ultra"), "ULTRA");
   assert.strictEqual(ponyLabel("off"), "", "off → no segment");
