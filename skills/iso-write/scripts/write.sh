@@ -81,7 +81,7 @@ cmd_resolve() {
         stay)
           # A branch with no commits isolates nothing: same worktree, same index.
           # Cutting another one buys the bookkeeping and none of the separation.
-          branch="$current"; mode=current-branch ;;
+          branch="$current"; mode="current-branch" ;;
         checkout)
           label=$(stash_carry "$branch") || true
           git checkout -q "$branch"

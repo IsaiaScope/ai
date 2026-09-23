@@ -4,6 +4,6 @@
     "pr_base": "dev"
   },
   "test": {
-    "command": "node --test scripts/*.test.js && for t in skills/*/scripts/*.test.sh skills/*/scripts/lib/*.test.sh skills/*/scripts/adapters/*.test.sh scripts/*.test.sh; do [ -e \"$t\" ] || continue; bash \"$t\" || exit 1; done && for t in skills/*/scripts/test_*.py; do [ -e \"$t\" ] || continue; python3 \"$t\" || exit 1; done"
+    "command": "uvx ruff check -q . && uvx ruff format --check -q . && git ls-files -z '*.sh' | xargs -0 shellcheck -S warning && { [ -d node_modules ] || npm ci --silent; } && npm run --silent lint:js && node --test scripts/*.test.js && for t in skills/*/scripts/*.test.sh skills/*/scripts/lib/*.test.sh skills/*/scripts/adapters/*.test.sh scripts/*.test.sh; do [ -e \"$t\" ] || continue; bash \"$t\" || exit 1; done && for t in skills/*/scripts/test_*.py; do [ -e \"$t\" ] || continue; python3 \"$t\" || exit 1; done"
   }
 }

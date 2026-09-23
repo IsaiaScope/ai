@@ -178,7 +178,7 @@ if [ "$VERB" = recover ]; then
   rc=0
   python3 "$SELFDIR/recover.py" "$RAGENT" "$RWHAT" "$RSESS" "$RFMT" || rc=$?
   [ "$RKILL" = 1 ] && cleanup_kill_agent "$RTERM"
-  exit $rc
+  exit "$rc"
 fi
 
 # ---- spawn / deliver (shared spawn flow) -------------------------------------

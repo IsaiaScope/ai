@@ -1,0 +1,14 @@
+{
+  "name": "ai",
+  "version": "0.6.2",
+  "private": true,
+  "description": "Dev tooling only. Nothing here is a runtime dependency: the scripts in this repo run on bare node and never require from node_modules.",
+  "scripts": {
+    "fix:js": "biome check --write .",
+    "lint:js": "biome ci ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "ultracite": "7.12.0"
+  }
+}

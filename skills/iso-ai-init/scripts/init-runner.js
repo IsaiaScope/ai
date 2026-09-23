@@ -1,24 +1,33 @@
 #!/usr/bin/env node
-"use strict";
 
-const { existsSync, readFileSync } = require("fs");
-const { dirname, isAbsolute, join, resolve } = require("path");
-const { spawnSync } = require("child_process");
+const { existsSync, readFileSync } = require("node:fs");
+const { isAbsolute, join, resolve } = require("node:path");
+const { spawnSync } = require("node:child_process");
 
 const skillBase = resolve(process.env.ISO_AI_INIT_BASE || join(__dirname, ".."));
 const manifestPath = process.env.ISO_AI_INIT_MANIFEST || join(skillBase, "steps.json");
 
 function inGitRepo() {
-  if (process.env.ISO_AI_INIT_IN_GIT_REPO === "true") return true;
-  if (process.env.ISO_AI_INIT_IN_GIT_REPO === "false") return false;
+  if (process.env.ISO_AI_INIT_IN_GIT_REPO === "true") {
+    return true;
+  }
+  if (process.env.ISO_AI_INIT_IN_GIT_REPO === "false") {
+    return false;
+  }
   const r = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], { stdio: "ignore" });
   return r.status === 0;
 }
 
 function resolveArg(arg) {
-  if (typeof arg !== "string") return arg;
-  if (isAbsolute(arg)) return arg;
-  if (!arg.includes("/")) return arg;
+  if (typeof arg !== "string") {
+    return arg;
+  }
+  if (isAbsolute(arg)) {
+    return arg;
+  }
+  if (!arg.includes("/")) {
+    return arg;
+  }
   const candidate = join(skillBase, arg);
   return existsSync(candidate) ? candidate : arg;
 }
@@ -56,7 +65,9 @@ function main() {
   }
 
   console.log("--- iso-ai-init summary ---");
-  for (const line of summary) console.log(line);
+  for (const line of summary) {
+    console.log(line);
+  }
 }
 
 main();

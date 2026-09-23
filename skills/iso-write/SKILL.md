@@ -36,6 +36,22 @@ eval "$(scripts/write.sh resolve "$plan_path" $workspace_flag)"
 
 A dirty working tree (staged or unstaged) is **not** refused. How Step 2 handles it depends on the mode: the default and `--branch=<name>` modes stash the changes and carry them onto the target branch; `--no-branch` leaves them in place; `--worktree` leaves them in the main checkout (the worktree starts clean).
 
+**Never create a worktree the user did not ask for.** `--worktree` is the only
+way this skill ends up in one — not a fallback, not a workaround for a busy
+checkout, and never for a second repo a plan touches. Iso does not want
+worktrees: a sibling directory holding half the change is one more place to
+review, and it moves `core.hooksPath` and other shared config under the main
+checkout anyway.
+
+**Someone else's uncommitted work is a stop, not a puzzle.** When a checkout the
+plan must change — this one, or another repo it names — holds staged or
+unstaged changes this run did not make (another live session shares these
+checkouts), do not stash-carry them onto the branch, and do not route around
+them. Finish every task in repos that are clean, then halt that repo's tasks with
+the blocked marker naming the foreign files, and ask Iso whether to wait for
+that work to be committed or to carry it. On 2026-09-23 a run improvised a
+worktree for exactly this case and had to be unwound into a patch.
+
 
 ## Tracking
 

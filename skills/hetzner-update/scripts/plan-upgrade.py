@@ -28,16 +28,25 @@ SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$")
 # that word flags everything and the check stops meaning anything. Only
 # migrations a person has to perform count.
 BODY_SIGNALS = [
-    (re.compile(r"BREAKING[ -]CHANGE", re.I), "BREAKING CHANGE in notes"),
+    (re.compile(r"BREAKING[ -]CHANGE", re.IGNORECASE), "BREAKING CHANGE in notes"),
     # Not anchored to the start of the line: changelogs generated from git log
     # put the sha first ("* a1b2c3d feat(api)!: ..."), so an anchored pattern
     # silently matches nothing on exactly the projects worth scanning.
-    (re.compile(r"(?:^|\s)\w+(?:\([^)]*\))?!:", re.M), "conventional-commit '!' marker"),
-    (re.compile(r"backwards?[ -]incompatible", re.I), "declared backwards-incompatible"),
-    (re.compile(r"not\s+backwards?[ -]compatible", re.I), "declared not backward-compatible"),
-    (re.compile(r"action\s+required", re.I), "'action required' in notes"),
-    (re.compile(r"manual\s+(?:step|migration|intervention)", re.I), "manual step required"),
-    (re.compile(r"(?:migration|upgrade)s?\s+required", re.I), "migration/upgrade required"),
+    (re.compile(r"(?:^|\s)\w+(?:\([^)]*\))?!:", re.MULTILINE), "conventional-commit '!' marker"),
+    (re.compile(r"backwards?[ -]incompatible", re.IGNORECASE), "declared backwards-incompatible"),
+    (
+        re.compile(r"not\s+backwards?[ -]compatible", re.IGNORECASE),
+        "declared not backward-compatible",
+    ),
+    (re.compile(r"action\s+required", re.IGNORECASE), "'action required' in notes"),
+    (
+        re.compile(r"manual\s+(?:step|migration|intervention)", re.IGNORECASE),
+        "manual step required",
+    ),
+    (
+        re.compile(r"(?:migration|upgrade)s?\s+required", re.IGNORECASE),
+        "migration/upgrade required",
+    ),
 ]
 
 
@@ -56,7 +65,7 @@ def key(v):
 
 
 def crosses_boundary(a, b):
-    """Is moving a -> b a breaking step by semver convention alone?
+    """Tell whether moving a -> b is a breaking step by semver convention alone.
 
     Below 1.0.0 the minor is the compatibility boundary: semver says anything
     may change in 0.y.z, and in practice 0.4 -> 0.5 is where projects break
@@ -78,19 +87,24 @@ def fetch(repo, token):
     out, page = [], 1
     while page <= 5:
         url = "https://api.github.com/repos/%s/releases?per_page=100&page=%d" % (repo, page)
-        req = urllib.request.Request(url, headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "hetzner-update-skill",
-            **({"Authorization": "Bearer %s" % token} if token else {}),
-        })
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "hetzner-update-skill",
+                **({"Authorization": "Bearer %s" % token} if token else {}),
+            },
+        )
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 batch = json.load(r)
         except urllib.error.HTTPError as e:
             hint = ""
             if e.code in (403, 429):
-                hint = ("  Unauthenticated GitHub allows 60 requests/hour. "
-                        "Run `gh auth login` or set GITHUB_TOKEN.")
+                hint = (
+                    "  Unauthenticated GitHub allows 60 requests/hour. "
+                    "Run `gh auth login` or set GITHUB_TOKEN."
+                )
             die("GitHub API %d for %s.%s" % (e.code, repo, hint))
         except urllib.error.URLError as e:
             die("cannot reach GitHub: %s" % e.reason)
@@ -122,8 +136,11 @@ def die(msg):
 
 
 def self_test():
-    """Offline check of the two things that fail silently: the version
-    boundary rule, and the body scanner's false positives."""
+    """Check offline the two things that fail silently.
+
+    Those are the version boundary rule, and the body scanner's false positives.
+    """
+
     def boundary(a, b):
         return crosses_boundary(parse(a), parse(b))
 
@@ -156,12 +173,16 @@ def self_test():
 
 def main():
     if "--self-test" in sys.argv:
-        return self_test()
+        self_test()
+        return
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True, help="owner/name on GitHub")
     ap.add_argument("--current", required=True, help="installed version, e.g. v0.4.18")
-    ap.add_argument("--allow-breaking", action="store_true",
-                    help="target the newest release even across a breaking step")
+    ap.add_argument(
+        "--allow-breaking",
+        action="store_true",
+        help="target the newest release even across a breaking step",
+    )
     ap.add_argument("--prerelease", action="store_true", help="consider prereleases too")
     args = ap.parse_args()
 
@@ -177,8 +198,14 @@ def main():
             continue
         v = parse(r.get("tag_name", ""))
         if v:
-            rels.append({"v": v, "tag": r["tag_name"], "body": r.get("body") or "",
-                         "published": r.get("published_at")})
+            rels.append(
+                {
+                    "v": v,
+                    "tag": r["tag_name"],
+                    "body": r.get("body") or "",
+                    "published": r.get("published_at"),
+                }
+            )
     if not rels:
         die("no parseable releases for %s" % args.repo)
     rels.sort(key=lambda r: key(r["v"]))
@@ -197,8 +224,14 @@ def main():
         for pat, why in BODY_SIGNALS:
             if pat.search(r["body"]):
                 reasons.append(why)
-        steps.append({"tag": r["tag"], "published": r["published"], "breaking": bool(reasons),
-                      "reasons": reasons})
+        steps.append(
+            {
+                "tag": r["tag"],
+                "published": r["published"],
+                "breaking": bool(reasons),
+                "reasons": reasons,
+            }
+        )
         if reasons and first_breaking is None:
             first_breaking = r["tag"]
         prev = r["v"]
@@ -217,22 +250,27 @@ def main():
     if not newer:
         status = "current"
     elif target is None:
-        status = "blocked"          # next release is breaking; nothing safe to take
+        status = "blocked"  # next release is breaking; nothing safe to take
     elif target == latest["tag"]:
         status = "latest"
     else:
-        status = "partial"          # can move, but not all the way
+        status = "partial"  # can move, but not all the way
 
-    print(json.dumps({
-        "repo": args.repo,
-        "current": args.current,
-        "latest": latest["tag"],
-        "target": target,
-        "status": status,
-        "releases_ahead": len(newer),
-        "first_breaking": first_breaking,
-        "steps": steps,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "repo": args.repo,
+                "current": args.current,
+                "latest": latest["tag"],
+                "target": target,
+                "status": status,
+                "releases_ahead": len(newer),
+                "first_breaking": first_breaking,
+                "steps": steps,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

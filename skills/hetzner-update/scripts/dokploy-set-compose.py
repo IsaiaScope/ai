@@ -70,9 +70,8 @@ def die(msg):
 def token():
     """Read the API key out of the curl config file."""
     if not CONF.exists():
-        die("no %s -- create it with mode 600 containing:\n"
-            '  header = "x-api-key: <token>"' % CONF)
-    m = re.search(r'^header\s*=\s*"x-api-key:\s*(.+?)"\s*$', CONF.read_text(), re.M)
+        die('no %s -- create it with mode 600 containing:\n  header = "x-api-key: <token>"' % CONF)
+    m = re.search(r'^header\s*=\s*"x-api-key:\s*(.+?)"\s*$', CONF.read_text(), re.MULTILINE)
     if not m:
         die("no 'header = \"x-api-key: ...\"' line in %s" % CONF)
     return m.group(1).strip()
@@ -107,7 +106,7 @@ def looks_like_compose(text):
     """
     if not text.strip():
         return "file is empty"
-    if not re.search(r"^services:\s*$", text, re.M):
+    if not re.search(r"^services:\s*$", text, re.MULTILINE):
         return "no top-level 'services:' key -- wrong file?"
     return None
 
@@ -146,12 +145,14 @@ def main():
         print("unchanged  : stored composeFile already matches %s" % path)
     else:
         print("updating   : %d -> %d bytes" % (len(have), len(want)))
-        call("compose.update", dict(composeId=compose_id, composeFile=want))
+        call("compose.update", {"composeId": compose_id, "composeFile": want})
         again = call("compose.one?composeId=" + compose_id).get("composeFile")
         if again != want:
-            die("the write did NOT take. compose.update reported success; it lies\n"
+            die(
+                "the write did NOT take. compose.update reported success; it lies\n"
                 "  for an unknown composeId. Stored file is unchanged, backup at\n"
-                "  %s" % backup)
+                "  %s" % backup
+            )
         print("verified   : stored composeFile now matches %s" % path)
 
     if not deploy:
@@ -161,7 +162,7 @@ def main():
     # Recreates the containers. Named volumes declared `external: true` are not
     # touched -- that is what keeps an agent's state across a redeploy.
     print("deploying  : compose.deploy")
-    call("compose.deploy", dict(composeId=compose_id))
+    call("compose.deploy", {"composeId": compose_id})
     print("deployed   : requested. Watch `docker ps` for the recreate; the API")
     print("             returns as soon as the job is queued, not when it lands.")
 

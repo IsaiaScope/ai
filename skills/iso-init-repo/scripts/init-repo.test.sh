@@ -52,7 +52,6 @@ check "old name no longer gated" \
 
 # --- git-level verbs, against a local bare "origin" ---------------------
 
-SKILL_DIR="$(cd "$(dirname "$SH")/.." && pwd)"
 newrepo() {   # echoes a fresh work tree whose origin is a local bare repo
   local d bare
   d=$(mktemp -d); bare=$(mktemp -d)

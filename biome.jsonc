@@ -1,0 +1,55 @@
+// Biome — lint and format for this repo's JavaScript.
+//
+//   npm ci                  once per clone; installs the pinned biome + ultracite
+//   npm run lint:js         report (what CI and test.command run)
+//   npm run fix:js          apply safe fixes and format
+//
+// Base: Ultracite's `core` preset, pinned in package.json. Ultracite already
+// turns off the rules that fight a CommonJS Node codebase (noCommonJs,
+// noNodejsModules, noProcessGlobal, noProcessEnv, …), so what follows is only
+// where THIS repo differs from it, each with its reason and the site count
+// measured on 2026-09-23.
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": ["ultracite/biome/core"],
+  // graphify-out/ and node_modules/ are gitignored. Reading .gitignore is
+  // cheaper than restating it here, and cannot drift from it.
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  // Vendored third-party skills, as in ruff.toml, and all of .claude/:
+  // Claude Code rewrites settings.json itself, with no trailing newline, so
+  // formatting it would fail CI after every save it makes.
+  "files": { "includes": ["!**/.agents/skills", "!**/.claude"] },
+  // Ultracite formats at 80. 100 matches ruff.toml's line-length, so Python
+  // and JavaScript in this repo wrap at the same column.
+  "formatter": { "lineWidth": 100 },
+  "assist": {
+    "actions": {
+      "source": {
+        // 36 sites. Key order in these objects mirrors external schemas
+        // (Claude Code's settings.json, MCP server entries) and is the order
+        // the scripts write back to a user's files. Sorting would reorder a
+        // user's config on every install for no behavioural gain.
+        "useSortedKeys": "off"
+      }
+    }
+  },
+  "linter": {
+    "rules": {
+      "correctness": {
+        // 7 sites. __dirname is correct in CommonJS; import.meta.dirname, the
+        // rule's suggestion, exists only in ES modules.
+        "noGlobalDirnameFilename": "off"
+      },
+      "performance": {
+        // 15 sites. Scripts that run once per invocation; hoisting a regex to
+        // module scope saves nothing measurable and moves it away from its use.
+        "useTopLevelRegex": "off"
+      },
+      "complexity": {
+        // 1 site. syncAgentHooks reads top to bottom; splitting it scatters one
+        // decision across helpers.
+        "noExcessiveCognitiveComplexity": "off"
+      }
+    }
+  }
+}
