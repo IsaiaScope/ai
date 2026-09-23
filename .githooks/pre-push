@@ -7,6 +7,11 @@ rc=0
 # never silently. Kept outside the markers below so re-running /iso-init-repo,
 # which replaces only its own block, leaves this alone.
 cd "$(git rev-parse --show-toplevel)" || exit 1
+# This volume is exFAT: macOS writes a `._*` AppleDouble file beside anything
+# it attaches metadata to, including inside .git/objects/pack, where git then
+# reports "non-monotonic index". .gitignore keeps them out of commits; this
+# keeps them off the disk. They hold only extended attributes, never content.
+find . -name '._*' -type f -delete 2>/dev/null
 lint() { # label, what-must-exist, command...
     local label="$1" need="$2"; shift 2
     if [ -e "$need" ] || command -v "$need" >/dev/null 2>&1; then
