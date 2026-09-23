@@ -355,7 +355,7 @@ check "integrate without an open PR refuses" "$?" 1
 check "refusal is about the PR" \
   "$(cd "$d" && bash "$SH" integrate feat/i dev 2>&1 | grep -ci 'PR')" "1"
 check "integrate wrote nothing to the base" \
-  "$(git -C "$d" rev-parse origin/dev)" "$(git -C "$d" rev-parse origin/dev@{0})"
+  "$(git -C "$d" rev-parse origin/dev)" "$(git -C "$d" rev-parse "origin/dev@{0}")"
 
 # The race: base moves while CI runs. The plain push must be refused and NOTHING
 # written — this rejection is the whole concurrency story.
@@ -664,6 +664,7 @@ check "default when no overlay" "$out" "dev"
 # `pr` is find-or-create, so this decision is re-taken on every re-run: what
 # must hold is that a second run never prepends a second copy, and that a title
 # naming some OTHER ticket still gets its own.
+# shellcheck source=/dev/null
 . "$SH" >/dev/null 2>&1 || true
 set +e   # push.sh runs under `set -e`; sourcing it must not abort the suite
 

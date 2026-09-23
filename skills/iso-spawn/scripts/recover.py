@@ -5,6 +5,7 @@ Usage: recover.py <codex|claude> <output|chat> <jsonl_path> <text|json>
 Prints to stdout. Exits 1 (with a note) when output is requested but no
 assistant turn exists.
 """
+
 import json
 import sys
 
@@ -80,9 +81,7 @@ def emit(turns, what, fmt):
 
 def main():
     if len(sys.argv) != 5:
-        sys.stderr.write(
-            "usage: recover.py <codex|claude> <output|chat> <file> <text|json>\n"
-        )
+        sys.stderr.write("usage: recover.py <codex|claude> <output|chat> <file> <text|json>\n")
         sys.exit(2)
     agent, what, path, fmt = sys.argv[1:5]
     parser = codex_turns if agent.startswith("codex") else claude_turns

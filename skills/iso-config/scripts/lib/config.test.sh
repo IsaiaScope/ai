@@ -95,6 +95,7 @@ check "stamp records version" "$(iso_config_get checked.version)" "1"
 
 ISO_PREREQ_VERSION=2
 iso_stamp_ok; check "version bump invalidates" "$?" "1"
+# shellcheck disable=SC2034  # read by the sourced prereq functions
 ISO_PREREQ_VERSION=1
 
 echo "doctor: hook check"

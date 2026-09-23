@@ -1,0 +1,68 @@
+name: CI
+on:
+  pull_request:
+    branches: [dev, test, prod]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# The same lint runs as docs/iso/config.json's test.command, which /iso-review
+# runs locally, and as .githooks/pre-push. AGENTS.md promises that running
+# test.command locally checks everything CI checks, so the lists are kept
+# identical on purpose: copies a reviewer can see side by side are the
+# resting point.
+jobs:
+  python:
+    name: python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+      # uvx fetches ruff into its own environment; nothing is installed into
+      # the interpreter the scripts run under. Rules and every exemption's
+      # reason live in ruff.toml.
+      - run: uvx ruff check --output-format=github .
+      - run: uvx ruff format --check --diff .
+
+  shell:
+    name: shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # From git, never a glob; see .shellcheckrc. A list that matched nothing
+      # would pass, so count it first.
+      - name: shellcheck
+        run: |
+          n=$(git ls-files '*.sh' | wc -l); echo "shellcheck: $n files"
+          [ "$n" -gt 0 ] || exit 1
+          git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
+
+      # The exec bit is tracked content. core.fileMode is false on the exFAT
+      # volume this repo lives on, so a working copy cannot show it is wrong;
+      # only the index can. Same check as ai-agent's ci.yml.
+      - name: exec bit on shebang files
+        run: |
+          bad=0
+          for f in $(git ls-files -s | awk '$1=="100644"{print $4}'); do
+            if [ "$(head -c2 "$f")" = '#!' ]; then
+              echo "::error file=$f::starts with #! but is 100644 in the index — git update-index --chmod=+x $f"
+              bad=1
+            fi
+          done
+          exit $bad
+
+  js:
+    name: js
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      # Biome and Ultracite are pinned in package.json and package-lock.json.
+      # Dev tooling only: no script in this repo requires from node_modules.
+      - run: npm ci
+      - run: npm run lint:js
+      - run: node --test scripts/*.test.js skills/*/templates/*.test.js skills/*/scripts/*.test.js

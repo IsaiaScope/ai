@@ -13,7 +13,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 die() { printf 'iso-config: %s\n' "$1" >&2; exit 1; }
 
 cmd_init() {
-  local dir; dir=$(dirname "$ISO_GLOBAL_CONFIG")
+  local dir
+  # shellcheck disable=SC2154  # assigned in lib/config.sh
+  dir=$(dirname "$ISO_GLOBAL_CONFIG")
   mkdir -p "$dir"
   if [ -f "$ISO_GLOBAL_CONFIG" ]; then die "$ISO_GLOBAL_CONFIG already exists"; fi
   iso_defaults | jq 'del(.checked)' > "$ISO_GLOBAL_CONFIG"
@@ -119,6 +121,7 @@ cmd_doctor() {
   cmd_doctor_hooks
   [ "$rc" -eq 0 ] || die "not ready — resolve the lines above"
   iso_stamp_write
+  # shellcheck disable=SC2154  # assigned in prereq.sh
   printf '\nready (prerequisite list v%s)\n' "$ISO_PREREQ_VERSION"
 }
 

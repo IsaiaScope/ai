@@ -15,3 +15,6 @@ __pycache__/
 .claude/skills/graphify/
 .agents/skills/graphify/
 .codex/hooks.json
+
+# Dev tooling from package.json (biome, ultracite). Never a runtime dependency.
+node_modules/
