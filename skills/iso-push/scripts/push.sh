@@ -841,6 +841,11 @@ cmd_release() {
           --title "chore(release): $version" --body-file "$msgfile" \
           | grep -oE '[0-9]+$') \
       || die "could not open the release PR for $rb -> $base"
+    # The release commit is not exempt from "never integrate a red build".
+    # `npm version` rewrites package.json here, and a lint rule on its field
+    # order once shipped red on dev: the merge ran before CI had reported.
+    cmd_checks "$pr" >/dev/null \
+      || die "release PR #$pr is red — fix it on $base through a PR, then re-run"
     gh pr merge "$pr" --merge \
       || die "release PR #$pr refused — resolve on GitHub, then re-run"
     git fetch --quiet origin "$base"

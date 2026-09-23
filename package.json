@@ -1,5 +1,6 @@
 {
   "name": "ai",
+  "version": "0.6.1",
   "private": true,
   "description": "Dev tooling only. Nothing here is a runtime dependency: the scripts in this repo run on bare node and never require from node_modules.",
   "scripts": {
@@ -9,6 +10,5 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "ultracite": "7.12.0"
-  },
-  "version": "0.6.1"
+  }
 }
