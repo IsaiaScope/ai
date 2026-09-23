@@ -1,4 +1,3 @@
-"use strict";
 const {
   readdirSync,
   existsSync,
@@ -10,8 +9,8 @@ const {
   unlinkSync,
   symlinkSync,
   rmSync,
-} = require("fs");
-const { join } = require("path");
+} = require("node:fs");
+const { join } = require("node:path");
 
 const SUPPORTED_AGENTS = ["claude-code", "codex"];
 
@@ -51,8 +50,11 @@ function routeSkills(skillNames) {
   const unrouted = [];
   for (const name of skillNames) {
     const route = routes.find((r) => name.startsWith(r.plugin.prefix));
-    if (route) route.skills.push(name);
-    else unrouted.push(name);
+    if (route) {
+      route.skills.push(name);
+    } else {
+      unrouted.push(name);
+    }
   }
   return { routes, unrouted };
 }
@@ -66,7 +68,7 @@ function syncManifest(pluginPath, skillNames) {
   const changed = JSON.stringify(plugin.skills) !== JSON.stringify(next);
   if (changed) {
     plugin.skills = next;
-    writeFileSync(pluginPath, JSON.stringify(plugin, null, 2) + "\n");
+    writeFileSync(pluginPath, `${JSON.stringify(plugin, null, 2)}\n`);
   }
   return { changed, skills: next };
 }
@@ -84,7 +86,9 @@ function materializePlugin(pluginDir, skills) {
   const wanted = new Set(skills);
   const pruned = [];
   for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
-    if (wanted.has(entry.name)) continue;
+    if (wanted.has(entry.name)) {
+      continue;
+    }
     const stale = join(skillsDir, entry.name);
     try {
       unlinkSync(stale);
@@ -100,11 +104,15 @@ function materializePlugin(pluginDir, skills) {
     let current = null;
     try {
       current = lstatSync(link).isSymbolicLink() ? readlinkSync(link) : null;
-    } catch {}
+    } catch {
+      // absent or unreadable: treated as no link, recreated below
+    }
     if (current !== target) {
       try {
         unlinkSync(link);
-      } catch {}
+      } catch {
+        // no previous link to replace
+      }
       symlinkSync(target, link);
     }
   }

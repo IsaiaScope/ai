@@ -94,6 +94,27 @@ integration_branch() {
   echo ""
 }
 
+# Is this commit sitting on the base's own first-parent line?
+#
+# Every landing in this chain is `gh pr merge --merge` -- never rebase, never
+# squash -- so a branch that truly shipped is reachable ONLY as some merge
+# commit's second parent, off to the side of that line. A branch that was cut
+# from the base and never committed sits directly ON it. Ancestry says yes to
+# both; this is what tells them apart, and it needs no network, which is the
+# whole point of the fallback that calls it.
+#
+# Checks the local base and origin's, because either may be the one the branch
+# was cut from. A ref that does not resolve is skipped, not an error.
+on_base_line() {
+  local d="$1" sha="$2" base="$3" ref
+  for ref in "$base" "origin/$base"; do
+    git -C "$d" rev-parse --verify --quiet "$ref" >/dev/null 2>&1 || continue
+    git -C "$d" rev-list --first-parent "$ref" 2>/dev/null \
+      | grep -qx "$sha" && return 0
+  done
+  return 1
+}
+
 ledger_get() { state_dir; jq -r --arg k "$1" '.[$k] // empty' "$LEDGER" 2>/dev/null; }
 ledger_put() {
   state_dir; local tmp; tmp=$(mktemp)
@@ -535,7 +556,7 @@ case "${1:-}" in
       printf '%s' "$body" | tk_issue_comment "$key" \
         || logf "retro: comment failed on $key"
     fi
-    set_status "$key" done && logf "$key -> done (retro, plan ${plan##*/})"
+    set_status "$key" "done" && logf "$key -> done (retro, plan ${plan##*/})"
     ledger_del "$key"
     ;;
 
@@ -614,7 +635,7 @@ case "${1:-}" in
     body=""
     [ -t 0 ] || body=$(cat 2>/dev/null | redact | head -c 8000 || true)
     was=$(plan_current "$key")
-    plan_push "$key" "$plan" done "$body" \
+    plan_push "$key" "$plan" "done" "$body" \
       || { logf "addplan: no ledger row for $key"; exit 0; }
     desc=$(render_body "$sid" "$agent" "$intro" "$(plan_entries "$key")")
     if [ -n "$desc" ]; then
@@ -826,7 +847,7 @@ case "${1:-}" in
     sid="${2:-}"; key="${3:-}"
     [ -z "$key" ] && key=$(bound_issue "$sid")
     if [ -z "$key" ]; then logf "done: nothing bound"; exit 0; fi
-    set_status "$key" done && logf "done $key (override)"
+    set_status "$key" "done" && logf "done $key (override)"
     ledger_del "$key"
     echo "$key"
     ;;
@@ -860,11 +881,6 @@ case "${1:-}" in
       | [.key, (.value.branch // ""), (.value.opened_by // "iso"),
          (.value.repo // "")] | @tsv' "$LEDGER" 2>/dev/null)
 
-    # Loop-invariant: the integration tip does not move while the loop runs, and
-    # resolving it per row cost one git fork per open ticket on every session
-    # start. Same standard the pr_map/rows comment above sets for jq.
-    ib_sha=$(git -C "$repo_dir" rev-parse "$ib" 2>/dev/null)
-
     while IFS=$'\t' read -r key br who rrepo; do
       [ -n "$key" ] || continue
       { [ -z "$br" ] || [ "$br" = "$ib" ]; } && continue
@@ -888,14 +904,20 @@ case "${1:-}" in
 
       merged=0
       [ "$pr_state" = "MERGED" ] && merged=1
-      # Ancestry alone is not shipping. A branch with no commits points at the
-      # integration tip, so `--is-ancestor` is vacuously true and the row would
-      # close having shipped nothing. Require a real difference first. A merged
-      # PR is checked above and stays authoritative.
+      # Ancestry alone is not shipping. A branch with no commits of its own is
+      # an ancestor of the base for a reason that has nothing to do with having
+      # landed, so `--is-ancestor` is true and the row would close having
+      # shipped nothing. A merged PR is checked above and stays authoritative.
+      #
+      # Comparing the two tips used to be that guard, and it only caught the branch
+      # cut moments ago. Let the base move on and the tips differ, so a branch
+      # that never carried a commit sailed through: FIRE-19 closed three weeks
+      # early that way, its work still uncommitted, while dev advanced beneath
+      # it. `on_base_line` asks the question the tips cannot.
       # Resolved once and reused by the branch-gone check below, which asked git
       # the same question about the same ref a second time.
       br_sha=$(git -C "$repo_dir" rev-parse --verify --quiet "$br" 2>/dev/null)
-      if [ "$merged" -eq 0 ] && [ -n "$br_sha" ] && [ "$br_sha" != "$ib_sha" ]; then
+      if [ "$merged" -eq 0 ] && [ -n "$br_sha" ] && ! on_base_line "$repo_dir" "$br_sha" "$ib"; then
         git -C "$repo_dir" merge-base --is-ancestor "$br" "$ib" 2>/dev/null && merged=1
         # Only when the local base has not already answered yes. Written as an
         # `if`, not `[ ] || git ... && merged=1`: that chain parses as
@@ -906,7 +928,7 @@ case "${1:-}" in
       fi
 
       if [ "$merged" -eq 1 ]; then
-        set_status "$key" done \
+        set_status "$key" "done" \
           && { logf "reconcile $key -> done (branch $br merged)"; ledger_del "$key"; }
         continue
       fi

@@ -1,3 +1,25 @@
+#!/usr/bin/env bash
+set -uo pipefail
+rc=0
+
+# Lint before push: the same runs as ci.yml and docs/iso/config.json's
+# test.command. Each one is skipped with a warning when its tool is missing,
+# never silently. Kept outside the markers below so re-running /iso-init-repo,
+# which replaces only its own block, leaves this alone.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+lint() { # label, what-must-exist, command...
+    local label="$1" need="$2"; shift 2
+    if [ -e "$need" ] || command -v "$need" >/dev/null 2>&1; then
+        "$@" || { printf 'pre-push: FAILED %s\n' "$label" >&2; rc=1; }
+    else
+        printf 'pre-push: skipping %s (%s not found)\n' "$label" "$need" >&2
+    fi
+}
+lint "ruff check"  uvx uvx ruff check -q .
+lint "ruff format" uvx uvx ruff format --check -q .
+lint "shellcheck"  shellcheck sh -c "git ls-files -z '*.sh' | xargs -0 shellcheck -S warning"
+lint "biome"       node_modules/.bin/biome npm run --silent lint:js
+
 # >>> iso-init-repo branch guard >>>
 # shellcheck shell=bash  # a fragment spliced into a hook: no shebang of its own
 # Refuses direct pushes to dev, test and prod.
@@ -44,3 +66,8 @@ while read -r _ _ guard_remote_ref _; do
     esac
 done
 # <<< iso-init-repo branch guard <<<
+
+if [ "$rc" -ne 0 ]; then
+  echo "pre-push: blocked." >&2
+fi
+exit "$rc"

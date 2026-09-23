@@ -1,4 +1,4 @@
-const assert = require("node:assert");
+const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { syncAgentHooks, commandFor, loadHooks, HOOKS_JSON } = require("./agent-hooks");
 const { readFileSync } = require("node:fs");
@@ -12,7 +12,10 @@ const ours = (s, event) => cmdOf(s, event).filter((c) => c.includes("iso-hook:")
 
 test("empty settings gain both hooks", () => {
   const { settings, changes } = syncAgentHooks({});
-  assert.deepStrictEqual(changes.map((c) => c.action), ["added", "added"]);
+  assert.deepStrictEqual(
+    changes.map((c) => c.action),
+    ["added", "added"]
+  );
   assert.strictEqual(ours(settings, "SessionStart").length, 1);
   assert.strictEqual(ours(settings, "SessionEnd").length, 1);
 });
@@ -20,7 +23,10 @@ test("empty settings gain both hooks", () => {
 test("a second run changes nothing", () => {
   const once = syncAgentHooks({}).settings;
   const { settings, changes } = syncAgentHooks(once);
-  assert.deepStrictEqual(changes.map((c) => c.action), ["unchanged", "unchanged"]);
+  assert.deepStrictEqual(
+    changes.map((c) => c.action),
+    ["unchanged", "unchanged"]
+  );
   assert.deepStrictEqual(settings, once);
 });
 
@@ -42,13 +48,18 @@ test("hooks belonging to other tools are left alone", () => {
 test("a pre-marker hook at the OLD path is adopted, not duplicated", () => {
   const stale = {
     hooks: {
-      SessionStart: [{
-        hooks: [{
-          type: "command",
-          command: 'S="$HOME/.claude/skills/iso-multica-tracking/scripts/multica-session.sh"; [ -x "$S" ] && "$S" reconcile; exit 0',
-          timeout: 10,
-        }],
-      }],
+      SessionStart: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command:
+                'S="$HOME/.claude/skills/iso-multica-tracking/scripts/multica-session.sh"; [ -x "$S" ] && "$S" reconcile; exit 0',
+              timeout: 10,
+            },
+          ],
+        },
+      ],
     },
   };
   const { settings, changes } = syncAgentHooks(stale);
@@ -62,12 +73,17 @@ test("a pre-marker hook at the OLD path is adopted, not duplicated", () => {
 test("a pre-marker hook at the CURRENT path is adopted too", () => {
   const unmarked = {
     hooks: {
-      SessionEnd: [{
-        hooks: [{
-          type: "command",
-          command: 'S="$HOME/.claude/skills/iso-issue-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" end; exit 0',
-        }],
-      }],
+      SessionEnd: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command:
+                'S="$HOME/.claude/skills/iso-issue-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" end; exit 0',
+            },
+          ],
+        },
+      ],
     },
   };
   const { settings, changes } = syncAgentHooks(unmarked);
@@ -81,8 +97,28 @@ test("a pre-marker hook at the CURRENT path is adopted too", () => {
 test("legacy adoption does not cross the two hooks over", () => {
   const both = {
     hooks: {
-      SessionStart: [{ hooks: [{ type: "command", command: 'S="$HOME/.claude/skills/iso-issue-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" reconcile; exit 0' }] }],
-      SessionEnd: [{ hooks: [{ type: "command", command: 'S="$HOME/.claude/skills/iso-issue-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" end; exit 0' }] }],
+      SessionStart: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command:
+                'S="$HOME/.claude/skills/iso-issue-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" reconcile; exit 0',
+            },
+          ],
+        },
+      ],
+      SessionEnd: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command:
+                'S="$HOME/.claude/skills/iso-issue-tracking/scripts/tracking.sh"; [ -x "$S" ] && "$S" end; exit 0',
+            },
+          ],
+        },
+      ],
     },
   };
   const { settings } = syncAgentHooks(both);
@@ -97,7 +133,10 @@ test("a hand-edited marked hook is overwritten and the edit reported", () => {
   edited.hooks.SessionStart[0].hooks[0].command = "echo mine  # iso-hook:reconcile";
   const { settings, changes } = syncAgentHooks(edited);
   assert.strictEqual(changes.find((c) => c.name === "reconcile").action, "updated");
-  assert.strictEqual(changes.find((c) => c.name === "reconcile").was, "echo mine  # iso-hook:reconcile");
+  assert.strictEqual(
+    changes.find((c) => c.name === "reconcile").was,
+    "echo mine  # iso-hook:reconcile"
+  );
   assert.strictEqual(ours(settings, "SessionStart")[0], commandFor(HOOKS[0]));
 });
 
@@ -140,4 +179,3 @@ test("a hook added to the list is installed with no code change", () => {
   assert.match(added[0], /iso-hook:audit/);
   assert.match(added[0], /"\$S" audit;/);
 });
-

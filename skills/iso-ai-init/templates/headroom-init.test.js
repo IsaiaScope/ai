@@ -8,7 +8,7 @@
 // Skips cleanly (not fails) when the network/install is unavailable, so it never
 // blocks CI on a box that can't reach PyPI / the uv installer.
 
-const assert = require("node:assert");
+const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { existsSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
@@ -28,7 +28,10 @@ function runScript() {
 }
 
 function headroomRuns() {
-  const r = spawnSync("headroom", ["--version"], { encoding: "utf8", env: { ...process.env, PATH: PATH_WITH_LOCAL } });
+  const r = spawnSync("headroom", ["--version"], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: PATH_WITH_LOCAL },
+  });
   return r.status === 0;
 }
 
@@ -36,19 +39,32 @@ test("headroom-init.sh sets up headroom correctly and is idempotent", (t) => {
   const first = runScript();
   if (first.status !== 0) {
     // Most likely cause off-grid: PyPI / uv installer unreachable. Don't fail CI.
-    t.skip(`headroom-init.sh exited ${first.status} (install/network unavailable?):\n${first.stderr}`);
+    t.skip(
+      `headroom-init.sh exited ${first.status} (install/network unavailable?):\n${first.stderr}`
+    );
     return;
   }
 
   // --- correctness: headroom is installed and actually runs ---
-  assert.ok(headroomRuns(), "`headroom --version` must run — proves a working install, not a broken interpreter");
+  assert.ok(
+    headroomRuns(),
+    "`headroom --version` must run — proves a working install, not a broken interpreter"
+  );
 
   // --- Claude Code wiring: durable marker + proxy routing in settings.json ---
   const settings = join(HOME, ".claude", "settings.json");
   assert.ok(existsSync(settings), "~/.claude/settings.json should exist");
   const raw = readFileSync(settings, "utf8");
-  assert.match(raw, /headroom-init-claude/, "settings.json should carry headroom's durable hook marker");
-  assert.match(raw, /ANTHROPIC_BASE_URL/, "settings.json should route Claude through the headroom proxy");
+  assert.match(
+    raw,
+    /headroom-init-claude/,
+    "settings.json should carry headroom's durable hook marker"
+  );
+  assert.match(
+    raw,
+    /ANTHROPIC_BASE_URL/,
+    "settings.json should route Claude through the headroom proxy"
+  );
 
   // --- idempotency: a second run is a no-op that still exits 0 and says "already" ---
   const second = runScript();

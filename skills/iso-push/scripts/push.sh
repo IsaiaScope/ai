@@ -27,7 +27,6 @@ die() { printf 'iso-push: %s\n' "$1" >&2; exit 1; }
 DEVELOPMENT=$(iso_config_get branches.development)
 TEST_BRANCH=$(iso_config_get branches.test)
 PRODUCTION=$(iso_config_get branches.production)
-PR_BASE=$(iso_config_get branches.pr_base)
 
 cmd_development_branch() { printf '%s\n' "$DEVELOPMENT"; }
 
@@ -163,7 +162,7 @@ rescue_to_branch() {   # <protected-branch> -> echoes the new branch name
 cmd_rescue() { rescue_to_branch "$@"; }
 
 cmd_preflight() {
-  local want_cascade= want_pr=
+  local want_cascade='' want_pr=''
   while [ $# -gt 0 ]; do
     case "$1" in
       --cascade) want_cascade=1 ;;

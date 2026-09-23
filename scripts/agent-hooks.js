@@ -11,8 +11,8 @@
 // varies them per machine; a file would cost a schema and a parse path to hold
 // two constants.
 
-const { readFileSync } = require("fs");
-const { join } = require("path");
+const { readFileSync } = require("node:fs");
+const { join } = require("node:path");
 
 // Relative to the agent config dir, not to $HOME: Claude Code honours
 // CLAUDE_CONFIG_DIR, and a hook command that hardcodes $HOME/.claude fails
@@ -22,6 +22,7 @@ const { join } = require("path");
 // (config.sh:41,71); this is the write side catching up.
 const SKILL_REL = "skills/iso-issue-tracking/scripts/tracking.sh";
 // A shell expression, expanded by the hook shell -- not by this module.
+// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expression, expanded by the hook shell, not by JS
 const CONFIG_DIR = "${CLAUDE_CONFIG_DIR:-$HOME/.claude}";
 
 // The list lives with the skill it wires up, in a file both readers can reach:
@@ -72,21 +73,23 @@ function syncAgentHooks(settings, hooks = loadHooks()) {
           break;
         }
       }
-      if (found) break;
+      if (found) {
+        break;
+      }
     }
 
     if (!found) {
       next.hooks[hook.event].push({ hooks: [{ type: "command", command: want, timeout: 10 }] });
       changes.push({ name: hook.name, event: hook.event, action: "added" });
-    } else if (found.command !== want) {
+    } else if (found.command === want) {
+      changes.push({ name: hook.name, event: hook.event, action: "unchanged" });
+    } else {
       // Overwrite, including a hand-edit: owning the hook has to mean owning
       // it, or the drift comes back wearing a different hat. The replaced
       // command is reported so a clobber is visible rather than silent.
       const was = found.command;
       found.command = want;
       changes.push({ name: hook.name, event: hook.event, action: "updated", was });
-    } else {
-      changes.push({ name: hook.name, event: hook.event, action: "unchanged" });
     }
   }
 

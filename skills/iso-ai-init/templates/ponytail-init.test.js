@@ -7,7 +7,7 @@
 // Skips cleanly (not fails) when the network/plugin install is unavailable, so it
 // never blocks CI on a box that can't reach the plugin marketplace.
 
-const assert = require("node:assert");
+const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { existsSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
@@ -16,7 +16,11 @@ const { spawnSync } = require("node:child_process");
 
 const script = join(__dirname, "ponytail-init.sh");
 const HOME = homedir();
-const CONFIG = join(process.env.XDG_CONFIG_HOME || join(HOME, ".config"), "ponytail", "config.json");
+const CONFIG = join(
+  process.env.XDG_CONFIG_HOME || join(HOME, ".config"),
+  "ponytail",
+  "config.json"
+);
 
 function runScript() {
   return spawnSync("bash", [script], { encoding: "utf8", env: { ...process.env } });
@@ -25,7 +29,9 @@ function runScript() {
 test("ponytail-init.sh sets ultra config and is idempotent", (t) => {
   const first = runScript();
   if (first.status !== 0) {
-    t.skip(`ponytail-init.sh exited ${first.status} (plugin/network unavailable?):\n${first.stderr}`);
+    t.skip(
+      `ponytail-init.sh exited ${first.status} (plugin/network unavailable?):\n${first.stderr}`
+    );
     return;
   }
 
@@ -34,7 +40,7 @@ test("ponytail-init.sh sets ultra config and is idempotent", (t) => {
   assert.strictEqual(
     JSON.parse(readFileSync(CONFIG, "utf8")).defaultMode,
     "ultra",
-    "config defaultMode should be ultra",
+    "config defaultMode should be ultra"
   );
 
   // --- idempotency: second run is a no-op that still exits 0 and says "already" ---
