@@ -71,7 +71,7 @@ two rows and leave the first sitting in `in_review` for good.
 
 | command | effect |
 |---|---|
-| `ticket-for-branch` | prints `<KEY>\t<status>` for this branch's live ticket, or nothing |
+| `ticket-for-branch` | prints `<KEY>\t<status>` for this branch's ticket, `done` included, or nothing |
 | `addplan <session_id> --plan <path> [--key KEY] [--title T]` | the previous plan shipped: marks it `done`, adds this one, ticket → `in_progress` |
 | `replan <session_id> --plan <path> [--key KEY] [--title T]` | the previous plan was wrong: marks it `superseded`, adds this one, ticket → `todo` |
 | `comment <KEY>` | stdin becomes one comment. No status write, no ledger change |
@@ -83,9 +83,20 @@ Takes a key, not a plan, because the caller already knows which ticket it is
 reporting on.
 
 `ticket-for-branch` is the question `/iso-plan` asks before writing anything:
-empty means open a fresh ticket, a key means replan against that one. It hides
-`done` and `cancelled` tickets, because a new plan against shipped work is new
-work — and `replan` refuses them for the same reason.
+empty means open a fresh ticket, a key means this branch already has its ticket.
+
+**One branch, one ticket, for good.** A ticket that lands keeps its ledger row,
+marked `landed`, so the branch still answers with it: a new plan there goes
+through `addplan`, which reopens the ticket (`done` → `in_progress`) and keeps
+every earlier plan in the description. When the ledger has no row — the ticket
+landed before rows were kept, or was opened on another machine — the board is
+asked which ticket carries the branch in its `Branch` property, and the row is
+rebuilt from it. `allonfire` got FIRE-31 beside FIRE-30 on one branch before
+this: the row was dropped at the landing and the next plan found nothing.
+
+Two exceptions. A `cancelled` ticket does not hold its branch: that work was
+abandoned. And base branches are exempt, as they are in `open`. `replan` still
+refuses a `done` ticket: a landed plan is not replaced, more work is added.
 
 `todo`, not `in_progress`: a new plan means nothing has been implemented yet,
 and `/iso-write` still owns the promotion. The description is **replaced** so
@@ -97,7 +108,7 @@ And the ones you still call by hand, for work with no plan behind it:
 | situation | command |
 |---|---|
 | an existing open issue already covers the request | `tracking.sh bind <session_id> <KEY>` |
-| trackable work | `open <session_id> "<title>" --scope <scope>` — always safe to call: on a feature branch that already has a live ticket this adds the plan to it and returns that ticket's key instead of creating a second one |
+| trackable work | `open <session_id> "<title>" --scope <scope>` — always safe to call: on a feature branch that already has a ticket, landed or not, this adds the plan to it and returns that ticket's key instead of creating a second one |
 | Iso says the work is finished and no merge will show it | `tracking.sh done <session_id>` |
 
 ## Writing the row

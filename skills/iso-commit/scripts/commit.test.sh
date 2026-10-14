@@ -130,5 +130,56 @@ check "staged work carried across" "$(git -C "$r" diff --cached --name-only)" "s
 check "stay does not move" "$(git -C "$r" branch --show-current)" "feat/carried"
 check "stay does not rebind" "$(wc -l < "$TRACK_CALLS" | tr -d ' ')" "0"
 
+echo "lint:"
+# A stub commitlint standing in for the repo's own: it rejects a subject with
+# no scope, the rule a real repo tripped on.
+d=$(newrepo); mkdir -p "$d/node_modules/.bin"
+cat > "$d/node_modules/.bin/commitlint" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "--edit" ] && head -1 "$2" | grep -q '^[a-z]*(.*):'
+STUB
+chmod +x "$d/node_modules/.bin/commitlint"
+printf 'feat: no scope\n' > "$d/bad"; printf 'feat(x): scoped\n' > "$d/good"
+(cd "$d" && bash "$SH" lint bad >/dev/null 2>&1); check "repo rule rejects" "$?" 1
+(cd "$d" && bash "$SH" lint good >/dev/null 2>&1); check "repo rule passes" "$?" 0
+d=$(newrepo); printf 'feat: no scope\n' > "$d/msg"
+check "no commitlint skips" "$(cd "$d" && bash "$SH" lint msg 2>/dev/null)" "lint=skipped (no commitlint installed in this repo)"
+
+echo "dropped paths:"
+# A pre-commit hook that unstages one path, like lint-staged restoring a backup.
+# One commit first: with no HEAD the hook itself dies and git aborts the commit,
+# so the check below passed without the detection ever running.
+d=$(newrepo); ( cd "$d" && git commit -q --allow-empty -m init && touch a.txt b.txt && git add -A )
+mkdir -p "$d/.git/hooks"
+printf '#!/bin/sh\ngit restore --staged b.txt\n' > "$d/.git/hooks/pre-commit"
+chmod +x "$d/.git/hooks/pre-commit"
+printf 'feat(x): thing\n' > "$d/.git/msg"
+out=$( (cd "$d" && bash "$SH" commit .git/msg) 2>&1 ); rc=$?
+check "dropped path exits 4" "$rc" 4
+printf '%s' "$out" | grep -q 'b.txt' && ok "it names the dropped path" || bad "the dropped path is not named"
+check "the commit was still made" "$(git -C "$d" log -1 --format=%s)" "feat(x): thing"
+
+# A formatter hook that puts a file back to HEAD dropped nothing: there is no
+# change left to commit.
+d=$(newrepo); ( cd "$d" && printf 'a\n' > f.txt && git add -A && git commit -q -m init \
+    && printf 'a \n' > f.txt && touch n.txt && git add -A )
+mkdir -p "$d/.git/hooks"
+printf '#!/bin/sh\ngit checkout HEAD -- f.txt\n' > "$d/.git/hooks/pre-commit"
+chmod +x "$d/.git/hooks/pre-commit"
+printf 'feat(x): thing\n' > "$d/.git/msg"
+(cd "$d" && bash "$SH" commit .git/msg >/dev/null 2>&1); check "a path a hook put back to HEAD is not dropped" "$?" 0
+
+# Concluding a merge: the commit has two parents, and the paths it brought in
+# are compared against the first.
+d=$(newrepo); ( cd "$d" && git commit -q --allow-empty -m init && git checkout -q -b side \
+    && touch s.txt && git add -A && git commit -q -m side && git checkout -q - \
+    && touch m.txt && git add -A && git commit -q -m main \
+    && git merge -q --no-commit --no-ff side )
+printf 'feat(x): merge side\n' > "$d/.git/msg"
+(cd "$d" && bash "$SH" commit .git/msg >/dev/null 2>&1); check "concluding a merge passes" "$?" 0
+d=$(newrepo); ( cd "$d" && touch a.txt && git add -A )
+printf 'feat(x): thing\n' > "$d/.git/msg"
+(cd "$d" && bash "$SH" commit .git/msg >/dev/null 2>&1); check "full commit passes" "$?" 0
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

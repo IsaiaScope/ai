@@ -128,6 +128,12 @@ truly deserves its own row deserves its own branch.
 `reconcile` already `ledger_del`s on close (`:624`). So a branch name reused after a merge finds
 nothing and opens a fresh ticket — correct: finished work is finished.
 
+> **Reversed on 2026-10-13.** A `done` ticket now keeps its branch: its ledger
+> row stays, marked landed, and a new plan on that branch reopens the ticket
+> instead of opening a second one. `allonfire` got FIRE-31 beside FIRE-30 on one
+> branch under the rule above. Only `cancelled` still frees a branch. See
+> `skills/iso-issue-tracking/SKILL.md`, "One branch, one ticket, for good".
+
 ### Status
 
 A plan landing on a row that is `in_review` moves it to `in_progress`. `in_review` while code is

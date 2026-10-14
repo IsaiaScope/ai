@@ -1,6 +1,6 @@
 ---
 name: iso-push
-description: Push committed work, open a PR against dev, and land it with a merge commit so no commit is ever rewritten or duplicated. Use when invoked as /iso-push [--pr] [--cascade test|prod] [--no-merge] [--stay], or when asked to push a branch, open a PR against dev, or promote dev to test or prod. Requires a dev or develop branch on origin. Rebases the branch onto its base automatically; returns to dev after a landing unless --stay; never force-pushes without explicit approval.
+description: Push committed work, open a PR against dev, and land it with a merge commit so no commit is ever rewritten or duplicated. Use when invoked as /iso-push [--pr] [--cascade test|prod] [--no-merge] [--stay], or when asked to push a branch, open a PR against dev, or promote dev to test or prod. Requires a dev or develop branch on origin. Rebases the branch onto its base automatically; cuts the version when the branch lands on dev, so test and prod only promote; returns to dev after a landing unless --stay; never force-pushes without explicit approval.
 ---
 
 # iso-push
@@ -14,18 +14,23 @@ Invocation: `/iso-push [--pr] [--cascade test|prod] [--no-merge] [--stay]`.
 | flag | effect |
 |---|---|
 | *(none)* | push the current branch, nothing else |
-| `--pr` | push, then open a PR against `dev` and integrate it once CI is green |
-| `--cascade test` | release, then promote `dev` → `test` |
-| `--cascade prod` | release, then promote `dev` → `test` → `prod` |
+| `--pr` | push, open a PR against `dev`, integrate it once CI is green, then cut the release |
+| `--cascade test` | promote `dev` → `test` |
+| `--cascade prod` | promote `dev` → `test` → `prod` |
 | `--no-merge` | open the PRs and stop; integrate nothing |
 | `--stay` | stay on the feature branch after a landing instead of returning to the base |
 
 `--cascade` works with or without `--pr`. Without it, `dev` is promoted exactly
 as it currently stands.
 
+**The work is finished at `dev`.** The landing there is where the ticket closes,
+the version is cut and tagged, and you are put back on `dev`. `test` and `prod`
+are a cascade of that same commit, run once `dev` has proved itself; they cut
+nothing and close nothing.
+
 **A pure cascade — `--cascade` with no `--pr` — runs from the base, not from a
 feature branch.** It has no branch to land: it reads only `origin/*` refs and
-promotes `dev` as it is. That is also where step 8 leaves you at the end of the
+promotes `dev` as it is. That is also where step 9 leaves you at the end of the
 previous run, so the two compose. With `--pr` the opposite holds — there *is* a
 branch to land, and `dev` cannot open a PR into itself.
 
@@ -162,7 +167,7 @@ A clean rebase onto the base needs no approval — it is local, recoverable via
 
 **The only commit this skill may create is a version bump.** The only files it
 may write are `VERSION` and the test asserting it. The only branch it may push a
-self-made commit to is the base, during a cascade. Everything else it pushes is
+self-made commit to is the base, behind a landing. Everything else it pushes is
 a branch tip that a PR and CI have already passed.
 
 ## Flow
@@ -198,7 +203,7 @@ a branch tip that a PR and CI have already passed.
    nothing to push. Running them anyway would misfire in both directions —
    `status` reports `integrated:` (branch and base are the same ref) and would
    halt the run at step 2, and `push` refuses a protected branch outright. Go
-   straight to step 7.
+   straight to step 8.
 
    Otherwise, four independent things, any one of which can sink the push:
 
@@ -223,7 +228,7 @@ a branch tip that a PR and CI have already passed.
    PR with no content in it, and do not check the user out onto `dev`. Say where
    they are and let them move.
 
-   That is not in tension with step 8: the return happens because **this run**
+   That is not in tension with step 9: the return happens because **this run**
    landed something. Here the branch was already in the base before the run
    started, so there is nothing to report and no reason to move anyone.
 
@@ -346,26 +351,39 @@ a branch tip that a PR and CI have already passed.
    posts no retro, because it genuinely does not know the story. That fallback
    stays.
 
-7. **Cascade** — only with `--cascade`.
+7. **Release** — after every landing on the base, so not after `--no-merge`.
 
-   First, **release** — once, on the base, before any hop:
+   - `push.sh bump <base>` — echoes `<current> <next> <kind>`, or `none`.
+   - `none` → nothing landed since the last release. Go to the next step.
+   - Otherwise write `<msgfile>`: a one-line **release title** (format below),
+     a blank line, then the feature PR's body. Then
+     `push.sh release <next> <msgfile>`.
 
-   - `push.sh bump <base> test` — echoes `<current> <next> <kind>`, or `none`.
-   - `none` → the branches are level, there is nothing to promote. Report it and
-     stop; do not cut a version for zero commits. This is the only `none`.
-   - Otherwise write **two** files and pass both:
-     - `<msgfile>` — the cascade PR message, subject included.
-     - `<annotfile>` — the same body, but with the cascade subject replaced by a
-       one-line **release title** (format below).
+   It builds `chore(release): <next>` in a detached worktree, pushes it to
+   `release/v<next>`, opens a PR against the base, waits for its checks and
+   lands it like everything else — the release commit is not exempt from the
+   rule that GitHub is the only writer to a protected branch. It then tags that
+   same commit, and asserts it is reachable from the base before doing so. Your
+   working tree is never touched and a dirty tree cannot block it.
 
-     Then `push.sh release <next> <msgfile> <annotfile>`. It builds
-     `chore(release): <next>` in a
-     detached worktree, pushes it to `release/v<next>`, opens a PR against the
-     base and lands it like everything else — the release commit is not exempt
-     from the rule that GitHub is the only writer to a protected branch. It then
-     tags that same commit, and asserts it is reachable from the base before
-     doing so. Your working tree is never touched and a dirty tree cannot block
-     it.
+   The range is everything on the base since the last release, not this branch
+   alone. A PR someone merged on GitHub by hand is released along with it. The
+   range starts where `VERSION` last changed, not at a tag, so list it with
+   `git log --no-merges --oneline "$(git log -1 --format=%H origin/<base> -- VERSION)"..origin/<base>`
+   and, when it shows work that is not yours, write the title and summary for
+   all of it.
+
+   A red release PR stops here and is reported. The feature already landed, so
+   step 9 still runs. Fix the base through a PR and run `release` again; it
+   says so when the `release/v<next>` branch of the failed run is in the way.
+
+8. **Cascade** — only with `--cascade`.
+
+   First, **catch up**: `push.sh bump <base>`. `none` is the normal answer,
+   because every landing already released. Anything else means the base took
+   work this skill did not land; release it as in step 7, so nothing is
+   promoted without a version. There is no feature PR body to reuse here: write
+   the title and the two sections from the commits that range lists.
 
    Then each hop in turn (`dev`→`test`, and for `prod` also `test`→`prod`):
 
@@ -375,14 +393,14 @@ a branch tip that a PR and CI have already passed.
    - Write the cascade message, then `push.sh pr <from> <to> <msgfile>`.
    - `push.sh checks <n>`, then `push.sh integrate <from> <to>`.
 
-   `test→prod` never bumps. It promotes the same commit — nothing is rebuilt at
-   a rung — so "test is on 0.4.0" and "prod is on 0.4.0" name **the same SHA**,
-   which is the point. Verify a promotion with
+   A hop never bumps and never tags. It promotes the same commit — nothing is
+   rebuilt at a rung — so "dev is on 0.4.0", "test is on 0.4.0" and "prod is on
+   0.4.0" name **the same SHA**, which is the point. Verify a promotion with
    `git merge-base --is-ancestor origin/test origin/prod`.
 
    A hop that fails CI stops the cascade. Later hops do not run.
 
-8. **Home** — once, after the last successful landing of the run, unless
+9. **Home** — once, after the last successful landing of the run, unless
    `--stay`. Run `push.sh home <base>`: it checks out the base and
    fast-forwards it to `origin/<base>`.
 
@@ -391,35 +409,48 @@ a branch tip that a PR and CI have already passed.
    cascade — moving the user off a branch whose work is still in flight loses
    them the thing they were looking at.
 
-   **A pure cascade still needs this**, even though it started on the base: the
-   release commit reaches `dev` through a PR, so local `dev` ends the run one
-   behind `origin/dev`. `home` fast-forwards it.
+   **It runs last, after the release.** The release commit reaches `dev` through
+   its own PR, behind the feature's, so going home any earlier leaves local
+   `dev` one release behind `origin/dev`. A pure cascade that had to catch up
+   needs it for the same reason, even though it started on the base.
 
    `<base>` is always the base from step 1, `dev`, including after a cascade to
    `prod`. `test` and `prod` are places work is promoted **to**, never worked
    **on**; checking someone out onto one invites the straight-to-prod commit the
    preflight gate exists to refuse.
 
+   **Uncommitted work comes along.** A tree is dirty at the end of most working
+   sessions, and staying on the merged branch because of it puts the next commit
+   on a dead lane. On the base, `/iso-commit` cuts that work a fresh branch.
+
    Two refusals, both reported and neither fatal to what already landed:
 
-   - **Dirty tree** — exit 3. Says which paths and leaves you where you are.
-     Uncommitted work is not something a flag about your final branch may move.
+   - **Uncommitted work the base would overwrite** — exit 3. git refuses the
+     whole switch and touches nothing; it names the paths and you stay where
+     you are.
    - **Local base holds commits `origin/<base>` lacks** — exit 1. That branch is
      not a copy of the remote one, and `refs/heads/dev` shadows `origin/dev` in
      every later `rev-parse`. Report it; do not straighten it here.
 
-9. **Report** — every PR URL created or merged, the version released and its
-   tag, where the run left you, and what was skipped.
+10. **Report** — every PR URL created or merged, the version released and its
+    tag, where the run left you, and what was skipped.
 
 ## Versioning
 
-Versioning happens **only in the cascade**, never in the feature flow. Two
-feature PRs open at once would both compute the same next version and then
-conflict on `VERSION` — a file neither author touched — every single time.
-Promotion is serial by construction, so the collision cannot occur there.
+Versioning happens **when a branch lands on the base**, and nowhere else. A
+release exists the moment the work is on `dev`; `test` and `prod` promote a
+commit that already has its number.
 
-The bump is computed from `origin/test..origin/dev`, the same range the cascade
-PR body lists. Highest wins, exactly like the PR subject rule:
+The bump never rides in the feature branch. Two feature PRs open at once would
+both compute the same next version and then conflict on `VERSION` — a file
+neither author touched — every single time. So it is computed **after** the
+merge, from `origin/dev`, and lands through its own `release/v<next>` PR. Two
+landings racing each other is the one collision left: the second `release`
+finds that branch name taken and refuses, and a re-run computes the next number.
+
+The bump is computed from everything on the base since the last commit that
+changed `VERSION` — the previous release — merge nodes excluded. Highest wins,
+exactly like the PR subject rule:
 
 | range contains | bump |
 |---|---|
@@ -427,10 +458,11 @@ PR body lists. Highest wins, exactly like the PR subject rule:
 | else any `feat` | minor |
 | else any `fix` or `perf` | patch |
 | else **anything at all** — `chore`, `docs`, `refactor`, `test`, `ci`, `style`, `build`, `revert` | patch |
-| an **empty** range — nothing to promote | none — no release commit |
+| an **empty** range — nothing landed since the last release | none — no release commit |
 
-**Every promotion cuts a version.** `none` means exactly one thing: there is
-nothing to promote. It is never a judgement about what the commits were.
+**Every landing cuts a version.** `none` means exactly one thing: nothing
+landed since the last release. It is never a judgement about what the commits
+were.
 
 An earlier rule skipped the release when the range held no `feat`/`fix`/`perf`.
 It read well and was wrong in two ways:
@@ -492,9 +524,9 @@ One annotated tag per release.
 | name | `v` + the `VERSION` contents, e.g. `v0.4.0` |
 | kind | **annotated, never lightweight.** A lightweight tag is a bare pointer — no tagger, no date, no message. It can say *which commit*, never *what shipped*. |
 | points at | the `chore(release): <version>` commit on the base |
-| when | once, before the first hop. `test→prod` tags nothing. |
-| first line | a **release title** — see below. Never the cascade PR's subject. |
-| body | the cascade PR body — `### 📦 Summary`, `### 📝 Commits`, then one `🔗` line per work PR, appended by `push.sh release` |
+| when | once per landing, right behind the feature PR's merge. A promotion tags nothing. |
+| first line | a **release title** — see below. Never a commit or PR subject. |
+| body | the feature PR body — `### 📦 Summary`, `### 📝 Changes`, then one `🔗` line per work PR, appended by `push.sh release` |
 
 ### The release title
 
@@ -549,11 +581,6 @@ is *literally* the one `prod` contains. Under a rebase merge each rung held its
 own copy, the tag matched none of them, and every question above needed a tree
 comparison instead.
 
-**The tag's count reads one lower than the cascade PR's. That is correct, not a
-bug.** The tag is written before `chore(release):` itself has been promoted, so
-the release commit is absent from its own annotation — it is bookkeeping, a
-number recording the other commits, not shipped work.
-
 No `deploy/<env>/<date>` scheme: the merged cascade PRs already timestamp each
 promotion, and a date in a tag *name* duplicates the annotation's own date.
 
@@ -575,6 +602,28 @@ affects. Cut the section if it cannot say that.
 
 Same two headings as the cascade body, so a reader learns one shape. `Changes`
 rather than `Commits`: these dots describe the diff, not a commit list.
+
+**The body is written twice-read.** Under a release title it becomes the
+`v<version>` tag annotation, where it is read years later with no PR page and
+no context, so it has to stand alone.
+
+`push.sh release` appends a `🔗` line per PR that carried work into the release:
+
+```
+🔗 https://github.com/owner/repo/pull/5 — feat: add age-encrypted vault for hetzner credentials
+```
+
+You do not write those lines. They are derived: every landing is a `--merge`, so
+each leaves a merge commit naming its PR, and the release's range yields them.
+
+**Never the release's own PR.** That one changes a single line of `VERSION` and
+answers nothing about what shipped, which is the only question a tag gets opened
+for. It is excluded structurally rather than by filtering: the range ends at the
+release *commit*, and the release PR's merge node is a descendant of it. The
+previous release's PR is out the same way, from the other end: the range starts
+at that PR's merge node, where `VERSION` last changed on the base's own line.
+It is the range the bump counted, read from `VERSION`'s history and never from
+a tag.
 
 The subject follows `iso-commit` exactly — `type(scope): message`, imperative,
 ≤50 chars preferred and 72 hard, no trailing period, no emoji — the subject is
@@ -613,9 +662,8 @@ name one is padding and gets deleted, not reworded.
 
 ## Cascade PR message
 
-Its **body** is reused as the `v<version>` tag annotation; its **subject** is not
-— the tag gets a release title instead (see [The release title](#the-release-title)).
-Write both files, pass both to `push.sh release`.
+A cascade PR carries releases that already exist. It writes no tag and no
+version; its body says what the hop moves.
 
 ```
 chore(cascade): dev → test
@@ -637,31 +685,14 @@ Two headings, one emoji each, and the count in the `Commits` heading rather than
 a sentence of its own. `###` renders as a heading on the PR page and still reads
 as a plain label in `git show v0.1.0` — the same text has to work in both.
 
-`push.sh release` appends a `🔗` line per PR that carried work into the release:
-
-```
-🔗 https://github.com/owner/repo/pull/5 — feat: add age-encrypted vault for hetzner credentials
-```
-
-You do not write those lines — none of the numbers exist when the message file
-is written. They are derived: every landing is a `--merge`, so each leaves a
-merge commit naming its PR, and the release's range yields them.
-
-**Never the release's own PR.** That one changes a single line of `VERSION` and
-answers nothing about what shipped, which is the only question a tag gets opened
-for. It is excluded structurally rather than by filtering: the range ends at the
-release *commit*, and the release PR's merge node is a descendant of it.
-
 **The summary, at most 5 lines under `### 📦 Summary`.** It says what the release *delivers* — the
 thing a reader wants before deciding whether to read the list. Write it at the
 release's level, not the commit's: three commits that together move credentials
 into an encrypted vault are *one* sentence about credentials, not three
 sentences about files.
 
-This is the part that survives into the tag annotation and gets read years
-later, with no PR page and no context. It has to stand alone. Same shape rule as
-everywhere else — every line names something concrete (a path, a command, a
-behavior); a line that cannot is padding and gets deleted.
+Same shape rule as everywhere else — every line names something concrete (a
+path, a command, a behavior); a line that cannot is padding and gets deleted.
 
 Do not summarize a docs-only or chore-only promotion into significance it does
 not have. `chore: bump three dependencies` is the honest summary, and one line
@@ -708,9 +739,9 @@ the subject, not on the dots, not sprinkled through the prose.
 - Never `git push --force` to `dev`, `test`, or `prod`. Straightening an
   environment branch belongs to `/iso-init-repo`.
 - Never integrate a red build. No CI configured is a pass; a failing check is not.
-- Never `home` past uncommitted work, and never onto a `test` or `prod` checkout.
-  The return moves the working copy and nothing else — no commit, no push, no
-  branch deleted.
+- `home` never overwrites uncommitted work and never lands on a `test` or `prod`
+  checkout. The return moves the working copy and nothing else — no commit, no
+  push, no branch deleted, no stash.
 - `prod` is only ever fed from `test`; the gate workflow `iso-init-repo` installs
   enforces it server-side. Reference it by role, not by filename — it has been
   renamed once already.

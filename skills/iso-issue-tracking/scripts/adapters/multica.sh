@@ -58,6 +58,22 @@ tk_issue_get_status() {
   multica issue get "$1" --output json 2>/dev/null | jq -r '.status // empty' 2>/dev/null
 }
 
+# The tickets whose property holds this value, one "<key>\t<status>" per line.
+# $1 property name, $2 value, $3 project id.
+tk_issue_by_property() {
+  multica issue list --property "$1=$2" --project "$3" --output json \
+    --fields identifier,status 2>>"${LOG:-/dev/null}" \
+    | jq -r '.issues[]? | [.identifier, .status] | @tsv' 2>/dev/null
+}
+
+# Fails when the ticket cannot be read, so a caller can tell that from an empty
+# description.
+tk_issue_get_description() {
+  local out
+  out=$(multica issue get "$1" --output json 2>>"${LOG:-/dev/null}") || return 1
+  printf '%s' "$out" | jq -r '.description // empty' 2>/dev/null
+}
+
 # --no-start is load-bearing: without it a status write can start an agent run,
 # the one thing this design must never do.
 tk_issue_status() { multica issue status "$1" "$2" --no-start >/dev/null 2>>"${LOG:-/dev/null}"; }
