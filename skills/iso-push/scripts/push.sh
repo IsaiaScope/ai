@@ -622,33 +622,46 @@ history. Check the repo's merge-method settings before promoting"
 # ancestry is asserted outright, and --ff-only is kept for what it is good at:
 # advancing a base that is merely behind, without inventing a merge node.
 #
-# Exit 3 = dirty tree, the same code cmd_status uses for it. A checkout would
-# carry the changes onto the base or abort halfway, and neither is what a flag
-# about where you end up should do to uncommitted work.
+# UNCOMMITTED WORK COMES ALONG, when git can move it untouched. It used to be a
+# refusal, and a tree is dirty at the end of most working sessions — so the run
+# ended on the merged branch anyway, and the next commit went onto the dead lane
+# this function exists to leave. On the base, that same work is what
+# /iso-commit's branch gate cuts a fresh feature branch for.
+#
+# The order is what makes the carry possible. The local base is fast-forwarded
+# BEFORE the checkout, as a ref, so the switch is feature tip -> merged base:
+# two trees that differ by the release commit and little else. Checking out the
+# stale base first would rewrite every file the branch changed, which are the
+# very files likely to be dirty, and git would refuse.
+#
+# Exit 3 = uncommitted work in the way, the same code cmd_status uses for a
+# dirty tree. git refuses the whole switch when a changed file would be
+# overwritten and touches nothing, so there is no half-moved state to clean up.
 cmd_home() {
-  local base="${1:?usage: push.sh home <base>}" branch dirty own
+  local base="${1:?usage: push.sh home <base>}" branch own out
   branch=$(git symbolic-ref --short HEAD)
-  dirty=$(git status --porcelain)
-
-  if [ -n "$dirty" ]; then
-    printf 'home: staying on %s, working tree is dirty\n%s\n' \
-      "$branch" "$(printf '%s' "$dirty" | sed 's/^/  /')"
-    return 3
-  fi
-
   git fetch --quiet origin "$base"
-  # No local branch is fine: checkout creates one tracking origin/<base>.
-  [ "$branch" = "$base" ] || git checkout --quiet "$base" \
-    || die "cannot check out $base from $branch"
 
-  own=$(git rev-list --count "origin/$base..HEAD")
-  [ "$own" -eq 0 ] || die "local '$base' holds $own commit(s) origin/$base does not — it
+  if git rev-parse --verify --quiet "refs/heads/$base" >/dev/null; then
+    own=$(git rev-list --count "origin/$base..refs/heads/$base")
+    [ "$own" -eq 0 ] || die "local '$base' holds $own commit(s) origin/$base does not — it
 is not a copy of the remote branch, and every later rev-parse would read it
 instead. Inspect it before working from it; straightening an integration branch
 belongs to /iso-init-repo, not here"
+    # Not checked out, so the ref moves and no file does.
+    [ "$branch" = "$base" ] || git branch --quiet -f "$base" "origin/$base" \
+      || die "cannot fast-forward '$base' to origin/$base"
+  fi
 
-  git merge --quiet --ff-only "origin/$base" \
-    || die "cannot fast-forward '$base' to origin/$base"
+  # No local branch is fine: checkout creates one tracking origin/<base>.
+  local -a move=(checkout --quiet "$base")
+  [ "$branch" = "$base" ] && move=(merge --quiet --ff-only "origin/$base")
+  if ! out=$(git "${move[@]}" 2>&1); then
+    [ -n "$(git status --porcelain)" ] || die "cannot move to '$base': $out"
+    printf 'home: staying on %s, uncommitted work is in the way\n%s\n' \
+      "$branch" "$(printf '%s' "$out" | sed 's/^/  /')"
+    return 3
+  fi
 
   printf 'home: %s at %s (was %s)\n' \
     "$base" "$(git rev-parse --short HEAD)" "$branch"
@@ -678,55 +691,84 @@ cmd_promote() {
   git --no-pager log --no-merges --format='%s' "origin/$to..origin/$from"
 }
 
+# ------------------------------------------------------------- release range
+# The commit a release counts from: the last one on <ref> that changed VERSION,
+# which is the previous release COMMIT. The file's history, not a tag: a tag
+# push fails on its own, and the version and the tag's links must cover the same
+# commits. Prints nothing when VERSION has no history on <ref>.
+#
+# The commit, not the merge node of its PR. A PR that lands while a release PR
+# is still open sits above the release commit and below that node, so a range
+# started at the node left it out for good: never counted, never linked.
+last_release() { git log -1 --format='%H' "$1" -- VERSION; }
+
+# PR numbers of the merges in <range> that carried WORK, one per line. Every
+# landing is a --merge, so each leaves a merge commit whose subject names its
+# PR. A release PR is not work, whichever release it belongs to. The previous
+# one's merge node is inside every range, right above the commit the range
+# starts at, and v0.3.0 of allonfire listed "chore(release): 0.2.0" among what
+# it shipped. Matched on the whole branch name, so `fix/release/v2-parser` stays.
+work_prs() {
+  git log --merges --format='%s' "$1" \
+    | grep -vE ' from [^/ ]+/release/v[0-9]+\.[0-9]+\.[0-9]+$' \
+    | sed -n 's/^Merge pull request #\([0-9][0-9]*\) .*/\1/p' || true
+}
+
 # --------------------------------------------------------------------- bump
 # Pure computation, writes nothing. Echoes "<current> <next> <kind>", or "none".
 #
-# Versioning lives in the CASCADE, never in the feature flow. Two feature PRs
-# open at once would both compute the same next version and then conflict on the
-# version file — a file neither author touched — every single time. Promoting is
-# serial by construction, so the collision cannot occur there.
+# Versioning happens AT THE LANDING ON THE BASE: a feature PR merges, and the
+# release is cut right behind it. From there test and prod only promote a commit
+# that already has its number, so they cut nothing.
 #
-# The range is origin/<to>..origin/<from>: exactly what cmd_promote already
-# lists in the PR body.
+# It used to live in the cascade, to keep two open feature PRs from both editing
+# the version file and conflicting on it. That still cannot happen: no feature
+# branch ever carries the bump. It is computed here, AFTER the merge, from
+# origin/<base>, and it lands through its own release PR.
+#
+# The range is everything on the base since `last_release`. A base that took
+# merges this skill did not drive is therefore caught up by whichever release
+# runs next, a landing or a cascade about to promote.
 cmd_bump() {
-  local from="${1:?usage: push.sh bump <from> <to>}"
-  local to="${2:?usage: push.sh bump <from> <to>}"
-  local cur
-  git fetch --quiet origin "$from" "$to"
+  local base="${1:?usage: push.sh bump <base>}"
+  local cur last
+  git fetch --quiet origin "$base"
 
-  # "Nothing to promote" is answered BEFORE a VERSION file is demanded. bump
-  # runs ahead of promote in the cascade, so a level pair would otherwise be
-  # sent to /iso-init-repo to set up a file it has no use for yet.
-  # DEFAULT patch, not none: every promotion cuts a version. A chore-only range
-  # still changes what prod holds, and leaving it untagged made `git describe`
-  # report a release the branch had already moved past — prod read v0.1.0 while
-  # carrying commits no tag covered. It also silently swallowed `revert:` and
-  # `build:`, both of which change the artifact.
-  #
-  # `none` now means exactly one thing: the range is empty (handled below).
-  local range="origin/$to..origin/$from" subjects bodies kind=patch
-  subjects=$(git log --format='%s' "$range")
-  bodies=$(git log --format='%b' "$range")
-  [ -z "$subjects" ] && { printf 'none\n'; return 0; }
-
-  # Read VERSION from origin/<from>, NOT the working tree. The release commit is
-  # built on origin/<from>, so that is the number being incremented — a stale
+  # Read VERSION from origin/<base>, NOT the working tree. The release commit is
+  # built on origin/<base>, so that is the number being incremented — a stale
   # VERSION on the user's feature branch must not decide the next release.
-  cur=$(git show "origin/$from:VERSION" 2>/dev/null | tr -d '[:space:]') || cur=""
+  cur=$(git show "origin/$base:VERSION" 2>/dev/null | tr -d '[:space:]') || cur=""
 
   # ABSENT VERSION SEEDS AT 0.1.0 — it does not refuse.
   #
   # Seeded, not computed: with no existing number there is nothing to increment,
-  # so the commit kinds in the range have no bearing on the result. A first
-  # release is a real event and the repo needs a floor to count up from.
+  # so the commits on the base have no bearing on the result. A first release is
+  # a real event and the repo needs a floor to count up from.
   # `(absent)` fills the <current> field so the three-field contract holds.
   if [ -z "$cur" ]; then
     printf '(absent) 0.1.0 initial\n'
     return 0
   fi
 
+  # --no-merges, because right after a release this range holds exactly one
+  # commit: the release PR's own merge node. Counting it would cut a second
+  # release for the first one's landing, forever.
+  #
+  # DEFAULT patch, not none: every landing cuts a version. A chore-only range
+  # still changes what prod will hold, and leaving it untagged made `git
+  # describe` report a release the branch had already moved past — prod read
+  # v0.1.0 while carrying commits no tag covered. It also silently swallowed
+  # `revert:` and `build:`, both of which change the artifact.
+  #
+  # `none` means exactly one thing: nothing landed since the last release.
+  last=$(last_release "origin/$base")
+  local range="$last..origin/$base" subjects bodies kind=patch
+  subjects=$(git log --no-merges --format='%s' "$range")
+  [ -z "$subjects" ] && { printf 'none\n'; return 0; }
+  bodies=$(git log --no-merges --format='%b' "$range")
+
   printf '%s' "$cur" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
-    || die "VERSION on origin/$from is not semver: '$cur'"
+    || die "VERSION on origin/$base is not semver: '$cur'"
 
   # Subjects decide feat/fix; only BREAKING CHANGE is read from bodies. Scanning
   # bodies for ^feat would let a commit that merely QUOTES a subject bump minor.
@@ -756,24 +798,21 @@ cmd_bump() {
 # self-made commit to is the base. That narrowness is the point — everything
 # else it pushes is a branch tip a PR and CI already passed.
 #
-# The release commit CANNOT be created on test: it must be on the base so both
-# promotions carry it, and so "test is on 0.4.0" and "prod is on 0.4.0" describe
-# the same work rather than two numbers that happen to match.
+# The release commit is created on the base, right behind the landing it
+# records, so both promotions carry it and "test is on 0.4.0" and "prod is on
+# 0.4.0" describe the same work rather than two numbers that happen to match.
 #
 # A detached worktree, not `checkout dev`: the user stays on their branch with
 # their tree untouched, and a dirty tree cannot block a release.
 cmd_release() {
-  local version="${1:?usage: push.sh release <version> <msgfile> [annotfile]}"
-  local msgfile="${2:?usage: push.sh release <version> <msgfile> [annotfile]}"
-  # The tag annotation is a SEPARATE file when one is given, because the two
-  # documents want different first lines. `msgfile` opens with the cascade PR's
-  # subject — `chore(cascade): dev -> test` — which is right for a PR (commitlint
-  # reads it, it names the hop) and useless on a tag: `git tag -n1` prints only
-  # that line, so the release index reads as a list of hops instead of a list of
-  # releases. `annotfile` opens with a one-line release title instead.
-  local annotfile="${3:-$msgfile}"
+  local version="${1:?usage: push.sh release <version> <msgfile>}"
+  local msgfile="${2:?usage: push.sh release <version> <msgfile>}"
+  # `msgfile` is the release PR's body and the tag annotation: one file opening
+  # with a one-line release title. `git tag -n1` prints only that line, so the
+  # release index reads as a list of releases. Seeded from a message that opened
+  # with a commit subject, it once read `chore(cascade): dev -> test` on every
+  # release.
   [ -s "$msgfile" ] || die "tag message file is empty: $msgfile"
-  [ -s "$annotfile" ] || die "tag annotation file is empty: $annotfile"
   printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
     || die "version is not semver: '$version'"
 
@@ -865,33 +904,21 @@ cmd_release() {
     # changes one line of VERSION and answers nothing about what shipped, the
     # single question a tag gets read for.
     #
-    # They are derivable: every landing is a --merge, so each leaves a merge
-    # commit whose subject names its PR. The range this release covers is the
-    # one the cascade is about to promote.
+    # The range is the one cmd_bump counted: everything since the release before
+    # this one — one PR at a landing, several when a release catches up on
+    # merges made outside this skill. A first release has no start and covers
+    # the whole history.
+    #
+    # Bound at $sha, not at origin/$base, so it stays correct if the tag is
+    # repaired later, after other landings have already moved $base on.
     #
     # Appended HERE, not written by the caller: none of these numbers are known
     # when the message file is written. Best-effort throughout — a release must
     # not fail because `gh` did.
-    local annot prnums="" relrange="" prevtag
-    annot=$(mktemp); cat "$annotfile" > "$annot"
-
-    # Bound at $sha, not at origin/$base. The release commit's own merge node is
-    # a DESCENDANT of $sha, so this range excludes the release PR structurally
-    # rather than by filtering — and it stays correct if the tag is repaired
-    # later, after the cascade has already moved $base on.
-    prevtag=$(git describe --tags --abbrev=0 "$sha^" 2>/dev/null || true)
-    if [ -n "$prevtag" ]; then
-      relrange="$prevtag..$sha"
-    elif git rev-parse --verify --quiet origin/test >/dev/null 2>&1; then
-      relrange="origin/test..$sha"
-    fi
-    if [ -n "$relrange" ]; then
-      prnums=$(git log --merges --format='%s' "$relrange" \
-               | sed -n 's/^Merge pull request #\([0-9][0-9]*\) .*/\1/p' || true)
-      # Belt and braces: the range already excludes it, but this states the
-      # intent outright so a later change to the endpoint cannot reintroduce it.
-      [ -n "$pr" ] && prnums=$(printf '%s\n' "$prnums" | grep -vx "$pr" || true)
-    fi
+    local annot prnums prev
+    annot=$(mktemp); cat "$msgfile" > "$annot"
+    prev=$(last_release "$sha^")
+    prnums=$(work_prs "${prev:+$prev..}$sha")
     if [ -n "$prnums" ]; then
       printf '\n' >> "$annot"
       local n line

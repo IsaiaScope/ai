@@ -10,8 +10,8 @@ anything published without asking.
 ## What it does
 
 Pushes the current branch. With `--pr`, rebases onto `dev` if you are behind,
-opens a PR, waits for CI, and lands it with a merge commit. With `--cascade`, cuts
-a version and carries `dev` through `test` and `prod`.
+opens a PR, waits for CI, lands it with a merge commit, and cuts the version
+right behind it. With `--cascade`, carries `dev` through `test` and `prod`.
 
 ```
 feat(api): add cursor pagination to /events
@@ -29,12 +29,16 @@ their existing query params; only the response gains a cursor.
 | flag | effect |
 |---|---|
 | *(none)* | push the current branch, nothing else |
-| `--pr` | push, open a PR against `dev`, integrate it when CI is green |
-| `--cascade test` | release, then promote `dev` → `test` |
-| `--cascade prod` | release, then promote `dev` → `test` → `prod` |
+| `--pr` | push, open a PR against `dev`, integrate it when CI is green, cut the release |
+| `--cascade test` | promote `dev` → `test` |
+| `--cascade prod` | promote `dev` → `test` → `prod` |
 | `--no-merge` | open the PRs and stop |
 
 `--cascade` works without `--pr`, promoting `dev` as it currently stands.
+
+The work is finished at `dev`: that landing closes the ticket, cuts and tags the
+version, and puts you back on `dev`, uncommitted work included. `test` and `prod`
+are a cascade of the same commit.
 
 ## Rules it follows
 
@@ -94,7 +98,7 @@ waits for you.
 
 **One commit, one file, one branch.** The only commit this skill creates is a
 version bump; the only files it writes are `VERSION` and its test; the only
-branch it pushes a self-made commit to is `dev`, during a cascade. Everything
+branch it pushes a self-made commit to is `dev`, behind a landing. Everything
 else it pushes is a branch tip a PR and CI already passed.
 
 **`VERSION` is canonical; `package.json` is synced, not maintained.** `VERSION`
@@ -104,17 +108,20 @@ is a projection of it. `package.json` is the copy npm and CI actually consume, s
 stale lockfile turns one drift into two. A `package.json` with no `npm` on PATH
 refuses the release rather than shipping a manifest it could not update.
 
-**Versions move in the cascade, never in the feature flow.** Two feature PRs
-open at once would both compute the same next version and then conflict on
-`VERSION` — a file neither author touched — every time. Promotion is serial, so
-the collision cannot happen there. `feat` → minor, `fix`/`perf` → patch, `!` or
-`BREAKING CHANGE` → major (minor below `1.0.0`, per SemVer's `0.x` clause),
+**Versions move when a branch lands on `dev`, never inside the branch.** Two
+feature PRs open at once would both compute the same next version and then
+conflict on `VERSION` — a file neither author touched — every time. So the bump
+is computed after the merge, from `origin/dev`, over everything since the last
+release, and lands through its own `release/v<next>` PR. `test` and `prod`
+promote that commit and cut nothing. `feat` → minor, `fix`/`perf` → patch, `!`
+or `BREAKING CHANGE` → major (minor below `1.0.0`, per SemVer's `0.x` clause),
 **anything else → patch**.
 
-**Every promotion cuts a version.** The only range that releases nothing is an
-empty one. Skipping the release for a chore-only promotion — the earlier rule —
+**Every landing cuts a version.** The only range that releases nothing is an
+empty one. Skipping the release for a chore-only range — the earlier rule —
 left `git describe origin/prod` naming a release the branch had already moved
-past, and silently swallowed `revert:` and `build:` along with the docs.
+past, and silently swallowed `revert:` and `build:` along with the docs. A
+cascade checks first and releases whatever reached `dev` without this skill.
 
 **Never integrates a red build.** Branch protection is unavailable on private
 repos on the free plan, so this skill is the only thing standing between a
@@ -139,9 +146,9 @@ that together move credentials into a vault are one sentence about credentials.
 The dots under them stay verbatim: `iso-commit` already wrote those subjects, and
 re-describing one in its own dot says nothing twice.
 
-That body becomes the `v<version>` tag annotation, with the release PR's URL
-appended as a `🔗` line. So `git show v0.4.0` returns the summary *and* a way
-back to the review, years later, on a machine with no network.
+The feature PR's body becomes the `v<version>` tag annotation, with the work
+PR's URL appended as a `🔗` line. So `git show v0.4.0` returns the summary *and*
+a way back to the review, years later, on a machine with no network.
 
 **Branches are never deleted**, and `dev`/`test`/`prod` are never force-pushed.
 Straightening an environment branch belongs to `/iso-init-repo`.
@@ -160,10 +167,10 @@ One annotated tag per release, `v0.4.0`, on the `chore(release):` commit.
 Annotated, never lightweight: a lightweight tag is a bare pointer with no tagger,
 date or message — it can say *which commit*, never *what shipped*.
 
-**Its first line is a release title, not the cascade PR's subject.** `git tag -n1`
-prints only that line, and that listing is the release index — seeded from the PR
-it read `v0.1.0  chore(cascade): dev → test`, the same words every release,
-naming nothing. A title makes the index a changelog:
+**Its first line is a release title, not a PR subject.** `git tag -n1` prints
+only that line, and that listing is the release index — seeded from the cascade
+PR it once read `v0.1.0  chore(cascade): dev → test`, the same words every
+release, naming nothing. A title makes the index a changelog:
 
 ```
 v0.2.0   Add cursor pagination and retire the offset path
@@ -173,7 +180,7 @@ v0.1.0   Encrypt hetzner credentials and gate promotions
 One line, ≤72, imperative, no `type(scope):` prefix — a tag is not a commit, so
 the grammar buys nothing and spends the characters that matter most in a listing.
 
-Below it sits the cascade PR body — summary, commit list, then one `🔗` line per
+Below it sits the feature PR body — summary, changes, then one `🔗` line per
 PR that carried work into the release, appended by `push.sh release` and titled,
 so the line reads as *what it was* rather than a bare number. Never the release's
 own PR: that one changes a single line of `VERSION` and answers nothing about
@@ -208,7 +215,7 @@ skills/iso-push/
 │   └── why-merge.md      why every landing is --merge, with the trees drawn
 └── scripts/
     ├── push.sh           preflight, base, status, rebase, push, pr, checks,
-    │                     integrate, promote, bump, release
+    │                     integrate, home, promote, bump, release
     └── push.test.sh      self-check — bash push.test.sh
 ```
 

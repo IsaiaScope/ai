@@ -46,7 +46,15 @@ state_dir() {
   [ -f "$LEDGER" ] || echo '{}' > "$LEDGER" 2>/dev/null
   _STATE_READY=1
 }
-logf() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$LOG" 2>/dev/null; }
+# One UTC stamp for the log and for a row's `since`. The reconciler compares
+# `since` as text against the board's own merge times, so the shape is fixed.
+utc_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+logf() { printf '%s %s\n' "$(utc_now)" "$*" >> "$LOG" 2>/dev/null; }
+
+# The board property a ticket's branch is written to and found by, and the
+# heading of the footer `ticket_body` appends and `adopt_ticket` cuts.
+PROP_BRANCH=Branch
+RESUME_HEADING='**Resume this session:**'
 
 # The board behind the tk_* verbs. An unknown kind falls back to `none`
 # rather than dying: tracking must never be able to fail the run that
@@ -109,8 +117,11 @@ on_base_line() {
   local d="$1" sha="$2" base="$3" ref
   for ref in "$base" "origin/$base"; do
     git -C "$d" rev-parse --verify --quiet "$ref" >/dev/null 2>&1 || continue
+    # `grep -x >/dev/null`, not `grep -qx`: -q exits at the first match, git
+    # takes SIGPIPE, and under pipefail the pipeline reports 141 - a hit read
+    # as a miss. Reading to the end keeps the exit status grep's own.
     git -C "$d" rev-list --first-parent "$ref" 2>/dev/null \
-      | grep -qx "$sha" && return 0
+      | grep -Fx "$sha" >/dev/null && return 0
   done
   return 1
 }
@@ -125,6 +136,28 @@ ledger_del() {
   state_dir; local tmp; tmp=$(mktemp)
   jq --arg k "$1" 'del(.[$k])' "$LEDGER" > "$tmp" 2>/dev/null \
     && mv "$tmp" "$LEDGER" || rm -f "$tmp"
+}
+
+# One branch, one ticket, for good. A ticket that lands keeps its row, marked
+# `landed`: dropping the row is how the next plan on that branch found nothing
+# and opened FIRE-31 beside FIRE-30. The reconciler skips a landed row; the
+# next status write that is not a close revives it, with a new `since` so the
+# merge that closed it cannot close it again.
+# Only set_status calls these two: the row follows the board, in one place.
+# A row parked on a base branch is dropped as before: base branches are exempt
+# from the rule, and a kept row there would answer the next `rebranch dev ...`
+# with a ticket that already shipped.
+ledger_land() {
+  local row br; row=$(ledger_get "$1"); [ -n "$row" ] || return 0
+  br=$(printf '%s' "$row" | jq -r '.branch // ""' 2>/dev/null)
+  if [ -z "$br" ] || iso_is_protected "$br"; then ledger_del "$1"; return 0; fi
+  ledger_put "$1" "$(printf '%s' "$row" | jq -c '.landed = true' 2>/dev/null)"
+}
+ledger_revive() {
+  local row
+  row=$(ledger_get "$1" | jq -c --arg t "$(utc_now)" \
+    'select(.landed == true) | del(.landed) | .since = $t' 2>/dev/null)
+  [ -z "$row" ] || ledger_put "$1" "$row"
 }
 
 # `plan` is an array of {path,state,body}: one branch carries many plans, and a
@@ -181,7 +214,7 @@ plan_current() {
 # it. Rows written before .repo existed carry none and stay visible everywhere -
 # stranding them is worse than the collision they risk.
 ticket_for() {
-  local plan="${1:-}" base keys key elsewhere
+  local plan="${1:-}" base keys key elsewhere live
   [ -n "$plan" ] || return 1
   base=${plan##*/}
   state_dir
@@ -198,7 +231,12 @@ ticket_for() {
           else [] end ) as $paths
     | select( (($paths | map(split("/") | last) | index($b)) != null)
               or (($e.value.branch // "") == $a) )
-    | $e.key' "$LEDGER" 2>/dev/null)
+    | (if ($e.value.landed // false) then "1 " else "0 " end) + $e.key' "$LEDGER" 2>/dev/null)
+  # A live row outranks a landed one. A ticket moved onto a branch that already
+  # landed once shares it with the kept row, and the retro has to reach the one
+  # still open - not close the finished ticket a second time.
+  live=$(printf '%s\n' "$keys" | sed -n 's/^0 //p')
+  keys=${live:-$(printf '%s\n' "$keys" | sed -n 's/^1 //p')}
   # A row that matched on identifier but lost on repo scope is not the same as
   # no row at all: the first means "you are in the wrong checkout", the second
   # means "this is new work". Silence made them identical, and only one of them
@@ -274,33 +312,52 @@ set_status() {
   tk_issue_status "$key" "$want" || { logf "status write refused: $key -> $want"; return 1; }
   # Read it back. FIRE-19 was logged "-> done" and dropped from the ledger while
   # the board stayed in_review: the write returned success, the transition never
-  # happened, and nothing would ever move that row again.
+  # happened, and nothing would ever move that row again. So the row follows
+  # the board only below this check, and no caller touches it.
   got=$(tk_issue_get_status "$key")
-  [ -z "$got" ] && return 0          # cannot verify; do not invent a failure
-  [ "$got" = "$want" ] && return 0
-  logf "status did not stick: $key wanted $want, board says $got"
-  printf 'tracking: %s did not move to %s (board says %s)\n' "$key" "$want" "$got" >&2
-  return 1
+  # An empty read-back cannot be verified; do not invent a failure.
+  if [ -n "$got" ] && [ "$got" != "$want" ]; then
+    logf "status did not stick: $key wanted $want, board says $got"
+    printf 'tracking: %s did not move to %s (board says %s)\n' "$key" "$want" "$got" >&2
+    return 1
+  fi
+  case "$want" in
+    done)      ledger_land "$key" ;;
+    cancelled) ledger_del "$key" ;;
+    *)         ledger_revive "$key" ;;
+  esac
+  return 0
 }
 
 current_user_name() { tk_current_user; }
 
+# name -> value into one of the small JSON caches: projects, labels, properties.
+cache_put() {
+  local tmp; tmp=$(mktemp)
+  jq --arg n "$2" --arg i "$3" '.[$n]=$i' "$1" > "$tmp" 2>/dev/null \
+    && mv "$tmp" "$1" || rm -f "$tmp"
+}
 # title -> id cache; issue create takes an id, not a title.
-project_id_for() {
-  local name="$1" id tmp
+# From the cache or the board, never created: a question about a branch must
+# not mint a project.
+project_id_lookup() {
+  local name="$1" id
   state_dir; [ -f "$PROJECTS" ] || echo '{}' > "$PROJECTS"
   id=$(jq -r --arg n "$name" '.[$n] // empty' "$PROJECTS" 2>/dev/null)
   [ -n "$id" ] && { echo "$id"; return 0; }
   id=$(tk_project_list | awk -F'\t' -v n="$name" '$2==n {print $1; exit}')
-  if [ -z "$id" ]; then
-    # No --priority flag exists on project create or update (CLI 0.4.26), so a
-    # new project lands at priority "none" and has to be set in the UI.
-    id=$(tk_project_create "$name" "$(current_user_name)")
-  fi
+  [ -n "$id" ] || return 1
+  cache_put "$PROJECTS" "$name" "$id"
+  echo "$id"
+}
+project_id_for() {
+  local name="$1" id
+  id=$(project_id_lookup "$name") && { echo "$id"; return 0; }
+  # No --priority flag exists on project create or update (CLI 0.4.26), so a
+  # new project lands at priority "none" and has to be set in the UI.
+  id=$(tk_project_create "$name" "$(current_user_name)")
   [ -z "$id" ] && { logf "could not resolve project $name"; return 1; }
-  tmp=$(mktemp)
-  jq --arg n "$name" --arg i "$id" '.[$n]=$i' "$PROJECTS" > "$tmp" 2>/dev/null \
-    && mv "$tmp" "$PROJECTS" || rm -f "$tmp"
+  cache_put "$PROJECTS" "$name" "$id"
   echo "$id"
 }
 
@@ -329,21 +386,20 @@ label_color_for() {
 # Custom property definitions are workspace-wide and owner-only, so create once
 # and cache the fact. Values are addressed by name afterwards, so no id to keep.
 ensure_property() {
-  local name="$1" type="$2" tmp
+  local name="$1" type="$2"
   state_dir; [ -f "$PROPS" ] || echo '{}' > "$PROPS"
   [ "$(jq -r --arg n "$name" '.[$n] // empty' "$PROPS" 2>/dev/null)" = "1" ] && return 0
-  if ! tk_property_list | grep -qxF "$name"; then
+  if ! tk_property_list | grep -xF "$name" >/dev/null; then
     tk_property_create "$name" "$type" \
       || { logf "could not create property $name"; return 1; }
   fi
-  tmp=$(mktemp)
-  jq --arg n "$name" '.[$n]="1"' "$PROPS" > "$tmp" 2>/dev/null && mv "$tmp" "$PROPS" || rm -f "$tmp"
+  cache_put "$PROPS" "$name" 1
 }
 
 # name -> id, same cache/lookup/create shape as project_id_for. issue create has
 # no --label flag, so the label is attached after the issue exists.
 label_id_for() {
-  local name="$1" id tmp
+  local name="$1" id
   state_dir; [ -f "$LABELS" ] || echo '{}' > "$LABELS"
   id=$(jq -r --arg n "$name" '.[$n] // empty' "$LABELS" 2>/dev/null)
   [ -n "$id" ] && { echo "$id"; return 0; }
@@ -352,9 +408,7 @@ label_id_for() {
     id=$(tk_label_create "$name" "$(label_color_for "$name")")
   fi
   [ -z "$id" ] && { logf "could not resolve label $name"; return 1; }
-  tmp=$(mktemp)
-  jq --arg n "$name" --arg i "$id" '.[$n]=$i' "$LABELS" > "$tmp" 2>/dev/null \
-    && mv "$tmp" "$LABELS" || rm -f "$tmp"
+  cache_put "$LABELS" "$name" "$id"
   echo "$id"
 }
 
@@ -385,14 +439,18 @@ do_bind() {
       end' 2>/dev/null)
     [ -n "$entries" ] || entries=$(jq -nc --arg p "$plan" '[{path:$p, state:"current", body:""}]')
   fi
+  # `since` is when this ticket first took a branch, and only the first bind
+  # writes it. The reconciler needs it to tell this ticket's merge from an older
+  # one made from the same branch name.
   ledger_put "$key" "$(printf '%s' "$row" | jq -c \
     --arg r "$proj" --arg b "$br" --arg o "$who" --argjson e "$entries" \
-    '. + {repo:$r, branch:$b, project:$r, opened_by:$o, plan:$e}' 2>/dev/null)"
+    --arg t "$(utc_now)" \
+    '. + {repo:$r, branch:$b, project:$r, opened_by:$o, plan:$e, since:(.since // $t)}' 2>/dev/null)"
   # Branch on the ticket, not only in the local ledger: the board should stay
   # readable without the local ledger, and from another machine.
   if [ -n "$br" ]; then
-    ensure_property Branch text \
-      && { tk_issue_property "$key" Branch "$br" \
+    ensure_property "$PROP_BRANCH" text \
+      && { tk_issue_property "$key" "$PROP_BRANCH" "$br" \
            || logf "branch property set failed on $key"; }
   fi
 
@@ -479,7 +537,7 @@ ticket_body() {
     # cd first: the ticket is read from anywhere, and `claude --resume` binds to
     # the directory it starts in. One line so it stays a single copy-paste.
     root=$(git rev-parse --show-toplevel 2>/dev/null || printf '.')
-    resume=$(printf '**Resume this session:**\n\n```bash\ncd %s && claude --resume %s --dangerously-skip-permissions\n```' "$root" "$sid")
+    resume=$(printf '%s\n\n```bash\ncd %s && claude --resume %s --dangerously-skip-permissions\n```' "$RESUME_HEADING" "$root" "$sid")
     if [ -n "$plan" ]; then
       resume=$(printf '%s\n\n**Then implement the plan:**\n\n```\n/iso-write %s\n```' "$resume" "$plan")
     fi
@@ -489,16 +547,68 @@ ticket_body() {
   printf '%s' "$desc"
 }
 
-# The live ticket for the branch checked out right now, or nothing. "Live" excludes
-# done and cancelled: that work shipped, and a new plan against it is new work,
-# not a second attempt at the old one.
+# A ticket the board holds for this branch and the ledger does not: one that
+# landed before landed rows were kept, or one opened on another machine. The
+# row is rebuilt, landed when the board says done. Its plan list is gone, so
+# the description the board has now becomes one finished entry - the next
+# render then keeps it instead of replacing it with the newest plan alone.
+# Base branches are exempt, as in `open`: every repo has a `dev`, and tickets
+# that were opened on it and never moved would all answer.
+# Prints "<KEY>\t<status>", the board's answer, so the caller asks nothing twice.
+adopt_ticket() {
+  local br="$1" proj pid found key st desc
+  iso_is_protected "$br" && return 1
+  proj=$(project_for "$PWD")
+  pid=$(project_id_lookup "$proj") || return 1
+  # A cancelled ticket does not hold its branch: that work was abandoned.
+  found=$(tk_issue_by_property "$PROP_BRANCH" "$br" "$pid" | awk -F'\t' '$2 != "cancelled"')
+  IFS=$'\t' read -r key st <<< "$found"     # the first line; the rest is logged
+  [ -n "$key" ] || return 1
+  case "$found" in *$'\n'*)
+    logf "adopt: several tickets carry $br: $(printf '%s' "$found" | cut -f1 | tr '\n' ' ')-- using $key" ;;
+  esac
+  # Unreadable is not empty: adopting with no body would let the next render
+  # wipe a description this run never saw.
+  desc=$(tk_issue_get_description "$key") \
+    || { logf "adopt: could not read $key, not adopting"; return 1; }
+  # Everything above the resume footer, which the render writes again.
+  desc=$(printf '%s\n' "$desc" | awk -v heading="$RESUME_HEADING" '
+    $0 == heading { exit }
+    { line[++n] = $0 }
+    END {
+      while (n > 0 && line[n] ~ /^[[:space:]]*$/) n--
+      if (n > 0 && line[n] == "---") n--
+      while (n > 0 && line[n] ~ /^[[:space:]]*$/) n--
+      for (i = 1; i <= n; i++) print line[i]
+    }')
+  # A live ticket is stamped now: whatever merged from this branch name before
+  # this ledger knew the ticket is not its merge.
+  ledger_put "$key" "$(jq -nc --arg r "$proj" --arg b "$br" --arg d "$desc" --arg s "$st" --arg t "$(utc_now)" '
+    {repo:$r, branch:$b, project:$r, opened_by:"iso",
+     plan:(if $d == "" then [] else [{path:"earlier-plans", state:"done", body:$d}] end)}
+    + (if $s == "done" then {landed:true} else {since:$t} end)')"
+  logf "adopt $key: the board says it carries $br, row rebuilt"
+  printf '%s\t%s\n' "$key" "$st"
+}
+
+# The ticket for the branch checked out right now, or nothing. A landed ticket
+# still answers: one branch carries one ticket for good, and a new plan on a
+# branch that already shipped reopens it. Only a cancelled ticket does not
+# count - that work was abandoned, not continued.
 ticket_for_branch() {
-  local br key st
+  local br key st found
   br=$(iso_current_branch)
   [ -n "$br" ] || return 1
-  key=$(ticket_for "$br") || return 1
-  st=$(tk_issue_get_status "$key")
-  case "$st" in done|cancelled) return 1 ;; esac
+  if key=$(ticket_for "$br"); then
+    st=$(tk_issue_get_status "$key")
+  else
+    # Captured first, read second: an `IFS=... read <<< "$(...)"` runs the
+    # substitution under that IFS too, and a tab-only IFS stops
+    # iso_is_protected from splitting its branch list.
+    found=$(adopt_ticket "$br") || return 1
+    IFS=$'\t' read -r key st <<< "$found"
+  fi
+  [ "$st" = "cancelled" ] && return 1
   printf '%s\t%s\n' "$key" "$st"
 }
 
@@ -557,10 +667,9 @@ case "${1:-}" in
         || logf "retro: comment failed on $key"
     fi
     set_status "$key" "done" && logf "$key -> done (retro, plan ${plan##*/})"
-    ledger_del "$key"
     ;;
 
-  # Is there a live ticket for the branch I am on? Prints "<KEY>\t<status>" or
+  # Is there a ticket for the branch I am on, landed or not? Prints "<KEY>\t<status>" or
   # nothing. /iso-plan asks this before writing a ticket: on a base branch it is
   # empty and a fresh ticket is opened, on a feature branch that already carries
   # work it names the ticket to replan against.
@@ -588,9 +697,12 @@ case "${1:-}" in
     key=$(ticket_for "$ident") \
       || { logf "rebranch: no ticket for $ident"; exit 0; }
     row=$(ledger_get "$key")
-    ledger_put "$key" "$(printf '%s' "$row" | jq -c --arg b "$newbr" '.branch=$b' 2>/dev/null)"
-    ensure_property Branch text \
-      && { tk_issue_property "$key" Branch "$newbr" \
+    # A new branch restarts the clock the reconciler reads: an older merge made
+    # from that branch name is not this ticket's.
+    ledger_put "$key" "$(printf '%s' "$row" | jq -c --arg b "$newbr" --arg t "$(utc_now)" \
+      'if .branch == $b then . else .branch = $b | .since = $t end' 2>/dev/null)"
+    ensure_property "$PROP_BRANCH" text \
+      && { tk_issue_property "$key" "$PROP_BRANCH" "$newbr" \
            || logf "rebranch: branch property set failed on $key"; }
     logf "rebranch $key -> $newbr (from $ident)"
     ;;
@@ -627,8 +739,8 @@ case "${1:-}" in
     if [ -z "$key" ]; then
       key=$(ticket_for_branch | cut -f1)
       if [ -z "$key" ]; then
-        logf "addplan: no live ticket for this branch -- open one instead"
-        printf 'tracking: no live ticket for this branch -- nothing to add to\n' >&2
+        logf "addplan: no ticket for this branch -- open one instead"
+        printf 'tracking: no ticket for this branch -- nothing to add to\n' >&2
         exit 0
       fi
     fi
@@ -653,7 +765,7 @@ case "${1:-}" in
       || logf "addplan: comment failed on $key"
     st=$(tk_issue_get_status "$key")
     case "$st" in
-      todo|backlog|in_review|blocked)
+      todo|backlog|in_review|blocked|done)
         set_status "$key" in_progress \
           && logf "$key -> in_progress (addplan, ${plan##*/}, was ${was:-<none>}, from $st)" ;;
       *) logf "$key addplan ${plan##*/} (was ${was:-<none>}, status $st unchanged)" ;;
@@ -767,11 +879,31 @@ case "${1:-}" in
     # The invariant this enforces is about feature branches, which is where a
     # duplicate actually splits one story in two.
     cur_br=$(iso_current_branch)
-    held=""
+    held=""; held_st=""
     if iso_is_protected "$cur_br"; then
       logf "open: $cur_br is a base branch, no branch gate applied"
     else
-      held=$(ticket_for_branch | cut -f1)
+      found=$(ticket_for_branch)
+      IFS=$'\t' read -r held held_st <<< "$found"
+    fi
+    # No plan to add: the by-hand form. The branch's ticket is still the answer,
+    # reopened when it had landed. addplan cannot take this - it needs a plan -
+    # and redirecting there did nothing at all and dropped the body, which is
+    # kept as a comment because there is no plan section to put it in.
+    if [ -n "$held" ] && [ -z "$plan" ]; then
+      logf "open: $held already carries $cur_br (no plan given; title not applied: $title)"
+      printf 'tracking: this branch is already tracked by %s -- using it (title left alone)\n' "$held" >&2
+      body=""
+      [ -t 0 ] || body=$(cat 2>/dev/null | redact | head -c 4000 || true)
+      if [ -n "$body" ]; then
+        printf '%s' "$body" | tk_issue_comment "$held" || logf "open: comment failed on $held"
+      fi
+      if [ "$held_st" = "done" ]; then
+        set_status "$held" in_progress && logf "$held -> in_progress (open, no plan, was done)"
+      fi
+      do_bind "$sid" "$held" claude "" 0
+      echo "$held"
+      exit 0
     fi
     if [ -n "$held" ]; then
       # The title is deliberately NOT forwarded. It was written for a ticket
@@ -848,7 +980,6 @@ case "${1:-}" in
     [ -z "$key" ] && key=$(bound_issue "$sid")
     if [ -z "$key" ]; then logf "done: nothing bound"; exit 0; fi
     set_status "$key" "done" && logf "done $key (override)"
-    ledger_del "$key"
     echo "$key"
     ;;
 
@@ -859,15 +990,20 @@ case "${1:-}" in
     ib=$(integration_branch "$repo_dir")
     if [ -z "$ib" ]; then logf "reconcile: no integration branch, skipping"; exit 0; fi
 
-    # Nothing tracked means nothing to reconcile. Checked before gh, because an
-    # empty ledger is the common case on session start and gh costs ~0.5s.
-    [ "$(jq -r 'keys|length' "$LEDGER" 2>/dev/null || echo 0)" = "0" ] && exit 0
+    # Nothing open means nothing to reconcile; a landed row is not open work.
+    # Read before gh, because an empty ledger is the common case on session
+    # start and gh costs ~0.5s.
+    rows=$(jq -r 'to_entries[]
+      | select((.value.landed // false) | not)
+      | [.key, (.value.branch // ""), (.value.opened_by // "iso"),
+         (.value.since // "-"), (.value.repo // "")] | @tsv' "$LEDGER" 2>/dev/null)
+    [ -n "$rows" ] || exit 0
 
     # gh is the authoritative merge signal. This repo rebases onto dev before
     # merging, so ancestry alone cannot tell a rebase-merged branch from an
     # abandoned one. Without gh, cancellation is skipped for the whole run.
     prs=$(cd "$repo_dir" && gh pr list --state all --limit 200 \
-            --json headRefName,state 2>/dev/null)
+            --json headRefName,state,mergedAt 2>/dev/null)
     gh_ok=0; [ -n "$prs" ] && gh_ok=1
     [ "$gh_ok" -eq 0 ] && logf "reconcile: gh unavailable - no cancellation this run"
 
@@ -876,12 +1012,9 @@ case "${1:-}" in
     # times - which put ~7 jq processes per open ticket on every session start.
     # Now the loop forks nothing to read a field.
     pr_map=$(printf '%s' "$prs" | jq -r \
-      '.[]? | [.headRefName, .state] | @tsv' 2>/dev/null)
-    rows=$(jq -r 'to_entries[]
-      | [.key, (.value.branch // ""), (.value.opened_by // "iso"),
-         (.value.repo // "")] | @tsv' "$LEDGER" 2>/dev/null)
+      '.[]? | [.headRefName, .state, (.mergedAt // "-")] | @tsv' 2>/dev/null)
 
-    while IFS=$'\t' read -r key br who rrepo; do
+    while IFS=$'\t' read -r key br who since rrepo; do
       [ -n "$key" ] || continue
       { [ -z "$br" ] || [ "$br" = "$ib" ]; } && continue
 
@@ -892,9 +1025,9 @@ case "${1:-}" in
       # from the start and read by nothing until now.
       { [ -n "$rrepo" ] && [ "$rrepo" != "$here" ]; } && continue
 
-      pr_state=""
-      while IFS=$'\t' read -r p_br p_state; do
-        [ "$p_br" = "$br" ] && { pr_state="$p_state"; break; }
+      pr_state=""; pr_merged="-"
+      while IFS=$'\t' read -r p_br p_state p_merged; do
+        [ "$p_br" = "$br" ] && { pr_state="$p_state"; pr_merged="$p_merged"; break; }
       done <<< "$pr_map"
 
       # No `PR` property is written here. The tracker links pull requests to the
@@ -902,8 +1035,10 @@ case "${1:-}" in
       # holding the same URL was a second copy of that link, going stale on its
       # own the moment the PR moved.
 
-      merged=0
-      [ "$pr_state" = "MERGED" ] && merged=1
+      # `proof` is when the evidence for "merged" came to be: the PR's merge
+      # time, or on the ancestry path the time the branch reached the base.
+      merged=0; proof="-"
+      [ "$pr_state" = "MERGED" ] && { merged=1; proof="$pr_merged"; }
       # Ancestry alone is not shipping. A branch with no commits of its own is
       # an ancestor of the base for a reason that has nothing to do with having
       # landed, so `--is-ancestor` is true and the row would close having
@@ -925,11 +1060,34 @@ case "${1:-}" in
         if [ "$merged" -eq 0 ]; then
           git -C "$repo_dir" merge-base --is-ancestor "$br" "origin/$ib" 2>/dev/null && merged=1
         fi
+        if [ "$merged" -eq 1 ]; then
+          # When the branch LANDED, not when its tip was committed: the oldest
+          # commit on the base's own line that holds the tip is the merge that
+          # brought it in. A ticket bound after its last commit closes on that.
+          at=$(git -C "$repo_dir" rev-list --first-parent --ancestry-path "$br_sha..$ib" 2>/dev/null | tail -1)
+          [ -n "$at" ] || at=$(git -C "$repo_dir" rev-list --first-parent --ancestry-path "$br_sha..origin/$ib" 2>/dev/null | tail -1)
+          proof=$(TZ=UTC git -C "$repo_dir" log -1 \
+            --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd "${at:-$br_sha}" 2>/dev/null)
+        fi
+      fi
+
+      # A branch name outlives its landing. A ticket opened on a branch that
+      # already merged once would close at the next session start on that old
+      # merge, with its own work still uncommitted: FIRE-31 closed 100 minutes
+      # after it opened, on PR #85, so its PR carried no ticket and it got no
+      # retro. Proof older than the moment this ticket took the branch is some
+      # earlier landing's, whichever path found it. Both stamps are UTC `...Z`,
+      # so they compare as text. A row written before `since` existed keeps the
+      # old behaviour.
+      # shellcheck disable=SC2071  # two timestamps compared as text, on purpose
+      if [ "$merged" -eq 1 ] && [ "$since" != "-" ] && [ -n "$proof" ] && [ "$proof" != "-" ] \
+         && [[ "$proof" < "$since" ]]; then
+        logf "reconcile $key: $br merged $proof, before this ticket took the branch ($since) - left open"
+        continue
       fi
 
       if [ "$merged" -eq 1 ]; then
-        set_status "$key" "done" \
-          && { logf "reconcile $key -> done (branch $br merged)"; ledger_del "$key"; }
+        set_status "$key" "done" && logf "reconcile $key -> done (branch $br merged)"
         continue
       fi
 
@@ -939,8 +1097,7 @@ case "${1:-}" in
       if [ -z "$br_sha" ] \
          && ! git -C "$repo_dir" rev-parse --verify --quiet "origin/$br" >/dev/null 2>&1; then
         if [ "$gh_ok" -eq 1 ] && [ "$who" = "claude" ]; then
-          set_status "$key" cancelled \
-            && { logf "reconcile $key -> cancelled (branch $br gone)"; ledger_del "$key"; }
+          set_status "$key" cancelled && logf "reconcile $key -> cancelled (branch $br gone)"
         else
           logf "reconcile $key: branch $br gone, not cancelling (opened_by=$who gh_ok=$gh_ok)"
         fi
@@ -956,7 +1113,7 @@ case "${1:-}" in
   # working tree contains.
   #
   # Says something and closes nothing. retro, three arms up, is the same shape
-  # plus a status transition and a ledger_del — that is deliberately not here.
+  # plus a status transition — that is deliberately not here.
   comment)
     state_dir
     key="${2:-}"
