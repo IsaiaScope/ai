@@ -110,6 +110,26 @@ cmd_land() {
   printf '%s\n' "$target"
 }
 
+# ------------------------------------------------------------------------ lint
+# Runs the repo's own commitlint on the message before anything commits, so a
+# repo rule the skill's defaults don't know (a required scope, an allowed-scope
+# list, a subject length) fails here with the rule's name instead of at the
+# commit-msg hook. No commitlint in the repo means nothing to check against.
+cmd_lint() {
+  local msgfile="${1:-}"
+  [ -f "$msgfile" ] || die "usage: commit.sh lint <message-file>"
+  local top bin
+  top=$(git rev-parse --show-toplevel)
+  bin="$top/node_modules/.bin/commitlint"
+  if [ ! -x "$bin" ]; then
+    printf 'lint=skipped (no commitlint installed in this repo)\n'
+    return 0
+  fi
+  (cd "$top" && "$bin" --edit "$msgfile") \
+    || die "commitlint rejected the message: fix the rule it names, then lint again"
+  printf 'lint=ok\n'
+}
+
 # ---------------------------------------------------------------------- commit
 # Message comes from a file so multi-line bodies survive verbatim.
 # Hooks run on purpose: commitlint must gate the subject, version-bump must fire.
@@ -117,7 +137,29 @@ cmd_commit() {
   local msgfile="${1:-}"
   [ -n "$msgfile" ] && [ -f "$msgfile" ] || die "usage: commit.sh commit <message-file>"
   [ -s "$msgfile" ] || die "message file is empty"
+  local staged
+  staged=$(git diff --cached --name-only | sort)
   git commit -F "$msgfile"
+
+  # A pre-commit hook (lint-staged restoring its backup, a formatter) can
+  # unstage a path between `stage` and the commit. Everything staged goes in by
+  # default, so a path that silently fell out is reported below, not left for a
+  # later `git status` to turn up.
+  #
+  # Against the FIRST parent: `diff-tree HEAD` prints nothing for a merge
+  # commit, so concluding a merge reported every staged path as dropped. And
+  # only a path that still differs from the commit: a formatter hook that put a
+  # file back to HEAD left nothing to commit, so nothing was dropped.
+  local committed missing="" p
+  if git rev-parse --verify --quiet 'HEAD^' >/dev/null; then
+    committed=$(git diff --name-only 'HEAD^' HEAD | sort)
+  else
+    committed=$(git diff-tree --root --no-commit-id --name-only -r HEAD | sort)
+  fi
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    [ -z "$(git status --porcelain -- "$p")" ] || missing="$missing  $p"$'\n'
+  done < <(comm -23 <(printf '%s\n' "$staged") <(printf '%s\n' "$committed"))
 
   # SKILL.md states the no-attribution rule and the message is written to obey
   # it -- but the message file is not the last word on what lands. A
@@ -143,6 +185,14 @@ cmd_commit() {
   fi
 
   git --no-pager log -1 --format='%h %s'
+
+  # Last, and with its own exit code: the commit exists and passed the check
+  # above, so this is a report on what it left out, not a failed commit.
+  if [ -n "$missing" ]; then
+    printf 'commit.sh: staged but not committed (a hook dropped them):\n%s' "$missing" >&2
+    printf 'iso-commit: stage them and amend: git add <paths> && git commit --amend --no-edit\n' >&2
+    exit 4
+  fi
 }
 
 case "${1:-}" in
@@ -152,6 +202,7 @@ case "${1:-}" in
   stage)      shift; cmd_stage "$@" ;;
   gate)       shift; cmd_gate "$@" ;;
   land)       shift; cmd_land "$@" ;;
+  lint)       shift; cmd_lint "$@" ;;
   commit)     shift; cmd_commit "$@" ;;
-  *) die "usage: commit.sh {preflight|candidates|guard|stage|gate|land|commit} [args]" ;;
+  *) die "usage: commit.sh {preflight|candidates|guard|stage|gate|land|lint|commit} [args]" ;;
 esac

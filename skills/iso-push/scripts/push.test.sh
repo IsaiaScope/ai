@@ -261,24 +261,17 @@ check "release lookup asserts the exact subject" \
   "$(grep -cF '= "chore(release): $version" ]' "$SH")" "1"
 
 echo "tag annotation:"
-# The tag is seeded from annotfile, NOT msgfile. `git tag -n1` prints only the
-# first line, so seeding from the cascade PR body made the release index read
-# "v0.1.0  chore(cascade): dev -> test" — the hop, not the release.
-check "the annotation is seeded from annotfile" \
-  "$(grep -cF 'annot=$(mktemp); cat "$annotfile" > "$annot"' "$SH")" "1"
-check "annotfile defaults to msgfile when omitted" \
-  "$(grep -cF 'local annotfile="${3:-$msgfile}"' "$SH")" "1"
-check "an empty annotation file is refused" \
-  "$(grep -cF 'tag annotation file is empty' "$SH")" "1"
+# One file is the release PR's body and the tag's annotation. `git tag -n1`
+# prints only its first line, so it opens with a release title: seeded from a
+# cascade PR body the index read "v0.1.0  chore(cascade): dev -> test".
+check "the annotation is seeded from the message file" \
+  "$(grep -cF 'annot=$(mktemp); cat "$msgfile" > "$annot"' "$SH")" "1"
 # The PR link is appended by release, never by the caller — the number does not
 # exist when the message file is written. Asserting the source because the live
 # path needs GitHub; what must not drift is WHO writes the line.
-# The link must point at the PRs that carried the WORK. The release's own PR
-# changes one line of VERSION and answers nothing about what shipped.
-check "annotation links the work PRs" \
-  "$(grep -cF "sed -n 's/^Merge pull request #" "$SH")" "1"
-check "the release's own PR is excluded" \
-  "$(grep -cF 'grep -vx "$pr"' "$SH")" "1"
+# Which PRs get linked is checked by behaviour, beside the bump fixtures below.
+check "the links come from the range the bump counted" \
+  "$(grep -cF 'prnums=$(work_prs "${prev:+$prev..}$sha")' "$SH")" "1"
 check "each link carries the PR title" \
   "$(grep -cF -- "--json url,title -q '.url + \" — \" + .title'" "$SH")" "1"
 
@@ -398,12 +391,29 @@ check "returns to the base" \
 check "base is fast-forwarded to origin" \
   "$(git -C "$d" rev-parse HEAD)" "$(git -C "$d" rev-parse origin/dev)"
 
+# Uncommitted work comes along. A dirty tree used to be a refusal, which left
+# the run on the merged branch at the end of most working sessions.
 d=$(newrepo); mkbranch "$d" dev
 git -C "$d" checkout -q -b feat/dirty
+onbranchfile "$d" dev "feat: landed" landed.txt >/dev/null
 printf 'wip\n' > "$d/scratch.txt"
-(cd "$d" && bash "$SH" home dev >/dev/null 2>&1); check "dirty tree exits 3" "$?" 3
-check "dirty tree stays on the feature branch" \
-  "$(git -C "$d" symbolic-ref --short HEAD)" "feat/dirty"
+(cd "$d" && bash "$SH" home dev >/dev/null 2>&1); check "dirty tree still goes home" "$?" 0
+check "dirty tree lands on the base" \
+  "$(git -C "$d" symbolic-ref --short HEAD)" "dev"
+check "the base is at origin, not its stale tip" \
+  "$(git -C "$d" rev-parse HEAD)" "$(git -C "$d" rev-parse origin/dev)"
+check "the uncommitted file came along untouched" "$(cat "$d/scratch.txt")" "wip"
+
+# The one dirty tree that stays: a file the base would overwrite. git refuses
+# the whole switch, so nothing is half-moved.
+d=$(newrepo); mkbranch "$d" dev
+git -C "$d" checkout -q -b feat/clash
+onbranchfile "$d" dev "feat: landed" landed.txt >/dev/null
+printf 'mine\n' > "$d/landed.txt"
+(cd "$d" && bash "$SH" home dev >/dev/null 2>&1); check "work the base would overwrite exits 3" "$?" 3
+check "it stays on the feature branch" \
+  "$(git -C "$d" symbolic-ref --short HEAD)" "feat/clash"
+check "and the file is untouched" "$(cat "$d/landed.txt")" "mine"
 
 # A local dev that has drifted is the trap, not an inconvenience: every later
 # rev-parse in a cascade would read it instead of origin/dev.
@@ -419,42 +429,42 @@ d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
 setversion "$d" dev 0.3.2
 setversion "$d" test 0.3.2
 onbranch "$d" dev "fix: a thing"
-check "fix bumps patch" "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "0.3.2 0.3.3 patch"
+check "fix bumps patch" "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "0.3.2 0.3.3 patch"
 
 onbranch "$d" dev "feat: a bigger thing"
-check "feat outranks fix" "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "0.3.2 0.4.0 minor"
+check "feat outranks fix" "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "0.3.2 0.4.0 minor"
 
 # SemVer 0.x: breaking changes bump minor. Crossing to 1.0.0 is a decision.
 onbranch "$d" dev "refactor!: drop the old surface"
 check "breaking below 1.0.0 bumps minor" \
-  "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "0.3.2 0.4.0 minor"
+  "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "0.3.2 0.4.0 minor"
 
 d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
 setversion "$d" dev 1.4.0; setversion "$d" test 1.4.0
 onbranch "$d" dev "refactor!: drop the old surface"
 check "breaking at or above 1.0.0 bumps major" \
-  "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "1.4.0 2.0.0 major"
+  "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "1.4.0 2.0.0 major"
 
 d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
 setversion "$d" dev 0.3.2; setversion "$d" test 0.3.2
 onbranch "$d" dev "docs: explain the thing"
 onbranch "$d" dev "chore: tidy up"
-# Every promotion cuts a version. Leaving a chore-only range untagged made
+# Every landing cuts a version. Leaving a chore-only range untagged made
 # `git describe` name a release the branch had already moved past.
 check "docs and chore only still bumps patch" \
-  "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "0.3.2 0.3.3 patch"
+  "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "0.3.2 0.3.3 patch"
 
 # The types that fell through to `none` and shipped invisibly. revert: undoes
 # behaviour users can observe; build: can move an engine floor or a pin.
 d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
 setversion "$d" dev 0.3.2; setversion "$d" test 0.3.2
 onbranch "$d" dev "revert: back out the pagination change"
-check "revert bumps patch" "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "0.3.2 0.3.3 patch"
+check "revert bumps patch" "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "0.3.2 0.3.3 patch"
 
 d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
 setversion "$d" dev 0.3.2; setversion "$d" test 0.3.2
 onbranch "$d" dev "build: raise the node engine floor to 22"
-check "build bumps patch" "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "0.3.2 0.3.3 patch"
+check "build bumps patch" "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "0.3.2 0.3.3 patch"
 
 # feat still outranks a chore sharing the range — highest type wins, and now
 # that everything bumps, the precedence is the ONLY thing keeping a feature
@@ -463,26 +473,62 @@ d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
 setversion "$d" dev 0.3.2; setversion "$d" test 0.3.2
 onbranch "$d" dev "chore: tidy up"
 onbranch "$d" dev "feat: add the thing"
-check "feat still outranks chore" "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "0.3.2 0.4.0 minor"
+check "feat still outranks chore" "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "0.3.2 0.4.0 minor"
 
-# `none` now means exactly one thing: nothing to promote. This is the only
-# surviving path to it, so it is the only thing standing between an empty
-# cascade and a version cut for no commits at all.
-d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
-check "an empty range is the ONLY none" "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "none"
+# `none` means exactly one thing: nothing landed since the last release. It is
+# the only thing standing between a re-run and a version cut for no commits.
+d=$(newrepo); mkbranch "$d" dev
+setversion "$d" dev 0.3.2
+check "nothing since the last release is the ONLY none" \
+  "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "none"
 
-d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
-setversion "$d" dev 0.3.2; setversion "$d" test 0.3.2
-check "level branches with a VERSION are still none" \
-  "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "none"
+# The range is read off the base alone. It used to be test..dev, so work that
+# reached dev was unversioned until somebody promoted it.
+onbranch "$d" dev "feat: landed on dev, never promoted"
+check "bump needs no test branch" \
+  "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "0.3.2 0.4.0 minor"
+
+# A release lands through its own PR, so the base's newest commit after one is
+# that PR's merge node. Counting it as work would cut a release per release.
+d=$(newrepo); mkbranch "$d" dev
+setversion "$d" dev 0.3.2
+git -C "$d" push -q origin "origin/dev:refs/heads/release/v0.3.3"
+setversion "$d" release/v0.3.3 0.3.3
+mergeonto "$d" dev release/v0.3.3 "Merge pull request #9 from o/release/v0.3.3"
+check "the release reached the base" \
+  "$(git -C "$d" show origin/dev:VERSION | tr -d '[:space:]')" "0.3.3"
+check "the release's own merge node is not work" \
+  "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "none"
+onbranch "$d" dev "fix: the next thing"
+check "the next landing counts from that release" \
+  "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "0.3.3 0.3.4 patch"
+
+# A landing that slips in while a release PR is open. The release commit was
+# built under it, so a range that starts at the release PR's merge node puts
+# that landing below its own start: it was never versioned and never linked.
+d=$(newrepo); mkbranch "$d" dev
+setversion "$d" dev 0.3.2
+git -C "$d" push -q origin "origin/dev:refs/heads/release/v0.3.3"
+setversion "$d" release/v0.3.3 0.3.3
+onbranch "$d" dev "feat: landed while the release PR was open"
+mergeonto "$d" dev release/v0.3.3 "Merge pull request #9 from o/release/v0.3.3"
+check "work that lands under an open release PR is still versioned" \
+  "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "0.3.3 0.4.0 minor"
+
+# One more landing, kept for the link checks further down, once push.sh is
+# sourced: the tag's links cover the range the bump just counted.
+git -C "$d" push -q origin "origin/dev:refs/heads/feat/x"
+onbranch "$d" feat/x "feat: x"
+mergeonto "$d" dev feat/x "Merge pull request #12 from o/feat/x"
+linkrepo="$d"
 
 d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
 onbranch "$d" dev "feat: work with no VERSION file"
 # An absent VERSION seeds rather than refusing — a repo needs a floor before
 # anything can be incremented from it.
-(cd "$d" && bash "$SH" bump dev test >/dev/null 2>&1); check "missing VERSION exits 0" "$?" 0
+(cd "$d" && bash "$SH" bump dev >/dev/null 2>&1); check "missing VERSION exits 0" "$?" 0
 check "missing VERSION seeds 0.1.0" \
-  "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "(absent) 0.1.0 initial"
+  "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "(absent) 0.1.0 initial"
 
 # The seed ignores the commit kinds in the range: with no existing number there
 # is nothing to increment, so they cannot influence the result. It reports
@@ -490,13 +536,13 @@ check "missing VERSION seeds 0.1.0" \
 d=$(newrepo); mkbranch "$d" dev; mkbranch "$d" test
 onbranch "$d" dev "docs: readme only, still no VERSION file"
 check "docs-only also seeds 0.1.0" \
-  "$(cd "$d" && bash "$SH" bump dev test 2>/dev/null)" "(absent) 0.1.0 initial"
+  "$(cd "$d" && bash "$SH" bump dev 2>/dev/null)" "(absent) 0.1.0 initial"
 
 echo "release:"
 d=$(newrepo); mkbranch "$d" dev
 setversion "$d" dev 0.3.2
 git -C "$d" checkout -q -b feat/r
-msg=$(mktemp); printf 'chore(cascade): dev → test\n\nPromotes 1 commit.\n' > "$msg"
+msg=$(mktemp); printf 'Add the thing\n\n### 📦 Summary\n\nAdds the thing.\n' > "$msg"
 branchwas=$(git -C "$d" rev-parse HEAD)
 # The release commit now lands via branch -> PR -> rebase merge, so release
 # cannot complete without GitHub. A fixture remote is a file path, so what is
@@ -667,6 +713,20 @@ check "default when no overlay" "$out" "dev"
 # shellcheck source=/dev/null
 . "$SH" >/dev/null 2>&1 || true
 set +e   # push.sh runs under `set -e`; sourcing it must not abort the suite
+
+echo "release links"
+# A release PR is not work, whichever release it belongs to. The range starts
+# at the previous release commit, so that release's merge node is inside it:
+# v0.3.0 of allonfire listed "chore(release): 0.2.0" among what it shipped.
+check "a release counts from the previous release commit" \
+  "$(cd "$linkrepo" && last_release origin/dev)" \
+  "$(git -C "$linkrepo" rev-parse origin/release/v0.3.3)"
+check "the previous release's merge node sits in that range" \
+  "$(cd "$linkrepo" && git log --merges --format='%s' "$(last_release origin/dev)..origin/dev" | grep -c 'release/v0.3.3$')" "1"
+check "a release links the PRs that carried work, never a release PR" \
+  "$(cd "$linkrepo" && work_prs "$(last_release origin/dev)..origin/dev")" "12"
+check "a work branch that only looks like a release is still linked" \
+  "$(printf '%s\n' 'Merge pull request #7 from o/fix/release/v2-parser' | grep -cvE ' from [^/ ]+/release/v[0-9]+\.[0-9]+\.[0-9]+$')" "1"
 
 echo "the body is left alone"
 # The body carried `Closes <key>` until the title took the job over. Asserted as

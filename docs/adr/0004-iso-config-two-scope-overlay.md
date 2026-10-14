@@ -112,6 +112,7 @@ are the entire coupling:
     auth status                      project list --output json
     issue create --title --project --status [--assignee]
     issue get / issue status / issue comment add
+    issue list --property --project   (added 2026-10-13: which ticket carries a branch)
     issue label add / issue property set
     label create / label list / property create / property list
 

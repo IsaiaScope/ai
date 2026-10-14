@@ -26,7 +26,9 @@ Glossary of canonical terms for this repo. Definitions only — no implementatio
 
 **Plan entry** — one plan file recorded against a ticket, carrying its path, its state and the body it contributed. A ticket holds an ordered list of them, so the ticket describes the whole story rather than the plan that happened to open it. _Avoid_: plan, doc, attachment.
 
-**Plan state** — what a plan entry is to the ticket now: **current** (the plan being worked), **done** (finished, kept for the record), **superseded** (replaced by a later plan that changed the approach). Exactly one entry is current. _Avoid_: status, active, archived.
+**Plan state** — what a plan entry is to the ticket now: **current** (the plan being worked), **done** (finished, kept for the record), **superseded** (replaced by a later plan that changed the approach). At most one entry is current; a landed ticket taken back from the board has none until its next plan. _Avoid_: status, active, archived.
+
+**Landed ticket** — a ticket whose work reached the base and is done. It keeps its branch: more work on that branch reopens the same ticket, so a branch never carries two. Only a cancelled ticket gives its branch up. _Avoid_: closed ticket, finished row, archived ticket.
 
 **Finding** — one problem a review phase identified, at a location. Applied rather than reported, so findings are read in the diff and never collected into a ledger. _Avoid_: issue, suggestion, comment.
 
