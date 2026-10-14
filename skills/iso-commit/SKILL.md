@@ -15,6 +15,8 @@ Invocation: `/iso-commit [--staged] [--split]`.
 | `--staged` | commit the index only; stage nothing |
 | `--split` | group the diff by concern and make several commits instead of one |
 
+**Commit everything, and ask before leaving anything out.** The default stages every staged, unstaged and untracked path and commits it without asking. Never drop a path from the commit on your own judgement: "looks like another session's work", "unrelated", "still being edited" are all questions for the user, not decisions for you. If something looks like it should stay out, stop before committing, list those paths, and ask. The user decides what gets committed, not the agent.
+
 **Never commit unless the user asked.** `/iso-commit` typed by the user is the only trigger. Do not commit at the end of `iso-write`, after making edits, or because a task "feels done" — the rest of the `iso-*` chain deliberately leaves the tree uncommitted, and this skill does not change that.
 
 ## Flow
@@ -23,10 +25,13 @@ Mechanics live in `skills/iso-commit/scripts/commit.sh`. Run it by absolute path
 
 1. **Preflight** — `commit.sh preflight [--staged]`. Non-zero: print its message and stop. Checks repo, branch (rejects detached HEAD), and that there's something to commit.
 2. **Read the change** — `git diff HEAD` (or `git diff --cached` with `--staged`), plus `git log --oneline -10` to match the repo's existing subject style.
+   Also read the repo's commitlint rules — `commitlint.config.*`, `.commitlintrc*`, or the `commitlint` key in the root `package.json`. They outrank this file: a `scope-empty: never` rule makes the scope required, a `scope-enum` limits it to the listed names, and length or case rules override the defaults below.
 3. **Stage** — `commit.sh stage [--staged]`. Runs the credential guard first and exits 2 without touching the index if it trips. On exit 2, print the blocked paths and stop; do not work around it.
 4. **Write the message** to a temp file, following the format below.
+   Then `commit.sh lint <msgfile>`: it runs the repo's own commitlint on the message and names the broken rule. Fix and lint again until it prints `lint=ok` (or `lint=skipped` when the repo has no commitlint). Linting here means the commit-msg hook never becomes the first place a rule shows up.
 5. **Branch gate** — `commit.sh gate "<subject>"`, then `commit.sh land <action> <branch>`. See below.
 6. **Commit** — `commit.sh commit <msgfile>`. Hooks run on purpose (commitlint gates the subject, version-bump reads it). If a hook rejects the commit, fix the message and retry — never `--no-verify`.
+   If it reports paths that were staged but not committed (exit 4: the commit exists, a pre-commit hook dropped them), stage those paths and amend with `git commit --amend --no-edit`. Nothing staged is ever left behind.
 7. **Report** — print the message and the short SHA the script echoed. Add one line: `wrong? git commit --amend`.
 
 ### Step 5 — the branch gate
@@ -75,7 +80,7 @@ type(scope): message
 
 ### Subject
 
-`type(scope): message` — scope optional, omit it rather than inventing one.
+`type(scope): message`. The scope is optional unless the repo's commitlint requires it (`scope-empty: never`). When it is optional, leave it out rather than inventing one. When it is required, use the area the change touches: the app or package name (`api`, `laura`, `database`). Use `monorepo` for a change spread across several of them. When a `scope-enum` exists, pick only from its list.
 
 Types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `build`, `ci`, `style`, `revert`.
 

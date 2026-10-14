@@ -10,6 +10,8 @@ tk_project_list()    { return 0; }
 tk_project_create()  { return 0; }
 tk_issue_create()    { cat >/dev/null; return 0; }
 tk_issue_get_status(){ return 0; }
+tk_issue_by_property()     { return 0; }
+tk_issue_get_description() { return 0; }
 tk_issue_status()    { return 0; }
 tk_issue_describe()  { cat >/dev/null; return 0; }
 tk_issue_comment()   { cat >/dev/null; return 0; }

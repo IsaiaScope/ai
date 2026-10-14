@@ -107,19 +107,33 @@ existing=$("$S" ticket-for-branch)   # "<KEY>\t<status>", or empty
 
 | result | what to do |
 |---|---|
-| empty | `open` — no live ticket for this branch, this is new work |
-| `FIRE-13\tin_review` | `replan` — attach to that ticket and send it back to `todo` |
+| empty | `open` — this branch never carried a ticket, this is new work |
+| `FIRE-13\tin_review`, new plan **replaces** the old one | `replan` — attach to that ticket and send it back to `todo` |
+| `FIRE-13\tin_review`, new plan is **more work** on the branch | `open` — it redirects to `addplan` on FIRE-13: the plan is appended, both stay in the description |
+| `FIRE-13\tdone`, the branch already landed once | `open` — same redirect: FIRE-13 is reopened and the plan appended. Never `replan`, which refuses shipped work |
+
+**A tracked branch keeps its ticket, always.** The user stays on the branch they
+are on and one ticket follows it, even when the new plan is a different topic
+from the one the ticket was opened for. Never skip tracking because the plans
+look unrelated, and never tell the user to switch branches to get a separate
+ticket — pick `replan` or `addplan`, file the plan, and say which. `addplan`
+does not forward `--scope`, so add the new plan's scopes in the body's topic
+heading (`## Back office`) instead; the per-topic shape below already fits.
 
 `open` performs this same check itself and redirects when the branch is already
 tracked, so a skipped gate can no longer mint a duplicate. The gate stays because
 choosing the right verb here is still better than being corrected — and because
 `open` exempts base branches, which is usually where /iso-plan runs.
 
-`ticket-for-branch` only names tickets that are still live; `done` and `cancelled`
-read as empty, because a new plan against shipped work is new work. Say which
-one you took, and which ticket:
+**One branch, one ticket, for good.** `ticket-for-branch` names a `done` ticket
+too: a branch that landed keeps its ticket, and the next plan on it reopens that
+ticket instead of opening a second one. It asks the board when the local ledger
+has no row for the branch. Only a `cancelled` ticket reads as empty: that work
+was abandoned, not continued. Say which one you took, and which ticket:
 
 > Attaching to **FIRE-13** (was `in_review`) — this supersedes the earlier plan.
+
+> Adding to **FIRE-13** (`in_review`) — second plan on this branch, appended.
 
 `replan` takes the same stdin body as `open`, replaces the description with it,
 posts a comment naming the plan it superseded, and moves the ticket to `todo`.
@@ -183,8 +197,10 @@ Title and emoji follow `iso-issue-tracking`: a plain sentence a human understand
 emoji for the type of change. Everything is piped on stdin — multi-line safe, no
 quoting, and redacted before it reaches the board.
 
-The ticket opens at `todo` and stays there. `/iso-write` moves it to
-`in_progress`; nothing here promotes it.
+A new ticket opens at `todo` and stays there. `/iso-write` moves it to
+`in_progress`; nothing here promotes it. A plan added to the branch's existing
+ticket is the exception: `open` redirects to `addplan`, which moves that ticket
+to `in_progress`, a landed one included.
 
 ## Summary ticket
 

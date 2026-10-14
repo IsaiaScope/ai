@@ -236,7 +236,7 @@ MULTICA_STATE_DIR="$S18" bash -c '. "'"$SH"'"; plan_entries FIRE-50' | grep -q '
 ( cd "$g18" && git checkout -q -b feat/orphan )
 out=$(printf 'x\n' | ap addplan s7 --plan docs/p/four.md 2>&1)
 check "addplan on an unknown branch exits 0" "$?" "0"
-contains "no live ticket" "$out" && ok "says why it did nothing" || bad "silent on a missing ticket"
+contains "no ticket for this branch" "$out" && ok "says why it did nothing" || bad "silent on a missing ticket"
 ( cd "$g18" && git checkout -q feat/many )
 
 check "addplan with no --plan exits 0" "$(printf 'x\n' | ap addplan s8 >/dev/null 2>&1; echo $?)" "0"
@@ -501,12 +501,31 @@ MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-105 "{\"repo\":\"sc
 check "stale commitless branch not closed" "$(jq -r 'has("WOR-105")' "$S4/tracked.json")" "true"
 grep -q 'WOR-105 -> done' "$S4/log" && bad "closed a stale branch that shipped nothing" || ok "no done for a stale commitless branch"
 
+# The same commitless branch on a LONG base. `on_base_line` pipes
+# `git rev-list` into `grep -q`, which exits at the first match; git is still
+# writing, takes SIGPIPE, and under `set -o pipefail` the pipeline reports 141.
+# A match then reads as "not on the base line" and the ancestry check closes
+# the ticket. A three-commit scratch base fits in the pipe buffer and hides it:
+# FIRE-28 closed that way on allonfire's real dev, with nothing committed.
+rl=$(mktemp -d)
+( cd "$rl" && git init -q -b dev . \
+    && { for i in $(seq 1 3000); do
+           printf 'commit refs/heads/dev\ncommitter t <t@t> %s +0000\ndata 1\nx\n\n' "$i"
+         done; } | git fast-import --quiet \
+    && git branch feat/long-empty dev )
+MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-106 "{\"repo\":\"scratch\",\"branch\":\"feat/long-empty\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
+( cd "$rl" && MULTICA_STATE_DIR="$S4" PATH="$MB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
+check "commitless branch on a long base not closed" "$(jq -r 'has("WOR-106")' "$S4/tracked.json")" "true"
+grep -q 'WOR-106 -> done' "$S4/log" && bad "SIGPIPE read a first-parent match as a miss" || ok "no done on a long base"
+rm -rf "$rl"
+
 # The other half: a branch that really did land must still close.
 ( cd "$rr" && git checkout -q -b feat/landed dev && git commit -q --allow-empty -m shipped \
     && git checkout -q dev && git merge -q --no-ff -m merge feat/landed )
 MULTICA_STATE_DIR="$S4" bash -c '. "'"$SH"'"; ledger_put WOR-104 "{\"repo\":\"scratch\",\"branch\":\"feat/landed\",\"project\":\"p\",\"opened_by\":\"claude\"}"'
 ( cd "$rr" && MULTICA_STATE_DIR="$S4" PATH="$MB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
-check "genuinely merged branch still closes" "$(jq -r 'has("WOR-104")' "$S4/tracked.json")" "false"
+# Closed, and the row kept as landed: the branch still belongs to this ticket.
+check "genuinely merged branch still closes" "$(jq -r '."WOR-104".landed' "$S4/tracked.json")" "true"
 rm -rf "$MB"
 
 # Idempotence: running twice must not change the ledger.
@@ -554,6 +573,137 @@ check "another repo's row survives"   "$(jq -r 'has("FAR-1")'  "$S6/tracked.json
 # simply broken, which is not what is being fixed.
 check "this repo's own row still cancels" "$(jq -r 'has("NEAR-1")' "$S6/tracked.json")" "false"
 rm -rf "$S6" "$GB"
+
+echo "a branch that already landed once"
+# FIRE-31: opened on a branch whose earlier PR had merged, closed at the next
+# session start on that PR. The branch tip is the old PR's head, so gh and
+# ancestry both say "merged"; only the ticket's `since` tells them apart.
+S7=$(mktemp -d); GB=$(mktemp -d)
+printf '#!/usr/bin/env bash\nprintf %%s '"'"'[{"headRefName":"feat/landed","state":"MERGED","mergedAt":"2026-10-09T08:41:34Z"}]'"'"'\n' > "$GB/gh"; chmod +x "$GB/gh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$GB/multica"; chmod +x "$GB/multica"
+MULTICA_STATE_DIR="$S7" bash -c '. "'"$SH"'"; ledger_put NEW-1 "{\"repo\":\"scratch\",\"branch\":\"feat/landed\",\"project\":\"p\",\"opened_by\":\"claude\",\"since\":\"2026-10-09T11:38:37Z\"}"'
+MULTICA_STATE_DIR="$S7" bash -c '. "'"$SH"'"; ledger_put OLD-1 "{\"repo\":\"scratch\",\"branch\":\"feat/landed\",\"project\":\"p\",\"opened_by\":\"claude\",\"since\":\"2026-09-30T08:15:04Z\"}"'
+( cd "$rr" && MULTICA_STATE_DIR="$S7" PATH="$GB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
+# Not `has`: a closed row is kept as landed, so its presence proves nothing.
+check "a ticket opened after the branch's last merge stays open" "$(jq -r '."NEW-1" | (.landed // false | tostring)' "$S7/tracked.json")" "false"
+check "a ticket opened before that merge still closes"            "$(jq -r '."OLD-1".landed' "$S7/tracked.json")" "true"
+# A landed row is finished work. Its branch being gone must not cancel it.
+MULTICA_STATE_DIR="$S7" bash -c '. "'"$SH"'"; ledger_put LAND-1 "{\"repo\":\"scratch\",\"branch\":\"feat/deleted-since\",\"project\":\"p\",\"opened_by\":\"claude\",\"landed\":true}"'
+( cd "$rr" && MULTICA_STATE_DIR="$S7" PATH="$GB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
+check "a landed row is left alone by the reconciler" "$(jq -r '."LAND-1".landed' "$S7/tracked.json")" "true"
+# Without gh the verdict comes from ancestry, and the guard has to hold there
+# too: the branch tip was committed long before this ticket took the branch.
+NB=$(mktemp -d); cp "$GB/multica" "$NB/multica"
+MULTICA_STATE_DIR="$S7" bash -c '. "'"$SH"'"; ledger_put ANC-1 "{\"repo\":\"scratch\",\"branch\":\"feat/landed\",\"project\":\"p\",\"opened_by\":\"claude\",\"since\":\"2099-01-01T00:00:00Z\"}"'
+( cd "$rr" && MULTICA_STATE_DIR="$S7" PATH="$NB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
+check "with gh down, an old merge still cannot close a newer ticket" "$(jq -r '."ANC-1" | (.landed // false | tostring)' "$S7/tracked.json")" "false"
+# The proof on that path is when the branch landed, not when its tip was
+# committed: a ticket bound after its last commit must still close on the merge.
+( cd "$rr" && git checkout -q -b feat/late dev \
+    && GIT_COMMITTER_DATE="2020-01-01T00:00:00Z" git commit -q --allow-empty -m "old tip" \
+    && git checkout -q dev && git merge -q --no-ff -m "merge late" feat/late )
+MULTICA_STATE_DIR="$S7" bash -c '. "'"$SH"'"; ledger_put LATE-1 "{\"repo\":\"scratch\",\"branch\":\"feat/late\",\"project\":\"p\",\"opened_by\":\"claude\",\"since\":\"2021-01-01T00:00:00Z\"}"'
+( cd "$rr" && MULTICA_STATE_DIR="$S7" PATH="$NB:/usr/bin:/bin" bash "$SH" reconcile ) >/dev/null 2>&1
+check "with gh down, a ticket bound after its last commit closes on the merge" "$(jq -r '."LATE-1" | (.landed // false | tostring)' "$S7/tracked.json")" "true"
+rm -rf "$NB"
+rm -rf "$S7" "$GB"
+
+echo "one branch, one ticket, after it landed too"
+# FIRE-30 landed and dropped its row; the next plan on the same branch opened
+# FIRE-31. The board still knows which ticket carries the branch, so ask it.
+S8=$(mktemp -d); B8=$(mktemp -d); g8=$(mktemp -d)
+cat > "$B8/multica" <<'STUB'
+#!/usr/bin/env bash
+echo "$@" >> "$STUB_CALLS"
+case "$1 $2" in
+  "project list")  echo '[{"id":"proj-id","title":"ai-agent"}]' ;;
+  "issue list")    jq -nc --arg s "$(cat "$STUB_ST")" '{issues:[{identifier:"FIRE-31",status:"cancelled"},{identifier:"FIRE-30",status:$s}]}' ;;
+  "issue get")     jq -nc --arg s "$(cat "$STUB_ST")" --arg d "$(cat "$STUB_OLD")" '{status:$s, description:$d}' ;;
+  "issue status")  [ -n "${STUB_STUCK:-}" ] || echo "$4" > "$STUB_ST" ;;
+  "issue update")  cat > "$STUB_DESC" ;;
+  "issue create")  cat >/dev/null; echo '{"identifier":"FIRE-99"}' ;;
+  "auth status")   printf 'User:    Test User (t@e.com)\n' >&2 ;;
+  *)               echo '[]' ;;
+esac
+exit 0
+STUB
+chmod +x "$B8/multica"
+export STUB_CALLS="$S8/calls" STUB_ST="$S8/st" STUB_OLD="$S8/old" STUB_DESC="$S8/desc"
+: > "$STUB_CALLS"; echo "done" > "$STUB_ST"
+printf '## ✅ design package\n\nthe first plan\n\n---\n\n**Resume this session:**\n\n```bash\ncd x && claude --resume s0\n```\n' > "$STUB_OLD"
+( cd "$g8" && git init -q -b dev . && git commit -q --allow-empty -m x \
+    && git remote add origin https://github.com/IsaiaScope/ai-agent.git )
+t8() { ( cd "$g8" && MULTICA_STATE_DIR="$S8" PATH="$B8:$PATH" bash "$SH" "$@" ); }
+
+check "a base branch adopts nothing" "$(t8 ticket-for-branch)" ""
+grep -q "issue list" "$STUB_CALLS" && bad "asked the board about a base branch" || ok "the board is not asked about a base branch"
+
+( cd "$g8" && git checkout -q -b feat/design-package )
+check "the landed ticket still holds its branch" "$(t8 ticket-for-branch)" "$(printf 'FIRE-30\tdone')"
+check "its row is rebuilt as landed" "$(jq -r '."FIRE-30".landed' "$S8/tracked.json")" "true"
+check "the board's description becomes a finished plan, footer cut" \
+  "$(jq -r '."FIRE-30".plan[0] | .state + "|" + .body' "$S8/tracked.json")" \
+  "$(printf 'done|## ✅ design package\n\nthe first plan')"
+
+got=$(printf 'the second plan\n' | t8 open s8 "🧪 A second piece of work" --plan docs/p/2026-10-09-feat-test-database.md 2>/dev/null)
+check "a new plan on a landed branch opens no second ticket" "$got" "FIRE-30"
+grep -q "issue create" "$STUB_CALLS" && bad "created a second ticket on the branch" || ok "no ticket was created"
+check "the landed ticket is reopened" "$(cat "$STUB_ST")" "in_progress"
+check "its row is live again" "$(jq -r '."FIRE-30" | (.landed // false | tostring) + "|" + (.since | length | tostring)' "$S8/tracked.json")" "false|20"
+grep -q 'the first plan' "$STUB_DESC" && grep -q 'the second plan' "$STUB_DESC" \
+  && ok "the description carries the old work and the new plan" || bad "the reopen lost a plan from the description"
+
+# Landing it again keeps the row, so the third plan finds the same ticket.
+printf 'landed\n' | t8 retro feat/design-package >/dev/null 2>&1
+check "a second landing keeps the row" "$(jq -r '."FIRE-30".landed' "$S8/tracked.json")" "true"
+: > "$STUB_CALLS"
+check "and the branch still answers with that ticket" "$(t8 ticket-for-branch)" "$(printf 'FIRE-30\tdone')"
+grep -q "issue list" "$STUB_CALLS" && bad "asked the board for a row the ledger holds" || ok "the ledger answers without the board"
+# The row follows the board, so a close the board refused leaves it live for
+# the reconciler - FIRE-19 was dropped from the ledger on a write that never stuck.
+t8 progress feat/design-package >/dev/null 2>&1
+check "a status write on a landed ticket makes its row live" "$(jq -r '."FIRE-30".landed // false' "$S8/tracked.json")" "false"
+printf 'landed\n' | STUB_STUCK=1 t8 retro feat/design-package >/dev/null 2>&1
+check "a refused close does not land the row" "$(jq -r '."FIRE-30".landed // false' "$S8/tracked.json")" "false"
+
+# `open` with no plan, the by-hand form, on a branch whose ticket landed. It
+# used to redirect to addplan, which needs a plan: nothing happened and the
+# body was dropped.
+printf 'landed\n' | t8 retro feat/design-package >/dev/null 2>&1
+: > "$STUB_CALLS"
+got=$(printf 'a note for the ticket\n' | t8 open s9 "🧹 No plan this time" 2>/dev/null)
+check "open without a plan on a landed branch answers with its ticket" "$got" "FIRE-30"
+check "and reopens it" "$(cat "$STUB_ST")" "in_progress"
+grep -q "issue create" "$STUB_CALLS" && bad "created a second ticket for a plan-less open" || ok "a plan-less open creates no ticket"
+grep -q "comment add FIRE-30" "$STUB_CALLS" && ok "its body goes on the ticket as a comment" || bad "the plan-less open dropped its body"
+
+# A ticket still being worked, opened on another machine: adopted live.
+echo '{}' > "$S8/tracked.json"; echo in_review > "$STUB_ST"
+check "a live ticket the ledger never held is adopted" "$(t8 ticket-for-branch)" "$(printf 'FIRE-30\tin_review')"
+check "and its row is not landed" "$(jq -r '."FIRE-30" | (.landed // false | tostring) + "|" + .branch' "$S8/tracked.json")" "false|feat/design-package"
+check "and it is stamped, so an older merge of the branch cannot close it" "$(jq -r '."FIRE-30".since | length' "$S8/tracked.json")" "20"
+
+# A landed ticket and a live one moved onto the same branch later: the live
+# one is the branch's ticket, or its retro closes the wrong row.
+echo '{}' > "$S8/tracked.json"
+l8() { ( cd "$g8" && MULTICA_STATE_DIR="$S8" bash -c '. "'"$SH"'"; '"$1" 2>/dev/null ); }
+l8 'ledger_put OLD-9 "{\"repo\":\"ai-agent\",\"branch\":\"feat/design-package\",\"landed\":true}"; ledger_put NEW-9 "{\"repo\":\"ai-agent\",\"branch\":\"feat/design-package\"}"'
+check "a live ticket wins over a landed one on the same branch" "$(l8 'ticket_for feat/design-package')" "NEW-9"
+
+# Moving a ticket onto a branch restarts its clock; saying the same branch
+# again does not.
+l8 'ledger_put MOVE-1 "{\"repo\":\"ai-agent\",\"branch\":\"feat/elsewhere\",\"since\":\"2000-01-01T00:00:00Z\"}"'
+t8 rebranch feat/elsewhere feat/moved >/dev/null 2>&1
+check "a ticket moved onto a branch is stamped again" "$(jq -r '."MOVE-1" | .branch + "|" + (.since > "2001" | tostring)' "$S8/tracked.json")" "feat/moved|true"
+l8 'ledger_put MOVE-1 "{\"repo\":\"ai-agent\",\"branch\":\"feat/moved\",\"since\":\"2000-01-01T00:00:00Z\"}"'
+t8 rebranch feat/moved feat/moved >/dev/null 2>&1
+check "the same branch again keeps its stamp" "$(jq -r '."MOVE-1".since' "$S8/tracked.json")" "2000-01-01T00:00:00Z"
+
+# Base branches are exempt from the rule, so a ticket that closes while still
+# parked on one leaves no row for the next `rebranch dev ...` to pick up.
+check "a ticket landing on a base branch drops its row" \
+  "$(cd "$g8" && MULTICA_STATE_DIR="$S8" bash -c '. "'"$SH"'"; ledger_put BASE-1 "{\"repo\":\"ai-agent\",\"branch\":\"dev\"}"; ledger_land BASE-1; jq -r "has(\"BASE-1\")" "$LEDGER"')" "false"
+rm -rf "$S8" "$B8" "$g8"
 
 rm -rf "$rr"
 
@@ -792,7 +942,7 @@ awk '/^=== comment FIRE-20 ===$/{p=1;next} /^=== comment /{p=0} p' "$STUB_DESC" 
 awk '/^=== comment FIRE-20 ===$/{p=1;next} /^=== comment /{p=0} p' "$STUB_DESC" | grep -q 'signature check' \
   && ok "the whole body reaches the ticket" || bad "body truncated at a separator"
 check "the ticket closed" "$(grep -c 'issue status FIRE-20 done --no-start' "$STUB_CALLS")" "1"
-check "ledger row deleted" "$(jq -r 'has("FIRE-20")' "$S11/tracked.json")" "false"
+check "ledger row kept as landed" "$(jq -r '."FIRE-20".landed' "$S11/tracked.json")" "true"
 
 # Same trust boundary as every other outbound body.
 : > "$STUB_CALLS"; : > "$STUB_DESC"
@@ -873,7 +1023,12 @@ for dead in "done" cancelled; do
       bash "$SH" replan s51 --plan "$P_NEW" ) >/dev/null 2>&1
   check "replan refuses a $dead ticket" "$(grep -c 'issue status' "$STUB_CALLS")" "0"
   got=$( cd "$g12" && MULTICA_STATE_DIR="$S12" PATH="$BIN12:$PATH" bash "$SH" ticket-for-branch )
-  check "ticket-for-branch hides a $dead ticket" "$got" ""
+  # A landed ticket still holds its branch; an abandoned one does not.
+  if [ "$dead" = "done" ]; then
+    check "ticket-for-branch names a done ticket" "$got" "$(printf 'FIRE-50\tdone')"
+  else
+    check "ticket-for-branch hides a cancelled ticket" "$got" ""
+  fi
 done
 
 # No ticket for this branch: say so on stderr and exit 0, so /iso-plan opens one.
