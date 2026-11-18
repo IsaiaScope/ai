@@ -15,7 +15,7 @@ Invocation: `/iso-commit [--staged] [--split]`.
 | `--staged` | commit the index only; stage nothing |
 | `--split` | group the diff by concern and make several commits instead of one |
 
-**Commit everything, and ask before leaving anything out.** The default stages every staged, unstaged and untracked path and commits it without asking. Never drop a path from the commit on your own judgement: "looks like another session's work", "unrelated", "still being edited" are all questions for the user, not decisions for you. If something looks like it should stay out, stop before committing, list those paths, and ask. The user decides what gets committed, not the agent.
+**Always commit everything, without asking.** The default stages every staged, unstaged and untracked path and commits it. Do not stop to ask about paths that look like another session's work, unrelated, or still being edited: they go in the commit too. Never leave a path out on your own judgement. Only when the user says otherwise (names paths to keep out, passes `--staged`, or asks for `--split`) does anything stay out, and only then ask if their instruction leaves a path unclear. The user decides what gets committed, not the agent. The credential guard (step 3) is the one exception, and it stops the commit rather than dropping a path.
 
 **Never commit unless the user asked.** `/iso-commit` typed by the user is the only trigger. Do not commit at the end of `iso-write`, after making edits, or because a task "feels done" — the rest of the `iso-*` chain deliberately leaves the tree uncommitted, and this skill does not change that.
 
@@ -47,8 +47,8 @@ the subject, and the subject does not exist until step 4.
 ```bash
 commit.sh gate "feat(auth): add token refresh"
 # action=create
-# branch=feat/auth-add-token-refresh
-commit.sh land create feat/auth-add-token-refresh
+# branch=feat/token-refresh
+commit.sh land create feat/token-refresh
 ```
 
 | verdict | what to do |

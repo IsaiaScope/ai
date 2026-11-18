@@ -7,7 +7,7 @@ description: Record agent work on the work tracker every iso-* skill files again
 
 ## Adapters
 
-The board is reached through fourteen `tk_*` verbs defined in
+The board is reached through eighteen `tk_*` verbs defined in
 `scripts/adapters/<kind>.sh`, selected by `tracker.kind` in the Iso config.
 `tracking.sh` owns the parts that must not vary — the ledger, redaction, plan
 resolution, the transition gates — and never names a vendor.
@@ -20,7 +20,7 @@ resolution, the transition gates — and never names a vendor.
 An unknown kind falls back to `none` and logs it, because tracking may never
 fail the run that invoked it.
 
-A new adapter defines all fourteen verbs and returns **normalised** output —
+A new adapter defines every verb and returns **normalised** output —
 list verbs emit `<id>\t<name>` lines, not the vendor's JSON — so nothing
 downstream has to imitate another board's field names.
 `scripts/adapters/contract.test.sh` is the check.
@@ -28,6 +28,119 @@ downstream has to imitate another board's field names.
 Redaction stays in `tracking.sh`, deliberately: an adapter is the file most
 likely to be written quickly against an unfamiliar API, and it is the last
 place a `[redacted]` should depend on.
+
+## When the board cannot be written
+
+Every write in `tracking.sh` is best-effort and exits 0, because tracking must
+never fail the run that called it. That is right for the run and wrong for the
+person reading the result: before this, an expired Multica session made `open`
+print nothing, and a skipped ticket looked identical to tracking being off.
+Four planning sessions across two days reported "the ticket did not open" and
+nobody could say why.
+
+**Say it, once, on stderr.** Before any write, `tracking.sh` asks the adapter
+`tk_ready`. If the board cannot take a write it prints one line —
+`tracking: Multica session expired - run \`multica login\`, then retry` — and
+exits 0 without trying. The two reasons are different fixes and are kept apart:
+
+| line says | cause | what to do |
+|---|---|---|
+| `session expired - run multica login` | the CLI token is dead | sign in, retry |
+| `server unreachable` | network, or the VPS is down | do **not** send the user to log in |
+
+`tracking.sh ready` is the same check as a verb: silent and exit 0 when the
+board is fine, the line and exit 3 when it is not. A skill that can wait for the
+user uses it to ask rather than just report.
+
+**`multica auth status` exits 0 with a dead token.** Measured on CLI 0.10.0. The
+only signal is the advice it prints to stderr, so `tk_ready` reads the text, and
+fails *open* on wording it does not recognise: a guess about the CLI must never
+be what stops tracking. The same blindness is why `project list` used to parse a
+401 into zero projects and `open` gave up without a word.
+
+**A refused create says why too.** When the board is reachable but
+`issue create` fails (a rejected duplicate, a bad status), `open` prints the
+CLI's own last line instead of nothing.
+
+**What the calling skill does with it.** Any `tracking:` line on stderr is
+repeated in the final report under `Tracking:`, never dropped. A `session
+expired` line also gets a question, in the same turn, never a stop-and-wait:
+`AskUserQuestion` — *"Sign in to Multica now?"* — with "I ran `multica login`,
+retry" and "Skip tracking this run". Retry means calling the same verb again;
+nothing was written the first time, so there is nothing to undo.
+
+**CLI and server versions.** The CLI is `/opt/homebrew/bin/multica` and the
+server is the `multica-backend` image on VPS-1; they are meant to run the same
+version, and `/hetzner-update multica` levels them. The adapter's flags were
+checked against 0.10.0 on 2026-11-18 (all present). When the CLI changes
+underneath it, the signal is `tracking:` lines, not silence.
+
+## Keeping the board on track
+
+The chain opens and moves tickets at its own boundaries, so work done outside it
+never reached the board. Between 2026-11-09 and 2026-11-18 five PRs shipped and
+eight plans were written with no ticket; the board stopped at FIRE-37 and looked
+finished. The rule that follows: **the board is checked against the repo, not
+trusted to a step that someone remembered to run.**
+
+`tracking.sh audit` compares the board with the repo and prints one line per
+difference, nothing when they agree. It looks back 14 days
+(`ISO_TRACKER_AUDIT_DAYS`).
+
+| line | means | closed by |
+|---|---|---|
+| `plan` | a plan file with no ticket (written by a delegated planner, or by hand) | `adopt-plan <plan>` |
+| `plan … implemented but on no ticket` | a stamped plan the ledger does not know | `attach <KEY> <plan>`, or `adopt-pr <n> --plan <plan>` |
+| `pr` | a merged PR with no ticket and no key in its title | `adopt-pr <n>` |
+| `link` | a landed ticket whose PR the board does not list | `audit --fix` |
+| `webhook` | the board has not synced the PR, so GitHub is not delivering | repair the App webhook, see below |
+| `status` | the plan says implemented, the ticket still `todo` or `in_progress` | `audit --fix` |
+| `ghost` | a ledger row whose ticket was deleted from the board | `audit --fix` |
+
+`audit --fix` repairs only what needs no judgement: links PRs, drops ghost rows,
+moves a ticket to `in_review` when its plan is stamped implemented. Everything
+that needs a sentence written is named, with its command, and never guessed.
+
+**It runs itself.** The `audit` SessionStart hook runs `audit --fix`, so its
+output arrives at the top of the session. When it prints lines, **act before
+the session ends**: run each command it names. They only add to the board or
+repair it, and a session that leaves them is how the drift came back.
+Pass `--title` and a stdin body when the default (the PR's title, the plan's
+`**Goal:**` line) is worse than a sentence you can write; the defaults are a
+floor.
+
+| verb | does |
+|---|---|
+| `adopt-plan <plan> [--title T] [--scope s] [--priority p]` | **the branch decides.** On a feature branch that already has a ticket, the plan joins it as a `queued` section and no ticket is made. On a base branch (where `/iso-plan` runs) it opens a ticket at `todo` (`in_review` when stamped implemented), so `/iso-write`'s `rebranch` moves it. Idempotent on the plan path. Body on stdin, else the plan's `**Goal:**` |
+| `adopt-pr <n> [--title T] [--scope s] [--plan p]` | opens a `done` ticket from a merged PR, with Branch property, labels, a landed comment, the PR linked and a landed ledger row. Idempotent on the branch. Refuses an unmerged PR: that belongs to `/iso-push` |
+| `attach <KEY> <plan>...` | puts plan files on the ticket that already shipped them. No status change, no comment |
+
+**The branch decides the ticket, never the plan count.** Eight Laura plans written
+for work that will happen on one branch are one ticket with eight sections, not
+eight tickets: seven rows were opened on 2026-11-18, the owner saw a roadmap he
+never runs, and they were deleted and queued on FIRE-38 instead. A `queued`
+section (⏳) is planned for this branch and not started; it carries no
+`/iso-write` line, and `/iso-write` promotes it to `current` when it starts,
+keeping its briefing. The spec of a multi-phase rebuild can say "a branch per
+phase", but the branch the owner is actually on is what counts. Only when work
+moves to a branch that has no ticket does a new ticket open.
+
+**An empty body never erases a briefing.** Re-running `open` or `addplan` for a
+plan that is already on the ticket, with nothing on stdin, keeps the body on
+file. It used to blank it, which is how FIRE-38 lost its Phase 0 text.
+
+**What counts as drift is narrow on purpose.** Cascade PRs (`dev → test`),
+release PRs, base branches and PRs that already carry a key in the title are
+never reported, and nothing older than the window is. A report that is wrong
+or old gets ignored, and then it is no report.
+
+**A ticket with no Pull requests block.** `/iso-push` puts the ticket key in the PR
+title, and Multica links it from the GitHub App webhook. When a landed ticket shows no
+PR, the webhook is the suspect, not the title: on 2026-11-18 the App still pointed at a
+host that no longer existed and five PRs went unlinked. `audit --fix` says `webhook`
+when it cannot link; diagnose and repair the App with
+`hetzner-update/scripts/github-app-api.sh`. A PR that carries no key is linked by hand
+with `multica issue pull-requests link <KEY> <pr-url>`.
 
 `scripts/tracking.sh` is called by the Claude Code session hooks for `reconcile`
 and `end`. The `iso-*` skills call it at their own boundaries, and you call it

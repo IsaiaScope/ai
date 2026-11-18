@@ -6,6 +6,12 @@
     "why": "close tickets whose branch has since merged or disappeared"
   },
   {
+    "name": "audit",
+    "event": "SessionStart",
+    "verb": "audit --fix",
+    "why": "say what the board is missing (untracked plans and merged PRs, unlinked PRs, a dead session) and repair what is safe"
+  },
+  {
     "name": "end",
     "event": "SessionEnd",
     "verb": "end",

@@ -3,6 +3,22 @@
 Failure modes that cost real time, and what to do instead. All were hit while
 automating a cloud console.
 
+## Seen once, cost an hour (a network admin console)
+
+- The browser MCP server had died ("Connection closed") and Claude in Chrome
+  was not connected, so three ad-hoc CDP scripts were written in turn.
+  `scripts/cdp.mjs` exists so the fourth is never written.
+- The first connect timed out after `<ws connected>`: Chrome was showing its
+  Allow prompt and nobody had told the user. The second, announced, went
+  through.
+- The permission guard then refused driving the console twice, the second
+  time after the user had said "you have my ok" in chat. Guided mode finished
+  the job: the policy was copied out with ⌘A ⌘C, merged locally, put back on
+  the clipboard and pasted over with ⌘A ⌘V.
+- A first paste of a fragment landed inside a list and overwrote a rule; a
+  whole-document replace avoids that. When the user edits a structured file
+  in a page, hand them the whole document, never a fragment to place.
+
 ## Find the tab, never assume it
 
 List pages and match on URL. Indices shift as the user browses, so re-list
@@ -15,9 +31,10 @@ Reusing an open tab keeps whatever the user built up in it — a filled form, a
 navigated console, a session past a login wall. Opening a new tab discards all
 of that, and on some sites lands back on sign-in.
 
-So: reuse when the user points at something already on screen, open a new tab
-for work they have not staged. In an attached profile a new tab inherits the
-session, so it is authenticated either way.
+So: reuse a tab on the same site for everything, staged work or not, and put
+back whatever you changed in it. The browser tool's new-page call opens a new
+window in an attached Chrome, so it is never a scratch page; ask before opening
+one, and only when no tab on that site exists.
 
 Close the tabs you opened. Never close one you did not.
 

@@ -79,7 +79,7 @@ name-derivation logic, under different names.
 
     iso_is_protected        <branch>                          # "" (detached) counts as protected
     iso_branch_from_plan    <plan-path>                       # YYYY-MM-DD-<type>-<slug>.md -> <type>/<slug>
-    iso_branch_from_subject <commit-subject>                  # "feat(scope): msg"          -> feat/scope-msg
+    iso_branch_from_subject <commit-subject>                  # "feat(auth): add token refresh" -> feat/token-refresh
     iso_branch_gate         <current> <ticket-branch> <proposed>
 
 `iso_branch_gate` answers "where should this work live?" and prints exactly two

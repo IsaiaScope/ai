@@ -22,7 +22,11 @@ Run each via the Skill tool, in order. The skills share this conversation's cont
 
 If the user passed an argument, it is the seed idea — hand it to brainstorming. If not, brainstorming starts from the conversation so far.
 
+**Repository documentation review.** Before writing a repo-scoped plan, follow its agent instructions and locate the relevant guidance under `docs/` (including guides, conventions, architecture and ADRs when present), plus area-specific READMEs and installed-version documentation as appropriate. Read the material relevant to the proposed changes, reconcile the plan with it, and flag conflicts or unresolved decisions to the user. Cite the relevant guidance in the plan and include the required implementation and validation steps. If `docs/` is absent, use the repository's other available guidance; do not require a particular folder layout or read unrelated documentation.
+
 1. **brainstorming** — invoke `superpowers:brainstorming`. Explore intent, requirements, and shape of the idea.
+
+   **Ask every question; never answer one yourself.** The questions the brainstorm and the grill ask are the point of the chain, not a gate to get past. Ask each one with `AskUserQuestion`, one per turn, and wait for the answer. A reply that does not answer it ("so?", "ok?", "go on", silence) is not consent: ask the same question again with `AskUserQuestion`, and never take your own guess as confirmed. Skip the questions only when the user says so outright ("skip the questions", "just plan it").
 
    **Skip brainstorming's written-spec review gate.** The user approves the design in chat, and that approval is enough. Write the spec file, run its self-review, then move straight on — do not ask the user to review the spec file and do not wait for a reply. The written plan is the artefact the user reviews.
 
@@ -46,6 +50,8 @@ scripts/plan.sh gate     # -> no-repo | setup-done | setup-missing
    ```
 
    No plan file is produced, so the chain stops cleanly on its own.
+
+   **Skip grilling's confirmation gate.** Grilling ends with "do not act until the user confirms a shared understanding": inside iso-plan that stop does not exist. When the frontier is empty, write the agreed answers into the spec (and `CONTEXT.md`/ADRs, as grill-with-docs does) and go straight on to step 3 or 4 in the same turn. Never ask "does this match?", "shared understanding reached?" or "please review the spec". The only stops inside the chain are real decisions: a brainstorm question, a grill question. The written plan is what the user reviews.
 
 3. **prototype** (conditional) — the agent decides autonomously whether it's needed; **do not ask for approval**. Run `prototype` only when grilling left a question that can't be settled by talking (UI feel, viability of a state machine / data model). Otherwise skip it. Its learnings carry forward into writing.
 
@@ -89,10 +95,30 @@ missing script is not an error here:
 
 ```bash
 S=$(scripts/plan.sh tracker) || S=""   # empty when tracking cannot run
+[ -n "$S" ] && "$S" ready              # silent when the board is fine, exit 3 + a line when not
 ```
+
+**Silent applies to those two cases only.** A board that cannot be written —
+an expired Multica session, an unreachable server — is never skipped quietly:
+that is how the same "ticket did not open" went unexplained across four plans.
+When `ready` prints a line, show it, and for `session expired` ask in the same
+turn with `AskUserQuestion` ("Sign in to Multica now?": *I ran `multica login`,
+retry* / *Skip tracking this run*). On retry run `ready` again, then the open.
+On skip, carry on and put the line under `Tracking:` in the summary.
 
 Tracking must never be able to fail a planning run. No ticket is a small loss; a
 `/iso-plan` that dies because a board was unreachable is a large one.
+
+**A plan this chain did not write still gets its ticket.** A delegated planner,
+a subagent, a plan written by hand: none of them ran this step, and that is how
+eight plans went untracked. Before reporting, for every plan file written in this
+run, `"$S" ticket-for-branch` or `"$S" adopt-plan "<plan>" --title "<sentence>"
+--scope <scopes>` with the briefing on stdin. `adopt-plan` is idempotent on the
+plan path, so calling it for a plan that already has a ticket is safe. **The
+branch decides:** on a feature branch that has a ticket it queues the plan there
+and opens nothing, so several plans for one branch are one ticket. Never open a
+ticket per plan for work that will happen on one branch. List the tickets in the
+summary.
 
 **One plan, one ticket.** No sub-issues, no `--parent`. A plan across three scopes
 is one ticket carrying three scope labels.

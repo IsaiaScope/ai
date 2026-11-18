@@ -82,3 +82,4 @@ profile — each with the reason it fails.
 | [`REFERENCE.md`](REFERENCE.md) | Driving real pages: iframes, React inputs, ARIA lag |
 | `scripts/browser.sh` | All logic — config resolution, probes, patching |
 | `scripts/browser.test.sh` | Self-check; runs against a temporary HOME |
+| `scripts/cdp.mjs` | The fallback driver: one long-lived CDP connection, one Allow prompt, ops over local HTTP |

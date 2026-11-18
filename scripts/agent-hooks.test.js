@@ -4,20 +4,25 @@ const { syncAgentHooks, commandFor, loadHooks, HOOKS_JSON } = require("./agent-h
 const { readFileSync } = require("node:fs");
 
 const HOOKS = loadHooks();
+// Counts come from the list, not from a number typed here: adding a hook to
+// hooks.json must not need a test edit to stay green, and a hand-counted "2"
+// is how this file went stale the moment the audit hook arrived.
+const startCount = HOOKS.filter((h) => h.event === "SessionStart").length;
+const endCount = HOOKS.filter((h) => h.event === "SessionEnd").length;
 
 const cmdOf = (s, event) =>
   (s.hooks[event] ?? []).flatMap((g) => g.hooks ?? []).map((h) => h.command);
 
 const ours = (s, event) => cmdOf(s, event).filter((c) => c.includes("iso-hook:"));
 
-test("empty settings gain both hooks", () => {
+test("empty settings gain every hook", () => {
   const { settings, changes } = syncAgentHooks({});
   assert.deepStrictEqual(
     changes.map((c) => c.action),
-    ["added", "added"]
+    HOOKS.map(() => "added")
   );
-  assert.strictEqual(ours(settings, "SessionStart").length, 1);
-  assert.strictEqual(ours(settings, "SessionEnd").length, 1);
+  assert.strictEqual(ours(settings, "SessionStart").length, startCount);
+  assert.strictEqual(ours(settings, "SessionEnd").length, endCount);
 });
 
 test("a second run changes nothing", () => {
@@ -25,7 +30,7 @@ test("a second run changes nothing", () => {
   const { settings, changes } = syncAgentHooks(once);
   assert.deepStrictEqual(
     changes.map((c) => c.action),
-    ["unchanged", "unchanged"]
+    HOOKS.map(() => "unchanged")
   );
   assert.deepStrictEqual(settings, once);
 });
@@ -63,7 +68,12 @@ test("a pre-marker hook at the OLD path is adopted, not duplicated", () => {
     },
   };
   const { settings, changes } = syncAgentHooks(stale);
-  assert.strictEqual(ours(settings, "SessionStart").length, 1, "adopted in place, no duplicate");
+  // reconcile is adopted in place; the audit hook is new, so exactly one extra.
+  assert.strictEqual(
+    ours(settings, "SessionStart").length,
+    startCount,
+    "adopted in place, no duplicate"
+  );
   const start = changes.find((c) => c.name === "reconcile");
   assert.strictEqual(start.action, "updated");
   assert.match(start.was, /iso-multica-tracking/, "reports what it replaced");
@@ -124,8 +134,8 @@ test("legacy adoption does not cross the two hooks over", () => {
   const { settings } = syncAgentHooks(both);
   assert.match(ours(settings, "SessionStart")[0], /iso-hook:reconcile/);
   assert.match(ours(settings, "SessionEnd")[0], /iso-hook:end/);
-  assert.strictEqual(ours(settings, "SessionStart").length, 1);
-  assert.strictEqual(ours(settings, "SessionEnd").length, 1);
+  assert.strictEqual(ours(settings, "SessionStart").length, startCount);
+  assert.strictEqual(ours(settings, "SessionEnd").length, endCount);
 });
 
 test("a hand-edited marked hook is overwritten and the edit reported", () => {

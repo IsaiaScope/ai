@@ -32,6 +32,8 @@ check "configured development branch first, develop second" \
 
 echo "iso_branch_from_plan"
 check "known type"    "$(iso_branch_from_plan 2026-05-26-feat-health-check.md)" "feat/health-check"
+check "plan slug kept to three words" \
+  "$(iso_branch_from_plan 2026-10-21-feat-back-office-sidebar-07.md)" "feat/back-office-sidebar"
 check "refactor type" "$(iso_branch_from_plan 2026-08-21-refactor-iso-config.md)" "refactor/iso-config"
 check "unknown type defaults to feat" \
   "$(iso_branch_from_plan 2026-05-26-make-it-faster.md)" "feat/make-it-faster"
@@ -43,17 +45,21 @@ iso_branch_from_plan no-date-prefix.md >/dev/null 2>&1
 check "missing date prefix rejected" "$?" "1"
 
 echo "iso_branch_from_subject"
-check "type and scope" \
-  "$(iso_branch_from_subject 'feat(auth): add token refresh')" "feat/auth-add-token-refresh"
+check "drops the scope and the leading verb" \
+  "$(iso_branch_from_subject 'feat(auth): add token refresh')" "feat/token-refresh"
 check "no scope" \
   "$(iso_branch_from_subject 'fix: broken pipe')" "fix/broken-pipe"
 check "breaking marker" \
-  "$(iso_branch_from_subject 'feat(api)!: drop v1')" "feat/api-drop-v1"
+  "$(iso_branch_from_subject 'feat(api)!: drop v1')" "feat/v1"
 check "non-conventional falls back to chore" \
   "$(iso_branch_from_subject 'random words here')" "chore/random-words-here"
 check "empty subject yields nothing" "$(iso_branch_from_subject '')" ""
-long=$(iso_branch_from_subject 'feat(scope): aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk')
-[ ${#long} -le 53 ] && ok "long slug truncated" || bad "long slug not truncated (${#long})"
+check "three words at most, filler dropped" \
+  "$(iso_branch_from_subject 'feat(monorepo): rebuild Back Office frame on sidebar-07')" \
+  "feat/back-office-frame"
+check "a verb alone stays" "$(iso_branch_from_subject 'chore: update')" "chore/update"
+long=$(iso_branch_from_subject 'feat(scope): aaaaaaaaaaaa bbbbbbbbbbbb cccccccccccc dddd')
+[ ${#long} -le 29 ] && ok "long slug truncated" || bad "long slug not truncated (${#long})"
 case "$long" in *-) bad "truncated mid-separator" ;; *) ok "truncation lands on a word boundary" ;; esac
 
 echo "iso_branch_gate"

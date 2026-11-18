@@ -164,7 +164,8 @@ ledger_revive() {
 # ticket that can only name its newest one has to destroy the others to stay
 # accurate. Rows written before this change hold a bare string, so coerce on
 # read - two live rows is fewer than a migration script is worth.
-# state is exactly one of: done | current | superseded.
+# state is exactly one of: done | current | superseded | queued (planned for this
+# branch, not started; /iso-write promotes it to current).
 plan_entries() {
   state_dir
   local out
@@ -186,9 +187,12 @@ plan_push() {
   row=$(ledger_get "$key"); [ -n "$row" ] || return 1
   entries=$(plan_entries "$key" | jq -c \
     --arg p "$path" --arg o "$outgoing" --arg b "$body" '
-      map(if .state == "current" then .state = $o else . end)
+      (map(select(.path == $p)) | .[0].body // "") as $had
+      | map(if .state == "current" then .state = $o else . end)
       | map(select(.path != $p))
-      + [{path:$p, state:"current", body:$b}]' 2>/dev/null) || return 1
+      # An empty body keeps the one on file: re-running a plan with nothing on
+      # stdin is a re-render, not a request to blank its briefing.
+      + [{path:$p, state:"current", body:(if $b == "" then $had else $b end)}]' 2>/dev/null) || return 1
   ledger_put "$key" "$(printf '%s' "$row" | jq -c --argjson e "$entries" '.plan = $e' 2>/dev/null)"
 }
 
@@ -433,9 +437,10 @@ do_bind() {
   if [ -n "$plan" ]; then
     entries=$(printf '%s' "$entries" | jq -c --arg p "$plan" '
       if ((map(select(.state == "current")) | .[0].path // "") == $p) then .
-      else ( map(if .state == "current" then .state = "done" else . end)
+      else ( (map(select(.path == $p)) | .[0].body // "") as $keep
+             | map(if .state == "current" then .state = "done" else . end)
              | map(select(.path != $p))
-             + [{path:$p, state:"current", body:""}] )
+             + [{path:$p, state:"current", body:$keep}] )
       end' 2>/dev/null)
     [ -n "$entries" ] || entries=$(jq -nc --arg p "$plan" '[{path:$p, state:"current", body:""}]')
   fi
@@ -498,6 +503,7 @@ render_body() {
     case "$state" in
       done)       marker="✅" ;;
       superseded) marker="⊘"  ;;
+      queued)     marker="⏳" ;;
       *)          marker="▶"  ; cur="$path" ;;
     esac
     label=$(plan_label "$path")
@@ -629,6 +635,123 @@ if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
   logf "not a git repo ($PWD), skipping ${1:-<none>}"
   exit 0
 fi
+
+# --- keeping the board on track with the work --------------------------------
+# The chain opens and moves tickets at its own boundaries, so anything done
+# outside it (a plan a planner wrote without the Tracking step, a PR opened by
+# hand) never reached the board. `audit` finds that drift, `adopt-plan` and
+# `adopt-pr` close it, and the session hook runs `audit --fix` so the board is
+# repaired at the start of the next session instead of discovered months later.
+KEY_RE='[A-Z][A-Z0-9]*-[0-9]+'
+
+emoji_for_type() {
+  case "$1" in
+    feat) printf '✨' ;; fix) printf '🐛' ;; refactor) printf '♻️' ;;
+    docs|doc) printf '📝' ;; test) printf '🧪' ;;
+    chore|build|ci|perf|style) printf '⚙️' ;;
+  esac
+}
+
+# "FIRE-9 feat(x): add the y" -> "✨ Add the y". A caller that can write a better
+# sentence passes --title; this is the floor, not the target.
+title_from_pr() {
+  local t="$1" ty rest e
+  t=$(printf '%s' "$t" | sed -E "s/^$KEY_RE //")
+  ty=$(printf '%s' "$t" | sed -nE 's/^([a-z]+)(\([^)]*\))?!?: .*/\1/p')
+  rest=$(printf '%s' "$t" | sed -E 's/^[a-z]+(\([^)]*\))?!?: //')
+  rest="$(printf '%s' "${rest:0:1}" | tr '[:lower:]' '[:upper:]')${rest:1}"
+  e=$(emoji_for_type "$ty")
+  printf '%s' "${e:+$e }$rest"
+}
+
+# The sentence under "Summary" in a PR body, else nothing.
+pr_summary() {
+  printf '%s' "$1" | awk '/^###/ { if (on) exit; if ($0 ~ /[Ss]ummary/) { on=1; next } } on' \
+    | sed '/^[[:space:]]*$/d' | head -6
+}
+
+plan_is_implemented() { grep -q '^\*\*Status:\*\* implemented' "$1" 2>/dev/null; }
+
+# The window audit looks back over. Older drift is history, and reporting it on
+# every session start would teach everyone to ignore the report.
+audit_cutoff() {
+  local d="${ISO_TRACKER_AUDIT_DAYS:-14}"
+  date -u -v-"${d}"d +%Y-%m-%d 2>/dev/null || date -u -d "-$d days" +%Y-%m-%d
+}
+
+# Open the ticket and give it everything a ticket the chain made would have:
+# Branch property, scope labels, ledger row. $1 status, $2 title, $3 priority,
+# $4 scopes (space separated), $5 branch. Body on stdin. Prints the key.
+create_tracked() {
+  local status="$1" title="$2" priority="$3" scopes="$4" br="$5" pid key sc lid safe
+  pid=$(project_id_for "$(project_for "$PWD")") || return 1
+  safe=$(printf '%s' "$title" | redact | head -c 200)
+  key=$(redact | tk_issue_create "$pid" "$status" "$safe" "${priority:-medium}" "$(current_user_name)")
+  [ -n "$key" ] || return 1
+  ensure_property "$PROP_BRANCH" text && tk_issue_property "$key" "$PROP_BRANCH" "$br"
+  for sc in $scopes; do
+    printf '%s' " $SCOPES " | grep -q " $sc " || { logf "adopt: unknown scope '$sc', dropping it"; continue; }
+    lid=$(label_id_for "$sc") && [ -n "$lid" ] && tk_issue_label "$key" "$lid"
+  done
+  printf '%s' "$key"
+}
+
+# Put a plan on a ticket that already exists without starting it: a later phase
+# of work that will happen on the same branch. One branch, one ticket - a plan
+# for work on a branch that has a ticket never gets a ticket of its own.
+# $1 key, $2 plan path, $3 state (queued, or done for a plan already
+# implemented), $4 body. A current entry with no body of its own takes the
+# description the board holds now (cut above the resume footer), because `open`
+# wrote that description straight to the board and only the ledger knows it by
+# path: re-rendering without this would delete the first plan's briefing.
+queue_plan() {
+  local key="$1" plan="$2" state="$3" body="$4" row entries desc first sid
+  row=$(ledger_get "$key"); [ -n "$row" ] || return 1
+  entries=$(plan_entries "$key")
+  if printf '%s' "$entries" | jq -e --arg p "$plan" 'any(.[]; .path == $p)' >/dev/null 2>&1; then
+    return 0
+  fi
+  desc=$(tk_issue_get_description "$key") || return 1
+  first=$(printf '%s\n' "$desc" | awk -v h="$RESUME_HEADING" '
+    index($0, h) { exit } { l[n++] = $0 }
+    END { while (n > 0 && (l[n-1] == "" || l[n-1] == "---")) n--; for (i = 0; i < n; i++) print l[i] }')
+  # A description that was rendered before already wears the current plan's
+  # heading block ("## ▶ label", the path line); that is structure, not briefing.
+  first=$(printf '%s\n' "$first" | awk '
+    NR == 1 && /^## / { skip = 1; next }
+    skip && /^`.*` - / { skip = 2; next }
+    skip && /^[[:space:]]*$/ { next }
+    { skip = 0; print }')
+  sid=$(printf '%s' "$desc" | sed -n 's/.*claude --resume \([0-9a-f-]*\).*/\1/p' | head -1)
+  entries=$(printf '%s' "$entries" | jq -c --arg p "$plan" --arg s "$state" --arg b "$body" --arg f "$first" '
+    map(if .state == "current" and ((.body // "") == "") then .body = $f else . end)
+    + [{path:$p, state:$s, body:$b}]') || return 1
+  ledger_put "$key" "$(printf '%s' "$row" | jq -c --argjson e "$entries" '.plan = $e')"
+  desc=$(render_body "${sid:-none}" "$([ -n "$sid" ] && echo claude || echo codex)" "" "$entries")
+  [ -n "$desc" ] && { printf '%s' "$desc" | tk_issue_describe "$key" || logf "queue_plan: description update failed on $key"; }
+  printf 'Plan queued - `%s` is the next piece of work on this branch. It is not started: the description carries it as upcoming.\n' \
+    "$plan" | redact | tk_issue_comment "$key" || logf "queue_plan: comment failed on $key"
+  return 0
+}
+
+# A board that cannot be written to is said out loud, once, before any write
+# tries. Every write below is best-effort and exits 0 on failure, which is right
+# for the run that called it and wrong for the person reading the result: an
+# expired session used to look exactly like "tracking is off". The session hooks
+# (end, reconcile) stay quiet - nobody is at the terminal to read them.
+# `ready` is the same check as a verb, exit 3, for a skill that wants to ask the
+# user to sign in rather than just report it.
+case "${1:-}" in
+  open|addplan|replan|progress|review|blocked|retro|comment|bind|done|rebranch|ready|adopt-plan|adopt-pr|attach|audit)
+    if ! why=$(tk_ready 2>/dev/null); then
+      logf "board not ready: $why (${1})"
+      printf 'tracking: %s\n' "$why" >&2
+      [ "${1}" = "ready" ] && exit 3
+      exit 0
+    fi
+    [ "${1}" = "ready" ] && exit 0
+    ;;
+esac
 
 case "${1:-}" in
 
@@ -937,7 +1060,7 @@ case "${1:-}" in
     done
 
     proj=$(project_for "$PWD")
-    pid=$(project_id_for "$proj") || exit 0
+    pid=$(project_id_for "$proj") || { printf 'tracking: no board project for %s\n' "$proj" >&2; exit 0; }
     safe=$(printf '%s' "$title" | redact | head -c 200)
 
     # Description arrives on stdin: multi-line, no arg-quoting, and it still
@@ -958,7 +1081,15 @@ case "${1:-}" in
     # the status promotion in do_bind passes --no-start for the same reason.
     who=$(current_user_name)
     key=$(printf '%s' "$desc" | tk_issue_create "$pid" todo "$safe" "$priority" "$who")
-    if [ -z "$key" ]; then logf "open failed for: $safe"; exit 0; fi
+    if [ -z "$key" ]; then
+      # Read before logf: the adapter sends the CLI's stderr to $LOG, so its last
+      # line is the explanation (a rejected duplicate, a bad status) until logf
+      # buries it under ours. The board answered, so this is not the session.
+      why=$(tail -1 "$LOG" 2>/dev/null | cut -c1-200)
+      logf "open failed for: $safe"
+      printf 'tracking: could not open the ticket - %s\n' "${why:-no reason given}" >&2
+      exit 0
+    fi
     logf "open $key: $safe (project $proj, branch $(iso_current_branch), plan ${plan:-<none>})"
 
     # Scope label, best-effort: a missing label is cosmetic, not a reason to
@@ -1123,6 +1254,215 @@ case "${1:-}" in
     [ -n "$body" ] || { logf "comment: empty body for $key"; exit 0; }
     printf '%s' "$body" | tk_issue_comment "$key" \
       || logf "comment failed on $key"
+    ;;
+
+  # A plan that exists with no ticket: opens one at todo (in_review when the plan
+  # is already stamped implemented), on the integration branch like /iso-plan
+  # does, so /iso-write's rebranch moves it. Idempotent on the plan path.
+  # Body on stdin; without one, the plan's own **Goal:** line.
+  adopt-plan)
+    state_dir
+    plan="${2:-}"; shift 2 2>/dev/null || shift $#
+    title=""; scope=""; priority=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --title)    title="${2:-}"; shift 2 ;;
+        --scope)    scope="$scope ${2:-}"; shift 2 ;;
+        --priority) priority="${2:-}"; shift 2 ;;
+        *) logf "adopt-plan: ignoring unknown arg $1"; shift ;;
+      esac
+    done
+    scope=$(printf '%s' "$scope" | tr ',' ' ')
+    [ -f "$plan" ] || { printf 'tracking: adopt-plan: no such plan %s\n' "$plan" >&2; exit 0; }
+    held=$(ticket_for "$plan" 2>/dev/null)
+    if [ -n "$held" ]; then echo "$held"; exit 0; fi
+    ib=$(integration_branch "$PWD"); [ -n "$ib" ] || ib=dev
+    # One branch, one ticket, as in `open`: on a feature branch that already has
+    # a ticket the plan joins it, queued, and no ticket is made. Only a base
+    # branch (where /iso-plan runs) mints one per plan.
+    cur_br=$(iso_current_branch)
+    if ! iso_is_protected "$cur_br"; then
+      onb=$(ticket_for_branch | cut -f1)
+      if [ -n "$onb" ]; then
+        body=""; [ -t 0 ] || body=$(cat 2>/dev/null | redact | head -c 8000)
+        [ -n "$body" ] || body=$(sed -n 's/^\*\*Goal:\*\* //p' "$plan" | head -1 | redact)
+        qs=queued; plan_is_implemented "$plan" && qs="done"
+        queue_plan "$onb" "$plan" "$qs" "$body" \
+          || { printf 'tracking: adopt-plan: could not queue %s on %s\n' "$plan" "$onb" >&2; exit 0; }
+        logf "adopt-plan $onb: $plan queued on branch $cur_br"
+        echo "$onb"; exit 0
+      fi
+    fi
+    if [ -z "$title" ]; then
+      title=$(sed -n 's/^# //p' "$plan" | head -1 | sed -E 's/ Implementation Plan$//')
+      [ -n "$title" ] || title=$(plan_label "$plan")
+    fi
+    body=""; [ -t 0 ] || body=$(cat 2>/dev/null | redact | head -c 8000)
+    [ -n "$body" ] || body=$(sed -n 's/^\*\*Goal:\*\* //p' "$plan" | head -1 | redact)
+    full=$(printf '%s\n\n---\n\n**Then implement the plan:**\n\n```\n/iso-write %s\n```' "$body" "$plan")
+    st=todo; plan_is_implemented "$plan" && st=in_review
+    # todo first and the status moved after, the way every other path does it, so
+    # the --no-start write is the only one that ever sets a status past todo.
+    key=$(printf '%s' "$full" | create_tracked todo "$title" "$priority" "$scope" "$ib") \
+      || { printf 'tracking: adopt-plan: could not open a ticket for %s\n' "$plan" >&2; exit 0; }
+    ledger_put "$key" "$(jq -nc --arg r "$(project_for "$PWD")" --arg b "$ib" --arg p "$plan" --arg t "$(utc_now)" \
+      '{repo:$r,branch:$b,project:$r,opened_by:"claude",plan:[{path:$p,state:"current",body:""}],since:$t}')"
+    [ "$st" = todo ] || set_status "$key" "$st"
+    logf "adopt-plan $key: $plan ($st)"
+    echo "$key"
+    ;;
+
+  # A merged PR that has no ticket: opens one already done, from the PR itself,
+  # with the PR linked. Idempotent on the branch. --plan attaches a plan path
+  # (repeatable) so the plan file is not reported as untracked afterwards.
+  adopt-pr)
+    state_dir
+    n="${2:-}"; shift 2 2>/dev/null || shift $#
+    title=""; scope=""; priority=""; plans=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --title)    title="${2:-}"; shift 2 ;;
+        --scope)    scope="$scope ${2:-}"; shift 2 ;;
+        --priority) priority="${2:-}"; shift 2 ;;
+        --plan)     plans="$plans ${2:-}"; shift 2 ;;
+        *) logf "adopt-pr: ignoring unknown arg $1"; shift ;;
+      esac
+    done
+    scope=$(printf '%s' "$scope" | tr ',' ' ')
+    [ -n "$n" ] || { logf "adopt-pr needs <pr-number>"; exit 0; }
+    pj=$(gh pr view "$n" --json number,title,headRefName,mergedAt,state,url,body 2>/dev/null)
+    [ -n "$pj" ] || { printf 'tracking: adopt-pr: could not read PR #%s\n' "$n" >&2; exit 0; }
+    [ "$(printf '%s' "$pj" | jq -r '.state' 2>/dev/null)" = "MERGED" ] \
+      || { printf 'tracking: adopt-pr: PR #%s is not merged -- an open PR belongs to /iso-push\n' "$n" >&2; exit 0; }
+    br=$(printf '%s' "$pj" | jq -r '.headRefName'); url=$(printf '%s' "$pj" | jq -r '.url')
+    merged=$(printf '%s' "$pj" | jq -r '.mergedAt')
+    held=$(jq -r --arg b "$br" 'to_entries[] | select(.value.branch == $b) | .key' "$LEDGER" 2>/dev/null | head -1)
+    if [ -n "$held" ]; then
+      tk_issue_prs "$held" | grep -q "^$n	" || tk_issue_pr_link "$held" "$url" || true
+      echo "$held"; exit 0
+    fi
+    [ -n "$title" ] || title=$(title_from_pr "$(printf '%s' "$pj" | jq -r '.title')")
+    body=""; [ -t 0 ] || body=$(cat 2>/dev/null | redact | head -c 8000)
+    [ -n "$body" ] || body=$(pr_summary "$(printf '%s' "$pj" | jq -r '.body // ""')" | redact)
+    [ -n "$body" ] || body="$title"
+    key=$(printf '%s' "$body" | create_tracked "done" "$title" "$priority" "$scope" "$br") \
+      || { printf 'tracking: adopt-pr: could not open a ticket for PR #%s\n' "$n" >&2; exit 0; }
+    printf '%s\n' "🏁 **Landed** · PR [#$n]($url)" \
+      "Ticket opened after the merge, from the PR, to keep the board complete." \
+      | redact | tk_issue_comment "$key" || logf "adopt-pr: comment failed on $key"
+    pe='[]'
+    for pp in $plans; do pe=$(printf '%s' "$pe" | jq -c --arg p "$pp" '. + [{path:$p,state:"done",body:""}]'); done
+    ledger_put "$key" "$(jq -nc --arg r "$(project_for "$PWD")" --arg b "$br" --arg t "$merged" --argjson p "$pe" \
+      '{repo:$r,branch:$b,project:$r,opened_by:"claude",plan:$p,since:$t,landed:true}')"
+    tk_issue_pr_link "$key" "$url" || logf "adopt-pr: link of #$n to $key not made"
+    logf "adopt-pr $key: #$n $br"
+    echo "$key"
+    ;;
+
+  # Put plan files on a ticket that already exists, as finished entries, with no
+  # status change and no comment: the work shipped under that ticket and only the
+  # ledger did not know which plans it covered.
+  attach)
+    state_dir
+    key="${2:-}"; shift 2 2>/dev/null || shift $#
+    [ -n "$key" ] && [ -n "$(ledger_get "$key")" ] \
+      || { printf 'tracking: attach: no ledger row for %s\n' "${key:-<none>}" >&2; exit 0; }
+    for pp in "$@"; do
+      ledger_put "$key" "$(ledger_get "$key" | jq -c --arg p "$pp" '
+        .plan = ((.plan // []) | if type == "array" then . else [] end
+                 | map(select(.path != $p)) + [{path:$p,state:"done",body:""}])')"
+      logf "attach $key: $pp"
+    done
+    echo "$key"
+    ;;
+
+  # Read-only report of work the board does not know about, silent when there is
+  # none. --fix also repairs what is safe to repair without a human: links PRs the
+  # webhook missed, drops ledger rows whose ticket was deleted from the board, and
+  # moves a ticket to in_review when its plan says implemented. Everything that
+  # needs a sentence written (a plan or PR with no ticket) is named with the exact
+  # command that closes it, never guessed at.
+  audit)
+    state_dir
+    fix=0; [ "${2:-}" = "--fix" ] && fix=1
+    repo_dir="$PWD"; here=$(project_for "$repo_dir")
+    cutoff=$(audit_cutoff)
+    lines=""
+    add() { lines="$lines$1
+"; }
+
+    # 1. Rows whose ticket the board no longer has.
+    while IFS=$'\t' read -r key rrepo; do
+      [ -n "$key" ] || continue
+      { [ -n "$rrepo" ] && [ "$rrepo" != "$here" ]; } && continue
+      st=$(tk_issue_get_status "$key")
+      [ -n "$st" ] && continue
+      if [ "$fix" -eq 1 ]; then ledger_del "$key"; add "ghost  $key is gone from the board -- row dropped"
+      else add "ghost  $key is gone from the board -- run: tracking.sh audit --fix"; fi
+    done < <(jq -r 'to_entries[] | select((.value.landed // false) | not) | [.key, (.value.repo // "")] | @tsv' "$LEDGER" 2>/dev/null)
+
+    # 2. Plans nobody ticketed.
+    pdir=$(iso_config_get paths.plans)
+    for f in "$pdir"/*.md; do
+      [ -f "$f" ] || continue
+      d=${f##*/}; d=${d:0:10}
+      case "$d" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;; *) continue ;; esac
+      # shellcheck disable=SC2071
+      [[ "$d" < "$cutoff" ]] && continue
+      ticket_for "$f" >/dev/null 2>&1 && continue
+      if plan_is_implemented "$f"; then
+        add "plan   $f is implemented but on no ticket -- run: tracking.sh attach <KEY> \"$f\"  (the ticket that shipped it), or adopt-pr <n> --plan \"$f\" if no ticket did"
+      else
+        add "plan   $f has no ticket -- run: tracking.sh adopt-plan \"$f\""
+      fi
+    done
+
+    # 3. Merged PRs nobody ticketed, and 4. linked-PR health. One gh call.
+    prs=$(cd "$repo_dir" && gh pr list --state merged --limit 40 \
+            --json number,title,headRefName,mergedAt,url 2>/dev/null)
+    seen=0
+    while IFS=$'\t' read -r num ptitle pbr pmerged purl; do
+      [ -n "$num" ] || continue
+      # shellcheck disable=SC2071
+      [[ "${pmerged:0:10}" < "$cutoff" ]] && continue
+      iso_is_protected "$pbr" && continue
+      case "$pbr" in release/*) continue ;; esac
+      case "$ptitle" in "chore(cascade)"*|"chore(release)"*) continue ;; esac
+      printf '%s' "$ptitle" | grep -qE "(^|[^A-Za-z0-9])$KEY_RE( |:|\$)" && continue
+      owner=$(jq -r --arg b "$pbr" 'to_entries[] | select(.value.branch == $b) | .key' "$LEDGER" 2>/dev/null | head -1)
+      if [ -z "$owner" ]; then
+        add "pr     #$num $pbr merged ${pmerged:0:10} has no ticket -- run: tracking.sh adopt-pr $num"
+        continue
+      fi
+      seen=$((seen+1)); [ "$seen" -gt 10 ] && continue
+      tk_issue_prs "$owner" | grep -q "^$num	" && continue
+      if [ "$fix" -eq 1 ]; then
+        tk_issue_pr_link "$owner" "$purl"; rc=$?
+        case "$rc" in
+          0) add "link   $owner <- #$num linked" ;;
+          2) add "webhook  $owner cannot link #$num: the board has not synced it, so GitHub is not delivering events -- see iso-issue-tracking, 'A ticket with no Pull requests block'" ;;
+          *) add "link   $owner <- #$num could not be linked (see $LOG)" ;;
+        esac
+      else
+        add "link   $owner has no link to merged PR #$num -- run: tracking.sh audit --fix"
+      fi
+    done < <(printf '%s' "$prs" | jq -r '.[]? | [.number, .title, .headRefName, .mergedAt, .url] | @tsv' 2>/dev/null)
+
+    # 5. A ticket still todo or in_progress whose plan says implemented.
+    while IFS=$'\t' read -r key rrepo; do
+      [ -n "$key" ] || continue
+      { [ -n "$rrepo" ] && [ "$rrepo" != "$here" ]; } && continue
+      cp=$(plan_current "$key"); [ -n "$cp" ] && [ -f "$cp" ] && plan_is_implemented "$cp" || continue
+      st=$(tk_issue_get_status "$key")
+      case "$st" in todo|in_progress|backlog) ;; *) continue ;; esac
+      if [ "$fix" -eq 1 ]; then set_status "$key" in_review && add "status $key was $st but its plan is implemented -- moved to in_review"
+      else add "status $key is $st but its plan is implemented -- run: tracking.sh review \"$cp\""; fi
+    done < <(jq -r 'to_entries[] | select((.value.landed // false) | not) | [.key, (.value.repo // "")] | @tsv' "$LEDGER" 2>/dev/null)
+
+    if [ -n "$lines" ]; then
+      printf 'tracking: the board is off from the work. Each line names the command that closes it; run them, they only add to the board or repair it.\n%s' "$lines"
+      logf "audit: $(printf '%s' "$lines" | grep -c .) item(s)"
+    fi
     ;;
 
   *) logf "unknown subcommand: ${1:-<none>}" ;;
