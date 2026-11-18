@@ -40,7 +40,7 @@ software.<key>
 
 **`version_cmd` must print only the version.** The planner parses its stdout as semver, so
 do the extraction in the command. `multica --version` prints
-`multica 0.4.19 (commit: a8d5daac5, ...)` — pipe it through `awk` rather than teaching the
+`multica 0.10.0 (commit: 2fcb424b7, ...)` — pipe it through `awk` rather than teaching the
 planner every app's output format.
 
 **Two placeholders, both substituted before a command runs:**
@@ -68,7 +68,7 @@ protocol with no stability guarantee before 1.0, which is why they are pinned to
     "multica": {
       "server": "main",
       "repo": "multica-ai/multica",
-      "pinned": "v0.4.19",
+      "pinned": "v0.10.0",
       "release_notes_url": "https://github.com/multica-ai/multica/releases",
       "notes": "Three binaries answer to 'multica'. The daemon is the one inside the app bundle; the Homebrew CLI is a separate tool that is no part of the pin. Never verify with a bare `multica --version` — $PATH resolves it to the CLI.",
 
@@ -78,9 +78,9 @@ protocol with no stability guarantee before 1.0, which is why they are pinned to
       },
 
       "remote": {
-        "version_cmd": "ssh {alias} 'grep \"^MULTICA_IMAGE_TAG=\" /opt/multica/.env | cut -d= -f2'",
-        "upgrade_cmd": "ssh {alias} 'set -e; cd /opt/multica; sed -i \"s|^MULTICA_IMAGE_TAG=.*|MULTICA_IMAGE_TAG={version}|\" .env; docker compose pull; docker compose up -d'",
-        "verify_cmd": "curl -s https://multica.isaiariva.com/api/config | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"server_version\"])'"
+        "version_cmd": "ssh {alias} 'docker ps --no-trunc --filter name=multica-backend | tail -1 | tr -s \" \" | cut -d\" \" -f2 | cut -d: -f2'",
+        "upgrade_cmd": "ssh {alias} \"python3 - <composeId> MULTICA_IMAGE_TAG {version}\" < ~/.claude/skills/hetzner-update/scripts/dokploy-set-env.py",
+        "verify_cmd": "curl -s https://board.isaiariva.com/api/config | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"server_version\"])'"
       },
 
       "backup_cmd": "ssh {alias} 'TS=$(date +%Y%m%d-%H%M%S); docker exec multica-postgres pg_dump -U multica -d multica --clean --if-exists | gzip > /opt/multica/pre-upgrade-$TS.sql.gz; echo /opt/multica/pre-upgrade-$TS.sql.gz'",
@@ -109,6 +109,17 @@ protocol with no stability guarantee before 1.0, which is why they are pinned to
   was not needed.
 - **`backup_verify_cmd` counts tables** — `pg_dump` can exit 0 having written a truncated
   file. Counting `CREATE TABLE` proves the dump has structure; a bare size check does not.
+- **`upgrade_cmd` drives Dokploy, not `.env`** — since 2026-08-06 the stack belongs to
+  Dokploy, which stores its environment as one string. `dokploy-set-env.py` runs on the
+  host, does a checked read-modify-write of that one key, asserts the key set is unchanged
+  and re-reads after writing, because a naive single-key update deletes every other secret.
+  `version_cmd` reads the tag off the running container and is brace-free on purpose:
+  `{alias}`/`{version}` substitution would mangle a Go template.
+- **`pull` before the swap** — `docker pull` the new backend and web images over ssh
+  first, so a bad tag fails while the old version is still serving.
+- **The CLI's session is not the pin** — `multica auth status` exits 0 with a dead token,
+  so an aligned version says nothing about whether the CLI can write to the board. Check
+  the text (see SKILL.md, Step 6).
 - **`verify_cmd` asks the service** — the running server reports its own version over HTTP.
   Anything read locally can be a different binary that happens to agree.
 
@@ -123,8 +134,8 @@ protocol with no stability guarantee before 1.0, which is why they are pinned to
 
    ```bash
    # right
-   0.4.19
+   0.10.0
    # wrong — the planner cannot parse this
-   multica 0.4.19 (commit: a8d5daac5, built: 2026-08-05T10:24:43Z)
+   multica 0.10.0 (commit: 2fcb424b7, built: 2026-11-16T10:27:22Z)
    ```
 4. Run `/hetzner-update <key> --check`. It reads and reports without changing anything.

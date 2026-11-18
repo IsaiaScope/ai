@@ -132,6 +132,15 @@ Always. Show the user, in this order:
 
 Then stop and wait.
 
+**An explicit target is an answer, but only to what it covers.** "Align the server to
+the local version" names the target, so do not stop for a second yes just to repeat it.
+That holds when every breaking flag is the version boundary alone (`0.5 -> 0.6`) and
+the release notes carry no `BREAKING`, `!:`, "action required" or manual-migration
+marker — read them for that, do not assume. A notes-based flag still stops here: name
+the release, quote what it claims breaks, and ask. Multica v0.5.2 -> v0.10.0 (15
+releases, four pre-1.0 minor boundaries, no marker in any of them) went through on
+exactly this reading, with Step 4's backup taken first.
+
 **A breaking change is never assumed acceptable.** Say which release breaks, say what the
 notes claim breaks, and ask whether to stop short of it or go through it. If the user
 says go through, re-run Step 2 with `--allow-breaking` so the plan matches what was
@@ -184,7 +193,25 @@ agree with you for the wrong reason.
    Say which case it is, because it changes what the user can do next.
 3. **Version, reported by the service itself** — a config endpoint, or the connection
    log showing what each client presented. Never the local binary.
-4. **Companions** — level them if the user wants (`companions[].upgrade_cmd`), and say
+4. **Client session** — where the app has a CLI that writes to the service, confirm it
+   can still do so: for Multica, `multica auth status`, read as text. It exits 0 even
+   with a dead token and prints `Token is invalid or expired` to stderr, and a version
+   bump across many migrations is exactly when a session dies. If it did, say
+   `multica login` is needed; `iso-issue-tracking` reports the same condition as a
+   `tracking:` line and never skips it in silence. The desktop app keeps its own
+   profile (`--profile desktop-board.isaiariva.com`), so it can be signed in while the
+   CLI is not.
+5. **GitHub App webhook** — where the service links PRs to issues from GitHub events
+   (Multica does), confirm the App's webhook URL still names the host the service is
+   reachable on. A rename or move leaves the old URL pointing nowhere and GitHub drops
+   every event without a word: Multica stopped linking PRs after #92 (2026-10-30) and
+   nobody noticed until FIRE-37 showed an empty Pull requests block. Check:
+   `ssh <alias> "bash -s GET /app/hook/config" < scripts/github-app-api.sh` and
+   `... GET '/app/hook/deliveries?per_page=30'` for `status_code` 502/000. Fix with
+   `PATCH /app/hook/config`, then redeliver (`POST /app/hook/deliveries/<id>/attempts`);
+   GitHub keeps only 3 days of deliveries, so older PRs need a signed replay of the real
+   PR payload (see `multica-operations.md`).
+6. **Companions** — level them if the user wants (`companions[].upgrade_cmd`), and say
    plainly that a lagging one breaks nothing.
 
 Then update the registry's `pinned` field to the version now running.

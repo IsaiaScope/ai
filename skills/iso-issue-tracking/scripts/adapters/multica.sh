@@ -9,6 +9,30 @@
 # takes a body, so an adapter written in a hurry cannot skip it.
 
 
+# Can the board be written to right now? Prints nothing and returns 0 when it
+# can, or one sentence saying why not and returns 1.
+#
+# `multica auth status` exits 0 with a dead token (measured on CLI 0.10.0,
+# 2026-11-18) and prints its advice to stderr, so the exit code says nothing and
+# the text is the only signal. That is how every write used to come back empty
+# with no reason: project list parsed a 401 into zero projects, and the caller
+# gave up quietly. Fail OPEN on text this does not recognise - a guess about
+# the CLI's wording must never be what stops tracking.
+tk_ready() {
+  local out; out=$(multica auth status 2>&1)
+  case "$out" in
+    *"multica login"*) ;;
+    *) return 0 ;;
+  esac
+  case "$out" in
+    *401*|*"invalid token"*|*"not logged in"*|*"No token"*)
+      echo "Multica session expired - run \`multica login\`, then retry" ;;
+    *)
+      echo "Multica server unreachable - check the network or the VPS, then retry" ;;
+  esac
+  return 1
+}
+
 # The authenticated human's name. `multica auth status` prints to stderr, not
 # stdout, so the swap is load-bearing: a plain 2>/dev/null yields an empty lead
 # and a project owned by nobody.
@@ -72,6 +96,23 @@ tk_issue_get_description() {
   local out
   out=$(multica issue get "$1" --output json 2>>"${LOG:-/dev/null}") || return 1
   printf '%s' "$out" | jq -r '.description // empty' 2>/dev/null
+}
+
+# "<number>\t<state>" per pull request linked to the ticket. Empty on a miss.
+tk_issue_prs() {
+  multica issue pull-requests "$1" --output json 2>>"${LOG:-/dev/null}" \
+    | jq -r '.pull_requests[]? | "\(.number)\t\(.state)"' 2>/dev/null
+}
+
+# <key> <pr-url>. 0 linked; 2 the board has not synced that PR yet, which means
+# the GitHub webhook is not delivering (the cause on 2026-11-18: the App still
+# pointed at a host that no longer existed); 1 anything else.
+tk_issue_pr_link() {
+  local out
+  out=$(multica issue pull-requests link "$1" "$2" --output json 2>&1) && return 0
+  case "$out" in *"not in this workspace yet"*) return 2 ;; esac
+  printf '%s\n' "$out" >> "${LOG:-/dev/null}"
+  return 1
 }
 
 # --no-start is load-bearing: without it a status write can start an agent run,

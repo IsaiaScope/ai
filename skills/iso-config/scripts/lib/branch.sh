@@ -55,6 +55,34 @@ iso_integration_candidates() {
   [ "$dev" = develop ] || printf 'develop\n'
 }
 
+# A branch name is a handle, not a summary: three words at most, 24
+# characters at most, cut at a word boundary (a branch ending in `destro`
+# invites someone to wonder whether it was truncated or misspelled).
+# $1 the words, any separators; $2 non-empty to drop filler and a leading
+# verb first (a commit subject: "add token refresh" -> token-refresh).
+ISO_BRANCH_FILLER=" a an the and or of on in into to for with from by at as "
+ISO_BRANCH_VERBS=" add adds rebuild build update remove drop fix make move rename replace use switch refactor improve create implement support allow set change bump delete extract split merge wire show hide "
+iso_branch_slug() {
+  local words="" w first=1 n=0
+  for w in $(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\{1,\}/ /g'); do
+    if [ -n "${2:-}" ]; then
+      case "$ISO_BRANCH_FILLER" in *" $w "*) continue ;; esac
+      if [ $first = 1 ]; then
+        first=0
+        case "$ISO_BRANCH_VERBS" in *" $w "*) words="$w"; n=-1; continue ;; esac
+      fi
+    fi
+    # A leading verb is dropped once another word follows it.
+    [ $n = -1 ] && { words=""; n=0; }
+    [ $n -ge 3 ] && break
+    words="${words:+$words-}$w"; n=$((n+1))
+  done
+  while [ ${#words} -gt 24 ] && [ "${words%-*}" != "$words" ]; do
+    words="${words%-*}"
+  done
+  printf '%s' "$words"
+}
+
 # YYYY-MM-DD-<type>-<slug>.md -> <type>/<slug>. An unrecognised second token is
 # part of the slug and the type defaults to feat.
 iso_branch_from_plan() {
@@ -66,13 +94,14 @@ iso_branch_from_plan() {
   for t in $ISO_KNOWN_TYPES; do
     if [ "${rest%%-*}" = "$t" ]; then type="$t"; slug="${rest#*-}"; break; fi
   done
+  slug=$(iso_branch_slug "$slug")
   [ -n "$slug" ] || return 1
   printf '%s/%s\n' "$type" "$slug"
 }
 
 # "feat(scope): message" -> feat/scope-message. Nothing on empty input.
 iso_branch_from_subject() {
-  local subject="${1:-}" type scope msg slug
+  local subject="${1:-}" type msg slug
   [ -n "$subject" ] || return 0
 
   type=$(printf '%s' "$subject" | sed -n 's/^\([a-z][a-z]*\)[(!:].*/\1/p')
@@ -84,17 +113,9 @@ iso_branch_from_subject() {
     *) type=chore ;;
   esac
 
-  scope=$(printf '%s' "$subject" | sed -n 's/^[a-z][a-z]*(\([^)]*\)).*/\1/p')
+  # The scope stays out: it is in the commit, and it made every name long.
   msg=$(printf '%s' "$subject" | sed 's/^[^:]*: *//')
-
-  slug=$(printf '%s-%s' "$scope" "$msg" | tr '[:upper:]' '[:lower:]' \
-         | sed 's/[^a-z0-9]\{1,\}/-/g; s/^-*//; s/-*$//')
-
-  # Cut at a word boundary, never mid-word: a branch ending in `destro` invites
-  # someone to wonder whether it was truncated or misspelled.
-  if [ ${#slug} -gt 48 ]; then
-    slug=$(printf '%s' "$slug" | cut -c1-48 | sed 's/-[^-]*$//')
-  fi
+  slug=$(iso_branch_slug "$msg" subject)
   [ -n "$slug" ] || slug=work
 
   printf '%s/%s\n' "$type" "$slug"
