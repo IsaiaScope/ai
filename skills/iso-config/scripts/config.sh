@@ -91,6 +91,12 @@ cmd_doctor_hooks() {
     # The path the hook itself guards on, so this checks the same thing the
     # hook checks - not a second copy of the path that could disagree with it.
     target=$(printf '%s' "$cmd" | sed -n 's/.*S="\([^"]*\)".*/\1/p')
+    # Both forms the installer has written: the old `$HOME/...` and the current
+    # `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/...`.
+    # Held in variables: the expression contains its own closing brace, which
+    # ends a ${var//pat/rep} early when written inline.
+    pat='${CLAUDE_CONFIG_DIR:-$HOME/.claude}'; cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    target=${target//"$pat"/$cfg}
     target=${target/#\$HOME/$HOME}
     if [ -x "$target" ]; then
       printf '  ok       hook %s/%s\n' "$ev" "$name"

@@ -333,6 +333,16 @@ a branch tip that a PR and CI have already passed.
    fi
    ```
 
+   After the landing, run `"$S" audit --fix`. It links the merged PR to its
+   ticket when the webhook did not, and says `webhook` when it cannot, which means
+   GitHub is not delivering and the ticket will show no Pull requests block until
+   the App is repaired. Include that line in the final report.
+
+   A `tracking:` line on stderr here means the retro did **not** land and the
+   ticket is still open: put it in the final report, with the fix the line names.
+   The retro text is not lost — it is in the transcript, so re-run the same
+   `retro` call once the board is reachable.
+
    `retro` posts stdin as one comment on the ticket and then sets it `done`. It
    resolves the ticket from the branch, so nothing here needs the plan path.
 
