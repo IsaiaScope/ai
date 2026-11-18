@@ -43,14 +43,18 @@ worktrees: a sibling directory holding half the change is one more place to
 review, and it moves `core.hooksPath` and other shared config under the main
 checkout anyway.
 
-**Someone else's uncommitted work is a stop, not a puzzle.** When a checkout the
-plan must change — this one, or another repo it names — holds staged or
-unstaged changes this run did not make (another live session shares these
-checkouts), do not stash-carry them onto the branch, and do not route around
-them. Finish every task in repos that are clean, then halt that repo's tasks with
-the blocked marker naming the foreign files, and ask Iso whether to wait for
-that work to be committed or to carry it. On 2026-09-23 a run improvised a
-worktree for exactly this case and had to be unwound into a patch.
+**Always implement alongside the changes already there.** When a checkout the
+plan must change (this one, or another repo it names) holds staged or unstaged
+changes this run did not make, from Iso or from another live session sharing
+the checkout, implement the plan beside them. It is never a stop and never a
+question: do not wait for that work to be committed, and do not stash it,
+revert it, reformat it, or move it to a worktree. A file the plan edits that
+already holds such changes is edited around them: they stay exactly as found,
+and the plan's lines go in beside them. Staged changes stay staged; this run
+stages nothing. Name the files that hold both in the Step 6 summary, so the
+review knows which diffs mix two pieces of work. (On 2026-09-23 a run
+improvised a worktree to dodge such changes and had to be unwound into a
+patch; on 2026-10-29 Iso made alongside the rule.)
 
 
 ## Tracking
@@ -63,6 +67,15 @@ able to fail a write run:
 scripts/write.sh track <progress|review|blocked> "$plan_path"
 ```
 
+If the session started with a `tracking: the board is off from the work` report,
+its lines are closed before this run finishes (`iso-issue-tracking`, *Keeping the
+board on track*): the board has to match the repo when the plan is stamped.
+
+A `tracking:` line on stderr (session expired, server unreachable) is repeated
+in the final report under `Tracking:`. The transition did not happen, and the
+board is now behind the work — say so; see `iso-issue-tracking` for what the
+line means.
+
 The ticket is resolved from `<plan_path>` alone — the same path `/iso-plan` recorded
 with `--plan` when it opened the ticket. A plan written by hand was never ticketed, so
 the call resolves nothing and does nothing, which is correct. One plan is one
@@ -70,6 +83,31 @@ ticket, so each transition is a single status write.
 ## Step 1: Read the full plan
 
 Read `<plan_path>` end-to-end before touching anything. Understand all tasks, file layout, and architectural decisions.
+
+### Reconcile the plan with today's code (always)
+
+A plan is written against the code as it stood that day; by the time it runs,
+other plans and sessions have moved that code. Before Step 2, check the plan
+against the tree:
+
+- Read every file the plan names as modified, and the area around each line or
+  symbol it points at (`~84`, `RAIL`, a test file's style). Confirm each still
+  exists, sits where the plan says, and still looks the way the plan's steps
+  assume.
+- Check that each value or class the plan adds is not already there, and that
+  nothing landed since conflicts with it (a moved component, a renamed prop, a
+  rule another change already set).
+- Check `git status` for uncommitted changes in those files. They are code the
+  plan now builds on (see "Always implement alongside" above): reconcile the
+  plan's steps with them like any other drift.
+
+When something has drifted, **edit the plan in place** before executing it:
+correct paths, line hints, names and test assertions; drop a step whose result
+already exists; note anything new it now has to keep. Keep the plan's intent
+and the spec's decisions as they are. A drift that changes *what* gets built,
+not only where or how, is a decision for Iso: ask with `AskUserQuestion`
+before editing. Then say in one line per change what you adjusted, or that the
+plan still matched.
 
 ## Step 2: Resolve the workspace mode
 
@@ -152,6 +190,32 @@ Hard constraints that override any commit guidance inside those skills:
 - Tasks without a test (config, docs, build edits) are implemented directly.
 - After finishing a task, tick its checkbox in `<plan_path>`: replace `- [ ]` with `- [x]` for that task's lines, in the original plan file.
 
+### Repository documentation review (after the last task, before the final test run)
+
+Once every task is implemented and before the final full test run, review the
+written code against the repository's own guidance, so it ends refined and
+compliant with the project, not only passing:
+
+- Follow the repo's agent instructions (`AGENTS.md`, `CLAUDE.md`), then locate
+  the relevant guidance under `docs/`: guides, conventions, architecture and
+  ADRs when present, plus area-specific READMEs and installed-version
+  documentation (a framework's bundled docs) as appropriate.
+- Read the material relevant to what this run changed, never unrelated
+  documentation. If `docs/` is absent, use the repository's other available
+  guidance; do not require a particular folder layout.
+- Reconcile the code with it: fix every place the new code breaks a rule
+  (naming, layout, constants, helpers, test conventions, error handling),
+  test-first where the fix changes behaviour. Update the guide or README the
+  change makes stale (a new module, env var, route or table).
+- Cite the guidance that shaped the code in the plan (its "Documentation
+  checked" section, or a new one), with the implementation and validation
+  steps it requires, and tick them as they are done.
+- Flag to Iso any conflict between the plan and the guidance, or any
+  decision the guidance leaves open, with `AskUserQuestion`; never resolve
+  one silently.
+
+Then run the final tests.
+
 ## Step 4: Stop rules
 
 Halt immediately if:
@@ -213,6 +277,8 @@ or not a PR exists; `/iso-push` is what later closes the ticket.
   Plan:    <plan_path> (stamped)
   Files changed:
 <output of `git diff --stat`>
+  Mixed:   <files holding both this plan's changes and ones already there, or "none">
+
 
 Review the full diff, then commit yourself when satisfied.
 ```

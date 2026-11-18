@@ -1284,15 +1284,294 @@ grep -q 'mul_abcdefghijklmnop1234' "$STUB_DESC" \
 # shape: retro closes the ticket and drops the row, comment must do neither.
 check "the ticket is still tracked" \
   "$(MULTICA_STATE_DIR="$S14" bash -c '. "'"$SH"'"; ledger_get FIRE-30' | jq -r '.branch // ""')" "feat/c"
-[ "$(grep -c 'status' "$STUB_CALLS")" = "0" ] \
+[ "$(grep -c 'issue status' "$STUB_CALLS")" = "0" ] \
   && ok "no status transition was attempted" || bad "comment moved the ticket"
 
 : > "$STUB_CALLS"
 printf 'x\n' | ( MULTICA_STATE_DIR="$S14" PATH="$BIN14:/usr/bin:/bin" bash "$SH" comment ) >/dev/null 2>&1
 check "a missing key exits 0" "$?" "0"
-[ -s "$STUB_CALLS" ] && bad "a missing key still called the board" \
+# The sign-in check is a read and runs first; what must not happen is a write.
+grep -qv '^auth status' "$STUB_CALLS" && bad "a missing key still called the board" \
   || ok "a missing key writes nothing"
 rm -rf "$S14" "$BIN14"
+
+echo "ready (an expired session is said out loud, never skipped in silence)"
+# `multica auth status` exits 0 with a dead token and only prints the advice to
+# stderr, so the exit code cannot be trusted and the text is the only signal.
+# This is the failure behind "the ticket did not open": every write returned
+# nothing, and nothing said why.
+S31=$(mktemp -d); BIN31=$(mktemp -d); g31=$(mktemp -d)
+( cd "$g31" && git init -q -b main . && git commit -q --allow-empty -m x ) >/dev/null 2>&1
+export STUB_CALLS="$S31/calls"; : > "$STUB_CALLS"
+cat > "$BIN31/multica" <<'STUB'
+#!/usr/bin/env bash
+echo "$@" >> "$STUB_CALLS"
+if [ "$1 $2" = "auth status" ]; then
+  case "$STUB_AUTH" in
+    expired) printf "Token is invalid or expired: GET /api/me returned 401: {\"error\":\"invalid token\"}\nRun 'multica login' to re-authenticate.\n" >&2 ;;
+    offline) printf "Token is invalid or expired: GET /api/me: dial tcp 127.0.0.1:1: connect: connection refused\nRun 'multica login' to re-authenticate.\n" >&2 ;;
+    *)       printf 'User:    Test User (t@e.com)\n' >&2 ;;
+  esac
+  exit 0
+fi
+exit 0
+STUB
+chmod +x "$BIN31/multica"
+rd() { ( cd "$g31" && STUB_AUTH="$1" MULTICA_STATE_DIR="$S31" PATH="$BIN31:$PATH" bash "$SH" ready ); }
+
+check "signed in: nothing printed" "$(rd ok 2>&1)" ""
+rd ok >/dev/null 2>&1; check "signed in: exit 0" "$?" "0"
+out=$(rd expired 2>&1); rc=$?
+check "expired: exit 3" "$rc" "3"
+contains "multica login" "$out" && ok "expired: names the fix" || bad "expired: no fix named ($out)"
+contains "expired" "$out" && ok "expired: says expired" || bad "expired: wrong reason ($out)"
+out=$(rd offline 2>&1)
+contains "reach" "$out" && ok "offline: says unreachable, not expired" || bad "offline: wrong reason ($out)"
+contains "multica login" "$out" && bad "offline: sends the user to log in for nothing" || ok "offline: does not blame the session"
+
+: > "$STUB_CALLS"
+got=$(printf 'body\n' | ( cd "$g31" && STUB_AUTH=expired MULTICA_STATE_DIR="$S31" PATH="$BIN31:$PATH" \
+  bash "$SH" open s1 "a title" --scope be ) 2>"$S31/err"); rc=$?
+check "open with a dead session exits 0" "$rc" "0"
+check "open with a dead session prints no key" "$got" ""
+contains "multica login" "$(cat "$S31/err")" \
+  && ok "open says why on stderr" || bad "open stayed silent: $(cat "$S31/err")"
+grep -q 'issue create\|project create' "$STUB_CALLS" \
+  && bad "open still wrote to a board it cannot reach" || ok "open wrote nothing"
+# The board answers but refuses: the CLI's own words must reach the user.
+cat > "$BIN31/multica" <<'STUB'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "auth status")    printf 'User:    Test User (t@e.com)\n' >&2 ;;
+  "project list")   echo '[{"id":"p1","title":"scratch"}]' ;;
+  "issue create")   echo "an active duplicate exists: FIRE-9" >&2; exit 1 ;;
+esac
+exit 0
+STUB
+err=$(printf 'body\n' | ( cd "$g31" && MULTICA_STATE_DIR="$S31" PATH="$BIN31:$PATH" \
+  bash "$SH" open s1 "a title" --scope be ) 2>&1 >/dev/null)
+contains "active duplicate exists" "$err" \
+  && ok "a refused create passes the CLI's reason on" || bad "refusal reason lost: $err"
+rm -rf "$S31" "$BIN31" "$g31"
+
+echo "audit / adopt (the board is kept on track with the work, not by memory)"
+# Drift the chain cannot see on its own: a plan written by a planner that never
+# ran the Tracking step, a PR that landed with no ticket, a ticket whose PR the
+# webhook never linked. Between 2026-11-09 and 2026-11-18 five PRs shipped that
+# way and the board looked finished.
+S41=$(mktemp -d); BIN41=$(mktemp -d); g41=$(mktemp -d)
+( cd "$g41" && git init -q -b dev . && git commit -q --allow-empty -m x \
+  && mkdir -p docs/superpowers/plans ) >/dev/null 2>&1
+TODAY=$(date -u +%F)
+PLAN41="docs/superpowers/plans/$TODAY-feat-thing.md"
+printf '# Thing Implementation Plan\n\n**Goal:** Things get a thing so that thing works.\n' > "$g41/$PLAN41"
+export STUB_CALLS="$S41/calls" STUB_PRS="$S41/prs" STUB_GH="$S41/gh" STUB_SYNC=1 STUB_DESCIN="$S41/descin" STUB_DESCOUT="$S41/descout"
+: > "$STUB_CALLS"; : > "$STUB_PRS"; echo '[]' > "$STUB_GH"
+cat > "$BIN41/multica" <<'STUB'
+#!/usr/bin/env bash
+echo "$@" >> "$STUB_CALLS"
+case "$1 $2" in
+  "auth status")  printf 'User:    Test User (t@e.com)\n' >&2 ;;
+  "project list") echo '[{"id":"p1","title":"scratch"}]' ;;
+  "issue create") cat >/dev/null; echo '{"identifier":"T-1"}' ;;
+  "issue get")    jq -n --arg s "$(cat "$STUB_ST" 2>/dev/null || echo todo)" --arg d "$(cat "$STUB_DESCIN" 2>/dev/null)" '{status:$s,description:$d}' ;;
+  "issue update") cat > "$STUB_DESCOUT" ;;
+  "issue pull-requests")
+    if [ "$3" = link ]; then
+      [ "$STUB_SYNC" = 1 ] && { echo '{}'; exit 0; }
+      echo 'pull request x is not in this workspace yet' >&2; exit 1
+    fi
+    cat "$STUB_PRS" ;;
+  "label create"|"property create") echo '{"id":"x1"}' ;;
+  "label list")   echo '[]' ;;
+  "property list") echo '[]' ;;
+esac
+exit 0
+STUB
+cat > "$BIN41/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "pr list") cat "$STUB_GH" ;;
+  "pr view") cat "$STUB_GHV" ;;
+esac
+exit 0
+STUB
+chmod +x "$BIN41/multica" "$BIN41/gh"
+t41() { ( cd "$g41" && MULTICA_STATE_DIR="$S41" PATH="$BIN41:$PATH" bash "$SH" "$@" ); }
+
+# --- adopt-plan
+out=$(printf 'Things get a thing.\n' | t41 adopt-plan "$PLAN41" --scope be 2>&1)
+check "adopt-plan prints the key" "$(printf '%s' "$out" | tail -1)" "T-1"
+grep -q 'issue create.*--status todo' "$STUB_CALLS" \
+  && ok "adopt-plan opens the ticket at todo" || bad "adopt-plan did not open at todo"
+check "the plan is on the row" \
+  "$(MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_get T-1' | jq -r '.plan[0].path')" "$PLAN41"
+: > "$STUB_CALLS"
+t41 adopt-plan "$PLAN41" >/dev/null 2>&1
+grep -q 'issue create' "$STUB_CALLS" \
+  && bad "adopt-plan made a second ticket for the same plan" || ok "adopt-plan is idempotent on a plan"
+
+# an implemented plan is not todo
+PLAN41B="docs/superpowers/plans/$TODAY-feat-done-thing.md"
+printf '# Done Thing Implementation Plan\n\n**Status:** implemented (uncommitted) @ x\n\n**Goal:** Already built.\n' > "$g41/$PLAN41B"
+: > "$STUB_CALLS"
+printf 'x\n' | t41 adopt-plan "$PLAN41B" >/dev/null 2>&1
+grep -q 'issue status T-1 in_review' "$STUB_CALLS" \
+  && ok "an implemented plan lands at in_review" || bad "implemented plan not moved to in_review"
+
+# --- audit: untracked plan and untracked merged PR are named, nothing else is
+rm -f "$S41/tracked.json"; echo '{}' > "$S41/tracked.json"; : > "$STUB_CALLS"
+cat > "$STUB_GH" <<JSON
+[{"number":7,"title":"feat(x): add the x","headRefName":"feat/x","mergedAt":"${TODAY}T08:00:00Z","url":"https://github.com/o/r/pull/7"},
+ {"number":8,"title":"chore(cascade): dev -> test","headRefName":"dev","mergedAt":"${TODAY}T08:01:00Z","url":"https://github.com/o/r/pull/8"},
+ {"number":9,"title":"chore(release): 1.0.0","headRefName":"release/v1.0.0","mergedAt":"${TODAY}T08:02:00Z","url":"https://github.com/o/r/pull/9"},
+ {"number":10,"title":"T-5 feat(y): add y","headRefName":"feat/y","mergedAt":"${TODAY}T08:03:00Z","url":"https://github.com/o/r/pull/10"}]
+JSON
+out=$(t41 audit 2>&1)
+contains "$PLAN41" "$out" && ok "audit names the untracked plan" || bad "audit missed the plan: $out"
+contains "#7" "$out" && ok "audit names the untracked merged PR" || bad "audit missed PR 7: $out"
+contains "#8" "$out" && bad "audit flagged a cascade PR" || ok "audit skips a cascade PR"
+contains "#9" "$out" && bad "audit flagged a release PR" || ok "audit skips a release PR"
+contains "#10" "$out" && bad "audit flagged a PR that carries a key" || ok "audit trusts a PR that carries a key"
+contains "adopt-pr 7" "$out" && ok "audit says how to fix it" || bad "audit gave no fix: $out"
+
+# --- adopt-pr
+cat > "$S41/view" <<JSON
+{"number":7,"title":"feat(x): add the x","headRefName":"feat/x","mergedAt":"${TODAY}T08:00:00Z","state":"MERGED","url":"https://github.com/o/r/pull/7","body":"### Summary\n\nX is added.\n\n### Changes\n\n- a"}
+JSON
+export STUB_GHV="$S41/view"; : > "$STUB_CALLS"
+out=$(printf 'X is added so y works.\n' | t41 adopt-pr 7 --scope fe 2>&1)
+check "adopt-pr prints the key" "$(printf '%s' "$out" | tail -1)" "T-1"
+grep -q 'issue create.*--status done' "$STUB_CALLS" \
+  && ok "adopt-pr opens a done ticket" || bad "adopt-pr not done"
+grep -q 'issue create.*--title ✨ ' "$STUB_CALLS" \
+  && ok "the type became an emoji" || bad "no emoji from feat"
+grep -q 'issue comment add T-1' "$STUB_CALLS" \
+  && ok "adopt-pr left the landed comment" || bad "no landed comment"
+grep -q 'pull-requests link T-1 https://github.com/o/r/pull/7' "$STUB_CALLS" \
+  && ok "adopt-pr linked the PR" || bad "PR not linked"
+check "the row is landed on the branch" \
+  "$(MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_get T-1' | jq -r '"\(.branch) \(.landed)"')" "feat/x true"
+: > "$STUB_CALLS"
+t41 adopt-pr 7 >/dev/null 2>&1
+grep -q 'issue create' "$STUB_CALLS" && bad "adopt-pr made a second ticket" || ok "adopt-pr is idempotent on a branch"
+
+# --- attach: an implemented plan joins the ticket that shipped it
+PLAN41C="docs/superpowers/plans/$TODAY-feat-shipped.md"
+printf '# Shipped\n\n**Status:** implemented (uncommitted) @ x\n' > "$g41/$PLAN41C"
+out=$(t41 audit 2>&1)
+contains "tracking.sh attach" "$out" && ok "an implemented plan is told to attach" || bad "no attach hint: $out"
+t41 attach T-1 "$PLAN41C" >/dev/null 2>&1
+check "attach put the plan on the row" \
+  "$(MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_get T-1' | jq -r '.plan[0].path')" "$PLAN41C"
+contains "$PLAN41C" "$(t41 audit 2>&1)" && bad "an attached plan is still reported" || ok "an attached plan is no longer reported"
+rm -f "$g41/$PLAN41C"
+
+# --- one branch, one ticket: on a branch that already has a ticket, adopt-plan
+# queues the plan on it instead of minting a second row. FIRE-43..49 were seven
+# tickets for seven phases of work done on ONE branch; the board showed a roadmap
+# the owner never ran.
+( cd "$g41" && git checkout -q -b feat/q ) >/dev/null 2>&1
+printf '%s' "Briefing of the first plan.
+
+---
+
+**Resume this session:**
+
+\`\`\`bash
+cd /x && claude --resume 11111111-2222-3333-4444-555555555555 --dangerously-skip-permissions
+\`\`\`" > "$STUB_DESCIN"
+FIRST="docs/superpowers/plans/$TODAY-feat-first.md"; NEXT="docs/superpowers/plans/$TODAY-feat-next.md"
+printf '# First\n' > "$g41/$FIRST"; printf '# Next Implementation Plan\n\n**Goal:** The next thing.\n' > "$g41/$NEXT"
+MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_put Q-1 "{\"repo\":\"scratch\",\"branch\":\"feat/q\",\"opened_by\":\"claude\",\"plan\":[{\"path\":\"'"$FIRST"'\",\"state\":\"current\",\"body\":\"\"}]}"' >/dev/null 2>&1
+: > "$STUB_CALLS"; : > "$STUB_DESCOUT"
+out=$(printf 'Next briefing.\n' | t41 adopt-plan "$NEXT" 2>&1)
+check "a branch with a ticket answers with that ticket" "$(printf '%s' "$out" | tail -1)" "Q-1"
+grep -q 'issue create' "$STUB_CALLS" && bad "adopt-plan opened a second ticket on a branch that has one" \
+  || ok "adopt-plan opened no second ticket"
+check "the plan is queued, the current one is untouched" \
+  "$(MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_get Q-1' | jq -r '[.plan[] | "\(.state)"] | join(",")')" "current,queued"
+contains "⏳" "$(cat "$STUB_DESCOUT")" && ok "the description lists the queued plan" || bad "queued plan not in the description"
+contains "Briefing of the first plan." "$(cat "$STUB_DESCOUT")" \
+  && ok "the first plan's briefing survived the re-render" || bad "the first briefing was lost"
+contains "claude --resume 11111111-2222-3333-4444-555555555555" "$(cat "$STUB_DESCOUT")" \
+  && ok "the resume block kept its session" || bad "resume block lost its session"
+contains "/iso-write $NEXT" "$(cat "$STUB_DESCOUT")" \
+  && bad "a queued plan got a runnable /iso-write line" || ok "only the current plan is runnable"
+grep -q 'issue status' "$STUB_CALLS" && bad "queueing moved the ticket" || ok "queueing leaves the status alone"
+: > "$STUB_CALLS"
+t41 adopt-plan "$NEXT" >/dev/null 2>&1
+check "queueing twice does not duplicate the plan" \
+  "$(MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_get Q-1' | jq -r '.plan | length')" "2"
+# starting the queued plan promotes it and keeps what was written about it
+( cd "$g41" && MULTICA_STATE_DIR="$S41" PATH="$BIN41:$PATH" bash -c '. "'"$SH"'"; do_bind s1 Q-1 claude "'"$NEXT"'" 0' ) >/dev/null 2>&1
+check "the queued plan becomes current and the old one done" \
+  "$(MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_get Q-1' | jq -r '[.plan[] | "\(.state)"] | join(",")')" "done,current"
+contains "Next briefing." "$(MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_get Q-1' | jq -r '.plan[] | select(.state=="current") | .body')" \
+  && ok "promotion kept the plan's briefing" || bad "promotion dropped the briefing"
+# re-running a plan with no body must not wipe the briefing it already has: an
+# `open` that redirects to addplan, run again with nothing on stdin, did exactly
+# that to FIRE-38 and left a heading with no text under it
+MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; plan_push Q-1 "'"$NEXT"'" done ""' >/dev/null 2>&1
+contains "Next briefing." "$(MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_get Q-1' | jq -r '.plan[] | select(.path == "'"$NEXT"'") | .body')" \
+  && ok "an empty body does not erase the one on file" || bad "plan_push wiped an existing briefing"
+# a description already rendered once has its own heading block; queueing must
+# not carry that block into the entry as if it were the briefing
+MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_put Q-2 "{\"repo\":\"scratch\",\"branch\":\"feat/q\",\"opened_by\":\"claude\",\"plan\":[{\"path\":\"'"$FIRST"'\",\"state\":\"current\",\"body\":\"\"}]}"; ledger_del Q-1' >/dev/null 2>&1
+printf '%s' "## ▶ first
+
+\`$FIRST\` - current
+
+real text
+
+---
+
+**Resume this session:**
+
+\`\`\`bash
+cd /x && claude --resume 11111111-2222-3333-4444-555555555555 --dangerously-skip-permissions
+\`\`\`" > "$STUB_DESCIN"
+: > "$STUB_DESCOUT"
+printf 'b\n' | t41 adopt-plan "$NEXT" >/dev/null 2>&1
+check "an already-rendered heading is not duplicated" "$(grep -c '^## ▶ first' "$STUB_DESCOUT")" "1"
+contains "real text" "$(cat "$STUB_DESCOUT")" && ok "the text under that heading survived" || bad "text under the heading lost"
+( cd "$g41" && git checkout -q dev ) >/dev/null 2>&1
+rm -f "$g41/$FIRST" "$g41/$NEXT"
+MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_del Q-2' >/dev/null 2>&1
+MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_del Q-1' >/dev/null 2>&1
+
+# --- audit --fix: an unlinked landed PR is linked, a webhook that is not
+# delivering is said out loud and never mistaken for success
+: > "$STUB_CALLS"; echo '{"pull_requests":[]}' > "$STUB_PRS"
+out=$(STUB_SYNC=1 t41 audit --fix 2>&1)
+grep -q 'pull-requests link T-1 https://github.com/o/r/pull/7' "$STUB_CALLS" \
+  && ok "audit --fix links the missing PR" || bad "audit --fix did not link: $out"
+out=$(STUB_SYNC=0 t41 audit --fix 2>&1)
+contains "webhook" "$out" && ok "an unsynced PR points at the webhook" || bad "no webhook hint: $out"
+
+# --- clean board: silence
+echo '{"pull_requests":[{"number":7,"state":"merged"}]}' > "$STUB_PRS"
+printf '[]\n' > "$STUB_GH"; rm -f "$g41"/docs/superpowers/plans/*.md
+MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_del T-1' >/dev/null 2>&1
+check "a clean board says nothing" "$(t41 audit 2>&1)" ""
+
+# --- a row whose ticket is gone from the board is dropped on --fix
+MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_put GONE-1 "{\"repo\":\"scratch\",\"branch\":\"feat/zzz\",\"opened_by\":\"claude\"}"' >/dev/null 2>&1
+printf 'gone' > "$S41/st"; : > /dev/null
+cat > "$BIN41/multica" <<'STUB'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "auth status")  printf 'User:    Test User (t@e.com)\n' >&2 ;;
+  "issue get")    exit 1 ;;
+  "issue pull-requests") echo '{"pull_requests":[]}' ;;
+esac
+exit 0
+STUB
+out=$(t41 audit --fix 2>&1)
+contains "GONE-1" "$out" && ok "audit names a ticket the board no longer has" || bad "ghost row unnoticed: $out"
+check "the ghost row is dropped" \
+  "$(MULTICA_STATE_DIR="$S41" bash -c '. "'"$SH"'"; ledger_get GONE-1')" ""
+rm -rf "$S41" "$BIN41" "$g41"
 
 rm -rf "$tmp" "$r"
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

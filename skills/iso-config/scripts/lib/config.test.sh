@@ -125,6 +125,16 @@ case "$out" in *"STALE    hook SessionStart/reconcile"*) ok "a hook pointing at 
   *) bad "stale hook not detected: $out" ;; esac
 case "$out" in *"node scripts/install.js"*) ok "the remedy names install.js" ;;
   *) bad "no remedy printed" ;; esac
+# The form install.js writes today is `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/...`, not
+# `$HOME/...`. Doctor expanded only the second, so every hook it checked read
+# STALE the moment the installer moved to the first - a false alarm that taught
+# people to ignore the line that exists to warn them.
+CD=$(mktemp -d); mkdir -p "$CD/skills/t"; printf '#!/bin/sh\n' > "$CD/skills/t/t.sh"; chmod +x "$CD/skills/t/t.sh"
+printf '%s' '{"hooks":{"SessionStart":[{"hooks":[{"command":"S=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/t/t.sh\"; [ -x \"$S\" ] && \"$S\" reconcile; exit 0  # iso-hook:reconcile"}]}]}}' > "$HD/cfgdir.json"
+out=$(CLAUDE_CONFIG_DIR="$CD" ISO_AGENT_SETTINGS="$HD/cfgdir.json" bash -c '. "'"$CFG"'"; cmd_doctor_hooks' 2>/dev/null)
+case "$out" in *"ok       hook SessionStart/reconcile"*) ok "a CLAUDE_CONFIG_DIR-form hook reads ok" ;;
+  *) bad "CLAUDE_CONFIG_DIR-form hook misread: $out" ;; esac
+rm -rf "$CD"
 # The list doctor iterates and the list install.js writes must be one file, or
 # doctor can report ready while checking fewer hooks than exist.
 HOOKS_JSON="${LIB%/iso-config/scripts/lib/config.sh}/iso-issue-tracking/scripts/hooks.json"
